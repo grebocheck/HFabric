@@ -1,10 +1,21 @@
 <#
-  ImageFabric launcher.
-  Starts the FastAPI backend (port 8260) and the Vite dev server (port 5173),
-  each in its own window. First run bootstraps the venv + npm deps.
+  ImageFabric launcher — ONE window, both servers.
 
-  Usage:   .\scripts\run.ps1
+    .\scripts\run.ps1          # REAL mode (real models on the GPU)
+    .\scripts\run.ps1 -Stub    # STUB mode (full pipeline, no GPU/ML stack)
+
+  Before starting it frees the backend/frontend ports, killing stale instances
+  left over from earlier runs. Those leftovers are the cause of the
+  "WinError 10013 / socket forbidden" failure: a previous backend was still
+  holding port 8260, so a new one could not bind. Bootstraps venv + npm on the
+  first run, then runs the FastAPI backend and the Vite dev server in THIS
+  console. Ctrl+C stops both.
 #>
+param(
+    [switch]$Stub,
+    [int]$Port = 8260,
+    [int]$FrontendPort = 5173
+)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -12,33 +23,78 @@ Set-Location $root
 
 $venvPy = Join-Path $root ".venv\Scripts\python.exe"
 
-# --- bootstrap backend venv ---
+if ($Stub) {
+    $env:IMGFAB_STUB_MODE = "true"
+    Write-Host "[mode] STUB - architectural pipeline only, no GPU/ML stack" -ForegroundColor DarkYellow
+} else {
+    $env:IMGFAB_STUB_MODE = "false"
+    Write-Host "[mode] REAL - real models on the GPU (use -Stub for no-GPU mode)" -ForegroundColor Green
+}
+
+# --- free ports held by stale instances of this app ---------------------------
+function Stop-Port([int]$p) {
+    $owners = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+    foreach ($procId in $owners) {
+        if ($procId -and $procId -ne 0) {
+            try {
+                $name = (Get-Process -Id $procId -ErrorAction Stop).ProcessName
+                Write-Host "[ports] port $p busy -> stopping $name (pid $procId)" -ForegroundColor DarkGray
+                Stop-Process -Id $procId -Force -ErrorAction Stop
+            } catch {}
+        }
+    }
+}
+Stop-Port $Port
+Stop-Port 8261          # llama-server
+Stop-Port $FrontendPort
+Start-Sleep -Milliseconds 400
+
+# --- bootstrap backend venv ---------------------------------------------------
 if (-not (Test-Path $venvPy)) {
-    Write-Host "[setup] creating venv + installing backend deps..." -ForegroundColor Cyan
+    Write-Host "[setup] creating venv + installing foundation deps..." -ForegroundColor Cyan
     python -m venv .venv
     & $venvPy -m pip install --upgrade pip
     & $venvPy -m pip install -r backend\requirements.txt
+    if (-not $Stub) {
+        Write-Host "[setup] REAL mode also needs the Blackwell GPU stack:" -ForegroundColor Yellow
+        Write-Host "        & '$venvPy' -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128" -ForegroundColor Yellow
+        Write-Host "        & '$venvPy' -m pip install -r backend\requirements-gpu.txt" -ForegroundColor Yellow
+    }
 }
 
-# --- bootstrap frontend deps ---
+# --- bootstrap frontend deps --------------------------------------------------
 if (-not (Test-Path (Join-Path $root "frontend\node_modules"))) {
     Write-Host "[setup] installing frontend deps..." -ForegroundColor Cyan
     Push-Location frontend; npm install; Pop-Location
 }
 
-Write-Host "[run] backend  -> http://127.0.0.1:8260" -ForegroundColor Green
-Write-Host "[run] frontend -> http://localhost:5173" -ForegroundColor Green
+Write-Host "[run] backend  -> http://127.0.0.1:$Port"        -ForegroundColor Green
+Write-Host "[run] frontend -> http://localhost:$FrontendPort" -ForegroundColor Green
+Write-Host "[run] both run in THIS window; press Ctrl+C to stop.`n" -ForegroundColor Yellow
 
-# Backend (with autoreload). Working dir = backend so `app.main` resolves.
-Start-Process powershell -ArgumentList @(
-    "-NoExit", "-Command",
-    "Set-Location '$root\backend'; & '$venvPy' -m uvicorn app.main:app --host 127.0.0.1 --port 8260 --reload"
-)
+# Backend shares this console (one window). No --reload -> a single PID to manage.
+$backend = Start-Process -FilePath $venvPy `
+    -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$Port") `
+    -WorkingDirectory (Join-Path $root "backend") `
+    -NoNewWindow -PassThru
 
-# Frontend dev server.
-Start-Process powershell -ArgumentList @(
-    "-NoExit", "-Command",
-    "Set-Location '$root\frontend'; npm run dev"
-)
+# Open the UI once the servers have had a moment to come up.
+Start-Job -ScriptBlock {
+    param($url)
+    Start-Sleep -Seconds 6
+    Start-Process $url
+} -ArgumentList "http://localhost:$FrontendPort" | Out-Null
 
-Write-Host "`nBoth started in separate windows. Open http://localhost:5173" -ForegroundColor Yellow
+try {
+    Push-Location frontend
+    npm run dev          # foreground; blocks until Ctrl+C
+} finally {
+    Pop-Location
+    if ($backend -and -not $backend.HasExited) {
+        Write-Host "`n[stop] shutting down backend (pid $($backend.Id))..." -ForegroundColor DarkGray
+        taskkill /PID $backend.Id /T /F 2>$null | Out-Null
+    }
+    Stop-Port $Port
+    Get-Job | Remove-Job -Force -ErrorAction SilentlyContinue
+}

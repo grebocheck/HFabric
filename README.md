@@ -49,15 +49,22 @@ run.bat          REM REAL mode: real models on the GPU (default)
 run.bat stub     REM STUB mode: full pipeline, no GPU/ML stack
 ```
 
-It bootstraps the venv + npm deps on first run, starts the backend (`:8260`) and
-the Vite dev server (`:5173`) in their own windows, and opens
-<http://localhost:5173> for you.
+It bootstraps the venv + npm deps on first run, frees any stale ports left by an
+earlier run, then runs the backend (`:8260`) and the Vite dev server (`:5173`)
+**together in one window** and opens <http://localhost:5173> for you. Ctrl+C
+stops both.
 
-PowerShell equivalent (always stub-default, no auto-open):
+PowerShell equivalent:
 
 ```powershell
-.\scripts\run.ps1
+.\scripts\run.ps1          # REAL mode
+.\scripts\run.ps1 -Stub    # STUB mode
 ```
+
+> **Note:** the launcher kills whatever is holding ports 8260/8261/5173 before
+> starting. A leftover backend from a previous run holding port 8260 is what
+> caused the `WinError 10013` "socket forbidden" failure; freeing it first fixes
+> that.
 
 Models are read in place from `models/image/` and `models/llm/` — nothing is
 copied. See [models/README.md](models/README.md).

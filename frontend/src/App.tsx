@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api/client";
 import { useEvents } from "./api/useEvents";
-import { Composer } from "./components/Composer";
+import { ImageComposer } from "./components/ImageComposer";
 import { Gallery } from "./components/Gallery";
-import { ModelStatus } from "./components/ModelStatus";
+import { LlmPanel } from "./components/LlmPanel";
+import { ModelStatus, type View } from "./components/ModelStatus";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import type { BusEvent, GpuStatus, ImageItem, Job, Lora, Model, Preset } from "./types";
@@ -16,6 +17,7 @@ export default function App() {
   const [loras, setLoras] = useState<Lora[]>([]);
   const [gpu, setGpu] = useState<GpuStatus>({ resident: null, model_id: null, model: null, family: null, warm: [] });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState<View>("images");
 
   const [promptDraft, setPromptDraft] = useState("");
   const [expanding, setExpanding] = useState(false);
@@ -99,25 +101,52 @@ export default function App() {
 
   const onFree = useCallback(() => api.freeGpu().catch(() => {}), []);
 
+  const llmJobs = jobs.filter((j) => j.type === "llm");
+  const imageJobs = jobs.filter((j) => j.type === "image");
+
   return (
     <div className="flex h-screen flex-col">
-      <ModelStatus gpu={gpu} connected={connected} onFree={onFree} onSettings={() => setSettingsOpen(true)} />
-      <main className="grid flex-1 grid-cols-[380px_320px_1fr] gap-4 overflow-hidden p-4">
-        <div className="overflow-y-auto">
-          <Composer
-            models={models}
-            loras={loras}
-            presets={presets}
-            onPresetsChanged={refreshPresets}
-            promptDraft={promptDraft}
-            setPromptDraft={setPromptDraft}
-            expanding={expanding}
-            onExpand={onExpand}
-          />
-        </div>
-        <QueuePanel jobs={jobs} onChanged={refreshJobs} />
-        <Gallery images={images} onSearch={refreshImages} />
-      </main>
+      <ModelStatus
+        gpu={gpu}
+        connected={connected}
+        view={view}
+        onView={setView}
+        onFree={onFree}
+        onSettings={() => setSettingsOpen(true)}
+      />
+
+      {view === "images" ? (
+        <main className="grid flex-1 grid-cols-[380px_320px_1fr] gap-4 overflow-hidden p-4">
+          <div className="overflow-y-auto">
+            <ImageComposer
+              models={models}
+              loras={loras}
+              presets={presets}
+              onPresetsChanged={refreshPresets}
+              promptDraft={promptDraft}
+              setPromptDraft={setPromptDraft}
+              onGoToLlm={() => setView("llm")}
+            />
+          </div>
+          <QueuePanel jobs={imageJobs} onChanged={refreshJobs} />
+          <Gallery images={images} onSearch={refreshImages} />
+        </main>
+      ) : (
+        <main className="grid flex-1 grid-cols-[1fr_320px] gap-4 overflow-hidden p-4">
+          <div className="overflow-y-auto">
+            <LlmPanel
+              models={models}
+              promptDraft={promptDraft}
+              setPromptDraft={setPromptDraft}
+              expanding={expanding}
+              onExpand={onExpand}
+              onUseInImages={() => setView("images")}
+            />
+          </div>
+          <QueuePanel jobs={llmJobs} onChanged={refreshJobs} />
+        </main>
+      )}
+
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );

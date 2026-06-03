@@ -5,15 +5,14 @@ import type { Lora, Model, Preset } from "../types";
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-violet-500";
 const label = "text-xs uppercase tracking-wide text-white/40";
 
-export function Composer({
+export function ImageComposer({
   models,
   loras,
   presets,
   onPresetsChanged,
   promptDraft,
   setPromptDraft,
-  expanding,
-  onExpand,
+  onGoToLlm,
 }: {
   models: Model[];
   loras: Lora[];
@@ -21,18 +20,13 @@ export function Composer({
   onPresetsChanged: () => void;
   promptDraft: string;
   setPromptDraft: (v: string) => void;
-  expanding: boolean;
-  onExpand: (idea: string, llmModelId: string, style?: string) => void;
+  onGoToLlm: () => void;
 }) {
-  const llmModels = models.filter((m) => m.job_type === "llm");
   const imgModels = models
     .filter((m) => m.job_type === "image")
     .sort((a, b) => imageModelRank(a) - imageModelRank(b) || a.name.localeCompare(b.name));
 
-  const [idea, setIdea] = useState("");
-  const [llmModel, setLlmModel] = useState("");
   const [imgModel, setImgModel] = useState("");
-
   const [negative, setNegative] = useState("");
   const [steps, setSteps] = useState(28);
   const [guidance, setGuidance] = useState(3.5);
@@ -54,14 +48,12 @@ export function Composer({
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  // sensible defaults once models load
   useEffect(() => {
-    if (!llmModel && llmModels[0]) setLlmModel(llmModels[0].id);
     if (!imgModel || !imgModels.some((m) => m.id === imgModel)) {
       const preferred = pickDefaultImageModel(imgModels);
       if (preferred) setImgModel(preferred.id);
     }
-  }, [llmModels, imgModels, llmModel, imgModel]);
+  }, [imgModels, imgModel]);
 
   useEffect(() => {
     setSelectedLoras((current) =>
@@ -160,40 +152,22 @@ export function Composer({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* --- LLM idea -> prompt --- */}
       <section className="rounded-lg border border-white/10 p-3">
-        <div className={label}>Idea → prompt (LLM)</div>
-        <textarea
-          value={idea}
-          onChange={(e) => setIdea(e.target.value)}
-          rows={2}
-          placeholder="a lone astronaut cat on a neon rooftop…"
-          className={`${field} mt-1 resize-none`}
-        />
-        <div className="mt-2 flex gap-2">
-          <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className={`${field} flex-1`}>
-            {llmModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
+        <div className="flex items-center justify-between">
+          <div className={label}>Prompt</div>
           <button
-            onClick={() => idea.trim() && onExpand(idea.trim(), llmModel)}
-            disabled={expanding || !idea.trim() || !llmModel}
-            className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
+            onClick={onGoToLlm}
+            className="text-xs text-emerald-300/80 hover:text-emerald-200"
+            title="Open the LLM workspace to expand an idea into a prompt"
           >
-            {expanding ? "Expanding…" : "Expand"}
+            ✨ Write with LLM
           </button>
         </div>
-      </section>
-
-      {/* --- prompt + image params --- */}
-      <section className="rounded-lg border border-white/10 p-3">
-        <div className={label}>Prompt</div>
         <textarea
           value={promptDraft}
           onChange={(e) => setPromptDraft(e.target.value)}
-          rows={4}
-          placeholder="final image prompt (LLM output streams here, editable)…"
+          rows={5}
+          placeholder="describe the image… or expand an idea in the LLM tab"
           className={`${field} mt-1 resize-none`}
         />
         <div className={`${label} mt-3`}>Negative</div>
