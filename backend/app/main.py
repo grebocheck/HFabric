@@ -1,0 +1,71 @@
+"""FastAPI application entrypoint — wires the foundation together.
+
+Lifespan: init DB -> scan models -> build bus/arbiter/worker -> start worker.
+Shutdown: stop worker -> free the GPU. Everything GPU-related flows through the
+single Worker + GpuArbiter, so the VRAM invariant holds no matter how requests
+arrive.
+"""
+
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from .backends.registry import ModelRegistry
+from .config import settings
+from .core.arbiter import GpuArbiter
+from .core.events import EventBus
+from .core.scheduler import Worker
+from .db.session import init_db
+from .api import gallery, jobs, models, presets, ws
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+
+    registry = ModelRegistry()
+    registry.scan()
+    bus = EventBus()
+    arbiter = GpuArbiter(bus)
+    worker = Worker(bus, arbiter, registry)
+
+    app.state.registry = registry
+    app.state.bus = bus
+    app.state.arbiter = arbiter
+    app.state.worker = worker
+
+    worker.start()
+    try:
+        yield
+    finally:
+        await worker.stop()
+
+
+app = FastAPI(title="ImageFabric", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(models.router)
+app.include_router(jobs.router)
+app.include_router(gallery.router)
+app.include_router(presets.router)
+app.include_router(ws.router)
+
+
+@app.get("/api/health")
+async def health() -> dict:
+    return {
+        "status": "ok",
+        "stub_mode": settings.stub_mode,
+        "models": len(app.state.registry.descriptors()),
+        "gpu": app.state.arbiter.status(),
+    }

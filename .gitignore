@@ -1,0 +1,44 @@
+# --- Models (huge, never commit; folder structure is kept via .gitkeep) ---
+*.safetensors
+*.gguf
+*.ckpt
+*.pt
+*.bin
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# --- App data / outputs ---
+data/
+outputs/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# --- Tooling binaries ---
+bin/llama/
+*.exe
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local

@@ -1,0 +1,25 @@
+# --- ImageFabric backend: GPU / ML deps (installed in M0, not needed for the foundation) ---
+#
+# RTX 5070 Ti is Blackwell (sm_120) -> REQUIRES CUDA 12.8 wheels (cu128).
+# Install torch FIRST from the cu128 index, then the rest:
+#
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements-gpu.txt
+#
+# Verify after install:
+#   python -c "import torch; print(torch.__version__, torch.cuda.get_device_capability())"
+#   # expect capability (12, 0) for Blackwell
+
+diffusers>=0.32
+transformers>=4.48
+accelerate>=1.2
+safetensors>=0.4.5
+sentencepiece>=0.2.0          # T5 tokenizer for FLUX
+protobuf>=5.0
+
+# Acceleration (optional, added incrementally in M4):
+# xformers / flash-attn        # fp8 attention on Blackwell
+# nunchaku                     # SVDQuant int4/fp4 FLUX turbo mode
+
+# LLM (llama.cpp): we run the `llama-server` binary as a subprocess.
+# No python package required — place a CUDA(sm_120) build under bin/llama/.

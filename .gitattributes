@@ -1,0 +1,12 @@
+# Normalize line endings: LF in the repo, native on checkout.
+* text=auto eol=lf
+
+# Windows scripts stay CRLF.
+*.ps1 text eol=crlf
+
+# Binary assets — never diff/normalize.
+*.png binary
+*.webp binary
+*.jpg binary
+*.safetensors binary
+*.gguf binary

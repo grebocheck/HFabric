@@ -1,0 +1,73 @@
+"""Backend interfaces.
+
+A *backend* wraps exactly one model file and is a GPU *resident*: the arbiter
+guarantees that at most one resident is loaded into VRAM at a time. Heavy ML
+imports (torch/diffusers) live inside the concrete implementations and are
+imported lazily, so this module — and the whole foundation — imports cleanly
+without a GPU stack.
+"""
+
+from __future__ import annotations
+
+import abc
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Awaitable, Callable
+
+from ..core.enums import JobType, ModelFamily
+
+# progress callback: (fraction_0_to_1, optional human note)
+ProgressCb = Callable[[float, str | None], Awaitable[None]]
+# token callback for streamed LLM output
+TokenCb = Callable[[str], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class ModelDescriptor:
+    id: str
+    name: str
+    family: ModelFamily
+    path: Path
+    size_bytes: int
+
+    @property
+    def job_type(self) -> JobType:
+        return self.family.job_type
+
+
+class GpuBackend(abc.ABC):
+    """Common lifecycle for anything that occupies VRAM."""
+
+    def __init__(self, descriptor: ModelDescriptor) -> None:
+        self.descriptor = descriptor
+        self._loaded = False
+
+    @property
+    def resident_key(self) -> str:
+        return f"{self.descriptor.job_type.value}:{self.descriptor.id}"
+
+    @property
+    def loaded(self) -> bool:
+        return self._loaded
+
+    @abc.abstractmethod
+    async def load(self) -> None: ...
+
+    @abc.abstractmethod
+    async def unload(self) -> None: ...
+
+
+class ImageBackend(GpuBackend):
+    @abc.abstractmethod
+    async def generate(
+        self, params: dict[str, Any], progress: ProgressCb
+    ) -> list[dict[str, Any]]:
+        """Return a list of produced image records: ``{path, seed, width, height}``."""
+
+
+class LLMBackend(GpuBackend):
+    @abc.abstractmethod
+    async def complete(
+        self, params: dict[str, Any], on_token: TokenCb | None = None
+    ) -> str:
+        """Return the full generated text (also streamed via ``on_token``)."""

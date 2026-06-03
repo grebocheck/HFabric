@@ -1,0 +1,42 @@
+"""Lightweight model classification.
+
+We only read the safetensors *header* (a small JSON blob at the start of the
+file), never the multi-GB tensor data, so scanning is instant. This is the same
+trick used to confirm the local files: FLUX has ``double_blocks``/``single_blocks``
+while SDXL has UNet ``input_blocks`` under ``model.diffusion_model``.
+"""
+
+from __future__ import annotations
+
+import json
+import struct
+from pathlib import Path
+
+from ..core.enums import ModelFamily
+
+
+def _read_safetensors_keys(path: Path, *, probe_limit: int = 4096) -> list[str]:
+    with path.open("rb") as f:
+        (header_len,) = struct.unpack("<Q", f.read(8))
+        header = json.loads(f.read(header_len))
+    header.pop("__metadata__", None)
+    keys = list(header.keys())
+    return keys[:probe_limit]
+
+
+def classify_image_model(path: Path) -> ModelFamily:
+    try:
+        keys = _read_safetensors_keys(path)
+    except Exception:
+        return ModelFamily.UNKNOWN
+
+    joined = "\n".join(keys)
+    if "double_blocks" in joined or "single_blocks" in joined:
+        return ModelFamily.FLUX
+    if "input_blocks" in joined or "conditioner.embedders" in joined:
+        return ModelFamily.SDXL
+    # Heuristic fallback by size: FLUX checkpoints are much larger than SDXL.
+    try:
+        return ModelFamily.FLUX if path.stat().st_size > 10 * 1024**3 else ModelFamily.SDXL
+    except OSError:
+        return ModelFamily.UNKNOWN

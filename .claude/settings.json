@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv .venv)",
+      "Bash(./.venv/Scripts/python.exe -m pip install --quiet --upgrade pip)",
+      "Bash(./.venv/Scripts/python.exe -m pip install --quiet -r backend/requirements.txt)",
+      "Bash(./.venv/Scripts/python.exe -c \"import fastapi, uvicorn, sqlalchemy, aiosqlite, httpx, PIL, pydantic_settings; print\\('imports ok'\\)\")",
+      "Bash(./.venv/Scripts/python.exe /tmp/smoke.py)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(git init *)",
+      "Bash(git config *)"
+    ]
+  }
+}
