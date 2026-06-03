@@ -48,14 +48,6 @@ class ModelRegistry:
             id=mid, name=path.stem, family=family, path=path, size_bytes=size, quant=quant
         )
 
-    def _flux_encoder_path(self):
-        """A full FLUX checkpoint to source T5/CLIP/VAE for nunchaku (which ships
-        only the transformer). Prefers a local non-quantized FLUX file."""
-        for d in self._descriptors.values():
-            if d.family is ModelFamily.FLUX and d.quant is None:
-                return d.path
-        return None
-
     def descriptors(self) -> list[ModelDescriptor]:
         return list(self._descriptors.values())
 
@@ -71,8 +63,6 @@ class ModelRegistry:
         backend: GpuBackend
         if desc.family is ModelFamily.GGUF:
             backend = LlamaCppBackend(desc)
-        elif desc.quant == "nunchaku":
-            backend = DiffusersImageBackend(desc, encoder_source=self._flux_encoder_path())
         else:
             backend = DiffusersImageBackend(desc)
         self._backends[model_id] = backend

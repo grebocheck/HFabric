@@ -23,11 +23,9 @@ from .base import ImageBackend, ModelDescriptor, ProgressCb
 
 
 class DiffusersImageBackend(ImageBackend):
-    def __init__(self, descriptor: ModelDescriptor, encoder_source: Any = None) -> None:
+    def __init__(self, descriptor: ModelDescriptor) -> None:
         super().__init__(descriptor)
         self._pipe: Any = None  # diffusers pipeline in real mode
-        # for nunchaku FLUX: a full checkpoint to source T5/CLIP/VAE from
-        self._encoder_source = encoder_source
 
     # ----------------------------------------------------------------- load
     async def load(self) -> None:
@@ -92,29 +90,26 @@ class DiffusersImageBackend(ImageBackend):
         self._pipe = pipe
 
     def _load_nunchaku_flux(self, torch) -> Any:
-        """SVDQuant fp4/int4 FLUX transformer (Blackwell turbo): ~18 s/1024,
-        ~10 GB VRAM. The svdq file is transformer-only; T5/CLIP/VAE are reused
-        from a local full FLUX checkpoint (``_encoder_source``) to avoid a large
-        encoder download, falling back to the non-gated config repo."""
+        """SVDQuant fp4 FLUX (Blackwell turbo): ~8 s/1024, peak RAM ~13 GB.
+
+        Assembled from light components so a single load stays well within the RAM
+        budget (P0.1): nunchaku fp4 transformer + int4 T5 (~3 GB, not ~10 GB bf16),
+        with CLIP/VAE/tokenizers/scheduler from the non-gated config repo. We do
+        NOT read the local 16 GB fp8 checkpoint here."""
         from diffusers import FluxPipeline  # noqa: PLC0415
-        from nunchaku import NunchakuFluxTransformer2dModel  # noqa: PLC0415
+        from nunchaku import (  # noqa: PLC0415
+            NunchakuFluxTransformer2dModel,
+            NunchakuT5EncoderModel,
+        )
 
         transformer = NunchakuFluxTransformer2dModel.from_pretrained(str(self.descriptor.path))
-
-        if self._encoder_source is not None:
-            pipe = FluxPipeline.from_single_file(
-                str(self._encoder_source),
-                config=settings.flux_config_repo,
-                torch_dtype=torch.float8_e4m3fn,
-            )
-            pipe.transformer = transformer
-        else:
-            pipe = FluxPipeline.from_pretrained(
-                settings.flux_config_repo, transformer=transformer, torch_dtype=torch.bfloat16
-            )
-        pipe.text_encoder.to(torch.bfloat16)
-        pipe.text_encoder_2.to(torch.bfloat16)
-        pipe.vae.to(torch.bfloat16)
+        text_encoder_2 = NunchakuT5EncoderModel.from_pretrained(settings.flux_t5_nunchaku)
+        pipe = FluxPipeline.from_pretrained(
+            settings.flux_config_repo,
+            transformer=transformer,
+            text_encoder_2=text_encoder_2,
+            torch_dtype=torch.bfloat16,
+        )
         pipe.vae.enable_tiling()
         pipe.enable_model_cpu_offload()
         return pipe

@@ -8,6 +8,7 @@ arrive.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,10 +17,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from .backends.registry import ModelRegistry
 from .config import settings
 from .core.arbiter import GpuArbiter
-from .core.events import EventBus
+from .core.enums import EventType
+from .core.events import Event, EventBus
 from .core.scheduler import Worker
 from .db.session import init_db
+from .util import sysmon
 from .api import gallery, jobs, models, presets, ws
+
+
+async def _mem_monitor(bus: EventBus) -> None:
+    """Broadcast RAM/VRAM so the UI can see pressure (never guess at it)."""
+    while True:
+        await bus.publish(Event(EventType.MEM_STATUS, **sysmon.snapshot()))
+        await asyncio.sleep(settings.mem_poll_seconds)
 
 
 @asynccontextmanager
@@ -38,9 +48,11 @@ async def lifespan(app: FastAPI):
     app.state.worker = worker
 
     worker.start()
+    mem_task = asyncio.create_task(_mem_monitor(bus), name="imgfab-mem-monitor")
     try:
         yield
     finally:
+        mem_task.cancel()
         await worker.stop()
 
 
@@ -68,4 +80,5 @@ async def health() -> dict:
         "stub_mode": settings.stub_mode,
         "models": len(app.state.registry.descriptors()),
         "gpu": app.state.arbiter.status(),
+        "mem": sysmon.snapshot(),
     }

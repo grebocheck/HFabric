@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     # (non-gated) repo to assemble the pipeline config + tokenizers. Weights
     # still come from the local file.
     flux_config_repo: str = "ChuckMcSneed/FLUX.1-dev"
+    # int4 T5 for the nunchaku FLUX path (keeps RAM ~3 GB instead of ~10 GB bf16,
+    # and avoids reading the local 16 GB fp8 file just to borrow its encoders).
+    flux_t5_nunchaku: str = "nunchaku-tech/nunchaku-t5/awq-int4-flux.1-t5xxl.safetensors"
+
+    # --- memory budget (protect the SSD from pagefile writes) ---
+    # Refuse a load if it would leave less than this much free RAM.
+    min_free_ram_gb: float = 2.5
+    # How often to broadcast a mem.status event (seconds).
+    mem_poll_seconds: float = 3.0
 
     # --- image generation defaults ---
     default_steps: int = 28

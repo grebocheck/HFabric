@@ -46,6 +46,10 @@ class LlamaCppBackend(LLMBackend):
                 f"llama-server binary not found at {settings.llama_server_bin}. "
                 "Place a CUDA(sm_120) build there or set IMGFAB_LLAMA_SERVER_BIN."
             )
+        # Launch with cwd = the binary's folder so ggml's dynamic CUDA backend
+        # (ggml-cuda.dll, cudart, cublas — all shipped beside llama-server.exe) is
+        # found. Otherwise ggml silently falls back to CPU, which both eats ~12 GB
+        # of RAM and is far slower.
         self._proc = await asyncio.create_subprocess_exec(
             str(settings.llama_server_bin),
             "-m", str(self.descriptor.path),
@@ -53,6 +57,13 @@ class LlamaCppBackend(LLMBackend):
             "--port", str(settings.llama_port),
             "-ngl", str(settings.llama_ngl),
             "-c", str(settings.llama_ctx),
+            # Disable llama's auto VRAM-fitting and honor our explicit -ngl. The
+            # auto-fit probe hangs / under-offloads when the parent process holds
+            # a torch CUDA context (which it does once diffusers / the mem monitor
+            # has touched CUDA) -> without this the LLM silently runs on CPU,
+            # eating ~12 GB RAM and crawling.
+            "--fit", "off",
+            cwd=str(settings.llama_server_bin.parent),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )

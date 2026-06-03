@@ -34,6 +34,7 @@ class GpuArbiter:
             if self._current is not None and self._current is not backend:
                 await self._unload_current()
             if not backend.loaded:
+                self._check_budget(backend)
                 await self._bus.publish(Event(
                     EventType.MODEL_LOADING,
                     resident=backend.resident_key,
@@ -67,6 +68,17 @@ class GpuArbiter:
             EventType.MODEL_UNLOADED, resident=cur.resident_key, model=cur.descriptor.name
         ))
         self._current = None
+
+    def _check_budget(self, backend: GpuBackend) -> None:
+        """Refuse a load that would risk the pagefile (raises MemoryError, which
+        the worker turns into a clear job error instead of an OOM hang)."""
+        from ..config import settings  # noqa: PLC0415
+        from ..util import sysmon  # noqa: PLC0415
+
+        if settings.stub_mode:
+            return
+        d = backend.descriptor
+        sysmon.check_ram_budget(d.family, d.size_bytes, d.quant)
 
     def status(self) -> dict:
         cur = self._current

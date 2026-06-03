@@ -38,6 +38,7 @@ class EventType(str, Enum):
     MODEL_UNLOADING = "model.unloading"
     MODEL_UNLOADED = "model.unloaded"
     GPU_STATUS = "gpu.status"
+    MEM_STATUS = "mem.status"
 
     # job lifecycle
     JOB_CREATED = "job.created"

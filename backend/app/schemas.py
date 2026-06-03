@@ -18,6 +18,10 @@ class ModelOut(BaseModel):
     job_type: JobType
     size_bytes: int
     loaded: bool
+    quant: str | None = None
+    # True for models that are slow / memory-heavy on 16 GB (raw fp8 FLUX) so the
+    # UI can warn before a click triggers a long, VRAM-overflowing run.
+    slow: bool = False
 
 
 class GpuStatusOut(BaseModel):
