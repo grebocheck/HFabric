@@ -29,20 +29,32 @@ class ModelRegistry:
     def scan(self) -> None:
         self._descriptors.clear()
         for path in sorted(settings.image_models_dir.glob("*.safetensors")):
-            family = classify_image_model(path)
-            self._add(path, family)
+            name = path.stem.lower()
+            if "svdq" in name or "nunchaku" in name:
+                # SVDQuant transformer-only checkpoint (Blackwell fp4/int4 turbo)
+                self._add(path, ModelFamily.FLUX, quant="nunchaku")
+            else:
+                self._add(path, classify_image_model(path))
         for path in sorted(settings.llm_models_dir.glob("*.gguf")):
             self._add(path, ModelFamily.GGUF)
 
-    def _add(self, path, family: ModelFamily) -> None:
+    def _add(self, path, family: ModelFamily, quant: str | None = None) -> None:
         mid = _slug(path.stem)
         try:
             size = path.stat().st_size
         except OSError:
             size = 0
         self._descriptors[mid] = ModelDescriptor(
-            id=mid, name=path.stem, family=family, path=path, size_bytes=size
+            id=mid, name=path.stem, family=family, path=path, size_bytes=size, quant=quant
         )
+
+    def _flux_encoder_path(self):
+        """A full FLUX checkpoint to source T5/CLIP/VAE for nunchaku (which ships
+        only the transformer). Prefers a local non-quantized FLUX file."""
+        for d in self._descriptors.values():
+            if d.family is ModelFamily.FLUX and d.quant is None:
+                return d.path
+        return None
 
     def descriptors(self) -> list[ModelDescriptor]:
         return list(self._descriptors.values())
@@ -59,6 +71,8 @@ class ModelRegistry:
         backend: GpuBackend
         if desc.family is ModelFamily.GGUF:
             backend = LlamaCppBackend(desc)
+        elif desc.quant == "nunchaku":
+            backend = DiffusersImageBackend(desc, encoder_source=self._flux_encoder_path())
         else:
             backend = DiffusersImageBackend(desc)
         self._backends[model_id] = backend

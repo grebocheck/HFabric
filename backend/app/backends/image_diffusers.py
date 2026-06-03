@@ -23,9 +23,11 @@ from .base import ImageBackend, ModelDescriptor, ProgressCb
 
 
 class DiffusersImageBackend(ImageBackend):
-    def __init__(self, descriptor: ModelDescriptor) -> None:
+    def __init__(self, descriptor: ModelDescriptor, encoder_source: Any = None) -> None:
         super().__init__(descriptor)
         self._pipe: Any = None  # diffusers pipeline in real mode
+        # for nunchaku FLUX: a full checkpoint to source T5/CLIP/VAE from
+        self._encoder_source = encoder_source
 
     # ----------------------------------------------------------------- load
     async def load(self) -> None:
@@ -47,6 +49,10 @@ class DiffusersImageBackend(ImageBackend):
         import torch  # noqa: PLC0415  (lazy: only when GPU mode is on)
 
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
+        if self.descriptor.quant == "nunchaku":
+            self._pipe = self._load_nunchaku_flux(torch)
+            return
 
         if self.descriptor.family is ModelFamily.FLUX:
             from diffusers import FluxPipeline  # noqa: PLC0415
@@ -84,6 +90,34 @@ class DiffusersImageBackend(ImageBackend):
             )
             pipe = pipe.to("cuda")
         self._pipe = pipe
+
+    def _load_nunchaku_flux(self, torch) -> Any:
+        """SVDQuant fp4/int4 FLUX transformer (Blackwell turbo): ~18 s/1024,
+        ~10 GB VRAM. The svdq file is transformer-only; T5/CLIP/VAE are reused
+        from a local full FLUX checkpoint (``_encoder_source``) to avoid a large
+        encoder download, falling back to the non-gated config repo."""
+        from diffusers import FluxPipeline  # noqa: PLC0415
+        from nunchaku import NunchakuFluxTransformer2dModel  # noqa: PLC0415
+
+        transformer = NunchakuFluxTransformer2dModel.from_pretrained(str(self.descriptor.path))
+
+        if self._encoder_source is not None:
+            pipe = FluxPipeline.from_single_file(
+                str(self._encoder_source),
+                config=settings.flux_config_repo,
+                torch_dtype=torch.float8_e4m3fn,
+            )
+            pipe.transformer = transformer
+        else:
+            pipe = FluxPipeline.from_pretrained(
+                settings.flux_config_repo, transformer=transformer, torch_dtype=torch.bfloat16
+            )
+        pipe.text_encoder.to(torch.bfloat16)
+        pipe.text_encoder_2.to(torch.bfloat16)
+        pipe.vae.to(torch.bfloat16)
+        pipe.vae.enable_tiling()
+        pipe.enable_model_cpu_offload()
+        return pipe
 
     # --------------------------------------------------------------- unload
     async def unload(self) -> None:

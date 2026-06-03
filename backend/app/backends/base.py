@@ -29,6 +29,8 @@ class ModelDescriptor:
     family: ModelFamily
     path: Path
     size_bytes: int
+    # quantization backend, e.g. "nunchaku" for SVDQuant int4/fp4 transformers
+    quant: str | None = None
 
     @property
     def job_type(self) -> JobType:
