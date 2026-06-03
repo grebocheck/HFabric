@@ -135,6 +135,53 @@ async def expand_idea(
     return JobOut.model_validate(job)
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    model_id: str
+    messages: list[ChatMessage]
+    system: str | None = None
+    temperature: float = 0.8
+    max_tokens: int = 512
+    priority: int = 0
+
+
+@router.post("/chat", response_model=JobOut)
+async def chat(
+    body: ChatRequest,
+    session: AsyncSession = Depends(get_session),
+    registry: ModelRegistry = Depends(get_registry),
+    bus: EventBus = Depends(get_bus),
+    worker: Worker = Depends(get_worker),
+) -> JobOut:
+    """Queue a multi-turn LLM chat completion. The caller sends the full message
+    history; the assistant reply streams over the WebSocket as ``llm.token``
+    events and lands in full on ``job.done`` (field ``text``)."""
+    if not body.messages:
+        raise HTTPException(400, "messages must not be empty")
+    msgs: list[dict[str, str]] = []
+    if body.system and body.system.strip():
+        msgs.append({"role": "system", "content": body.system.strip()})
+    msgs.extend({"role": m.role, "content": m.content} for m in body.messages)
+    params = {
+        "messages": msgs,
+        "temperature": max(0.0, min(2.0, body.temperature)),
+        "max_tokens": max(1, min(8192, body.max_tokens)),
+    }
+    payload = JobCreate(
+        type=JobType.LLM, model_id=body.model_id, params=params, priority=body.priority
+    )
+    _validate_model(registry, payload)
+    job = await queue_service.create_job(session, payload)
+    await session.commit()
+    bus.emit(EventType.JOB_CREATED, job_id=job.id, job_type=job.type.value)
+    worker.notify()
+    return JobOut.model_validate(job)
+
+
 @router.get("", response_model=list[JobOut])
 async def list_jobs(
     status: JobStatus | None = None,

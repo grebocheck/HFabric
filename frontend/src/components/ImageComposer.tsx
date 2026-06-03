@@ -12,7 +12,6 @@ export function ImageComposer({
   onPresetsChanged,
   promptDraft,
   setPromptDraft,
-  onGoToLlm,
 }: {
   models: Model[];
   loras: Lora[];
@@ -20,7 +19,6 @@ export function ImageComposer({
   onPresetsChanged: () => void;
   promptDraft: string;
   setPromptDraft: (v: string) => void;
-  onGoToLlm: () => void;
 }) {
   const imgModels = models
     .filter((m) => m.job_type === "image")
@@ -153,21 +151,12 @@ export function ImageComposer({
   return (
     <div className="flex flex-col gap-4">
       <section className="rounded-lg border border-white/10 p-3">
-        <div className="flex items-center justify-between">
-          <div className={label}>Prompt</div>
-          <button
-            onClick={onGoToLlm}
-            className="text-xs text-emerald-300/80 hover:text-emerald-200"
-            title="Open the LLM workspace to expand an idea into a prompt"
-          >
-            ✨ Write with LLM
-          </button>
-        </div>
+        <div className={label}>Prompt</div>
         <textarea
           value={promptDraft}
           onChange={(e) => setPromptDraft(e.target.value)}
           rows={5}
-          placeholder="describe the image… or expand an idea in the LLM tab"
+          placeholder="describe the image…"
           className={`${field} mt-1 resize-none`}
         />
         <div className={`${label} mt-3`}>Negative</div>

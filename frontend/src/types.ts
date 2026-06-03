@@ -95,3 +95,19 @@ export interface BusEvent {
   ts: number;
   [k: string]: unknown;
 }
+
+export type ChatRole = "user" | "assistant" | "system";
+
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
+  error?: boolean;
+}
+
+export interface LlmConfig {
+  ctx: number;
+  ngl: number;
+  loaded: boolean;
+  model_id: string | null;
+  defaults: { temperature: number; max_tokens: number };
+}

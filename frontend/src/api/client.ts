@@ -1,4 +1,4 @@
-import type { ImageItem, Job, JobCreate, JobType, Lora, Model, Preset, RuntimeSettings } from "../types";
+import type { ChatMessage, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Preset, RuntimeSettings } from "../types";
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -19,12 +19,26 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(jobs),
     }).then(j<Job[]>),
-  expand: (idea: string, model_id: string, style?: string) =>
-    fetch("/api/jobs/expand", {
+  chat: (body: {
+    model_id: string;
+    messages: ChatMessage[];
+    system?: string;
+    temperature?: number;
+    max_tokens?: number;
+  }) =>
+    fetch("/api/jobs/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idea, model_id, style }),
+      body: JSON.stringify(body),
     }).then(j<Job>),
+  getJob: (id: string) => fetch(`/api/jobs/${id}`).then(j<Job>),
+  getLlmConfig: () => fetch("/api/llm/config").then(j<LlmConfig>),
+  setLlmConfig: (body: { ctx?: number; ngl?: number }) =>
+    fetch("/api/llm/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(j<LlmConfig & { changed: boolean; reloaded: boolean }>),
   cancelJob: (id: string) => fetch(`/api/jobs/${id}`, { method: "DELETE" }).then(j<Job>),
   setPriority: (id: string, priority: number) =>
     fetch(`/api/jobs/${id}/priority`, {
