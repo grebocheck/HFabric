@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     # WITHOUT torch/diffusers/llama. Flip to False in M0 once the GPU stack is in.
     stub_mode: bool = True
 
-    # --- paths (all under the repo root by default) ---
+    # --- paths ---
+    # Project default: all local model weights and multi-file model repos live
+    # under ROOT/models so scans never depend on an unclear external location.
+    # Env overrides remain available for development, but the documented default
+    # layout is models/image, models/lora, and models/llm.
     root: Path = ROOT
     image_models_dir: Path = ROOT / "models" / "image"
     llm_models_dir: Path = ROOT / "models" / "llm"

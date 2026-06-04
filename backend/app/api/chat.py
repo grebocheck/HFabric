@@ -17,6 +17,8 @@ from ..core.events import EventBus
 from ..core.scheduler import Worker
 from ..schemas import (
     ChatSend,
+    ChatImportIn,
+    ChatImportOut,
     ChatSendOut,
     ConversationCreate,
     ConversationDetailOut,
@@ -25,6 +27,7 @@ from ..schemas import (
     ImageChatSend,
     MessageOut,
 )
+from ..db.models import Conversation, Message
 from ..services import chat_service, queue_service
 from ..schemas import JobCreate
 from .deps import get_bus, get_registry, get_session, get_worker
@@ -39,6 +42,14 @@ def _require_job_type(registry: ModelRegistry, model_id: str, job_type: JobType)
         raise HTTPException(404, f"unknown model_id: {model_id}")
     if desc.job_type is not job_type:
         raise HTTPException(400, f"model '{desc.id}' is not {job_type.value}")
+
+
+def _conversation_detail(conv: Conversation, messages: list[Message]) -> ConversationDetailOut:
+    base = ConversationOut.model_validate(conv)
+    return ConversationDetailOut(
+        **base.model_dump(),
+        messages=[MessageOut.model_validate(m) for m in messages],
+    )
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -66,11 +77,49 @@ async def get_conversation(conv_id: str, session: AsyncSession = Depends(get_ses
     messages = await chat_service.get_messages(session, conv_id)
     # Build from the flat ConversationOut so pydantic never touches the lazy
     # `conv.messages` relationship (that would trigger async IO -> MissingGreenlet).
-    base = ConversationOut.model_validate(conv)
-    return ConversationDetailOut(
-        **base.model_dump(),
-        messages=[MessageOut.model_validate(m) for m in messages],
-    )
+    return _conversation_detail(conv, messages)
+
+
+@router.post("/import", response_model=ChatImportOut)
+async def import_conversations(
+    body: ChatImportIn, session: AsyncSession = Depends(get_session)
+) -> ChatImportOut:
+    imported: list[ConversationDetailOut] = []
+
+    for item in body.conversations:
+        title = (item.title or "").strip()
+        first_user = next((m.content.strip() for m in item.messages if m.role == "user" and m.content.strip()), "")
+        conv = Conversation(
+            title=(title or first_user[:60] or "Imported chat")[:200],
+            model_id=item.model_id,
+            system=item.system,
+            params=item.params,
+        )
+        if item.created_at:
+            conv.created_at = item.created_at
+        if item.updated_at or item.created_at:
+            conv.updated_at = item.updated_at or item.created_at
+        session.add(conv)
+        await session.flush()
+
+        messages: list[Message] = []
+        for msg in item.messages:
+            row = Message(
+                conversation_id=conv.id,
+                role=msg.role,
+                content=msg.content,
+                error=msg.error,
+            )
+            if msg.created_at:
+                row.created_at = msg.created_at
+            session.add(row)
+            messages.append(row)
+
+        await session.flush()
+        imported.append(_conversation_detail(conv, messages))
+
+    await session.commit()
+    return ChatImportOut(imported=len(imported), conversations=imported)
 
 
 @router.patch("/conversations/{conv_id}", response_model=ConversationOut)

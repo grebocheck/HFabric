@@ -66,8 +66,9 @@ PowerShell equivalent:
 > caused the `WinError 10013` "socket forbidden" failure; freeing it first fixes
 > that.
 
-Models are read in place from `models/image/` and `models/llm/` — nothing is
-copied. See [models/README.md](models/README.md).
+Models are read in place from `models/`: image checkpoints/repos under
+`models/image/`, LoRAs under `models/lora/`, and GGUF LLMs under `models/llm/`.
+Nothing is copied. See [models/README.md](models/README.md).
 
 ## Configuration
 
@@ -120,7 +121,10 @@ before image generation.
 `IMGFAB_TORCH_COMPILE=true` wraps the FLUX transformer with `torch.compile` using
 `IMGFAB_TORCH_COMPILE_MODE` (default `max-autotune`) and runs a 1-step warmup.
 The `model.loaded` WebSocket event includes a `load_report` with RAM/VRAM before
-and after compile/warmup.
+and after compile/warmup. Compile is best-effort: if the installed torch/nunchaku
+combination fails during compile or warmup, the backend rolls back to the
+original transformer, records the failure in `load_report`, and continues
+generation without compile.
 
 Set `IMGFAB_SDXL_TURBO_LORA` to a local `.safetensors`, folder, or Hugging Face
 repo id to load an SDXL turbo LoRA. When active, untouched default steps/guidance

@@ -6,6 +6,7 @@ import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ImageComposer } from "./components/ImageComposer";
 import { Gallery } from "./components/Gallery";
 import { ModelStatus, type View } from "./components/ModelStatus";
+import { NotesPanel } from "./components/NotesPanel";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SystemPanel } from "./components/SystemPanel";
@@ -136,6 +137,15 @@ export default function App() {
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
           <ChatPanel models={models} />
+        </main>
+      ),
+    },
+    {
+      id: "notes",
+      label: "Notes",
+      render: () => (
+        <main className="flex-1 overflow-hidden p-4">
+          <NotesPanel />
         </main>
       ),
     },

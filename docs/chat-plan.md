@@ -67,9 +67,13 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
 - [x] **C4.1 Workspace registry.** Tabs are a single `workspaces` array in App
   (`{id, label, render}`) that drives the header tabs, the command-palette nav
   commands, and the main render. Adding a tab is one entry. Shipped 2026-06-04.
+- [x] **C4.2 Notes/Scratch tab.** Persistent notes with search, autosave,
+  create/delete, and a workspace-registry tab. Shipped 2026-06-04.
 - [ ] **C4.2 more tabs** (binaries already present): **TTS** (`llama-tts`),
-  transcription (whisper), code assistant, notes/scratch.
-- [ ] **C4.4 Import** of conversations/presets/personas (export shipped).
+  transcription (whisper), code assistant.
+- [x] **C4.4 Import** of conversations/presets/personas. JSON bundles can
+  restore conversations with messages plus image/LLM presets; persona presets
+  are covered because they are stored as `llm` presets. Shipped 2026-06-04.
 
 ---
 

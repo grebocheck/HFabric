@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -127,6 +127,32 @@ class ConversationUpdate(BaseModel):
     params: dict[str, Any] | None = None
 
 
+class MessageImport(BaseModel):
+    role: str = Field(pattern="^(user|assistant|system)$")
+    content: str = ""
+    error: bool = False
+    created_at: datetime | None = None
+
+
+class ConversationImport(BaseModel):
+    title: str | None = None
+    model_id: str | None = None
+    system: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    messages: list[MessageImport] = Field(default_factory=list)
+
+
+class ChatImportIn(BaseModel):
+    conversations: list[ConversationImport] = Field(default_factory=list)
+
+
+class ChatImportOut(BaseModel):
+    imported: int
+    conversations: list[ConversationDetailOut] = Field(default_factory=list)
+
+
 class ChatSend(BaseModel):
     content: str
     model_id: str
@@ -171,5 +197,43 @@ class PresetOut(BaseModel):
     type: JobType
     params: dict[str, Any]
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PresetImportItem(BaseModel):
+    name: str
+    type: JobType
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class PresetImportIn(BaseModel):
+    presets: list[PresetImportItem] = Field(default_factory=list)
+    on_conflict: Literal["rename", "skip"] = "rename"
+
+
+class PresetImportOut(BaseModel):
+    imported: int
+    skipped: int = 0
+    presets: list[PresetOut] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------- notes
+class NoteCreate(BaseModel):
+    title: str | None = None
+    content: str = ""
+
+
+class NoteUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None
+
+
+class NoteOut(BaseModel):
+    id: str
+    title: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}

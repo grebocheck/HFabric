@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useEvents } from "../api/useEvents";
-import type { BusEvent, ChatConversation, ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
+import type { BusEvent, ChatConversation, ChatConversationImport, ChatImportMessage, ChatMessage, ChatSendBody, LlmConfig, Model, Preset, PresetImportItem } from "../types";
 import { Markdown } from "./Markdown";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
@@ -32,6 +32,89 @@ function pickImageModel(models: Model[]): Model | undefined {
     ?? img.find((m) => m.quant?.startsWith("nunchaku"))
     ?? img.find((m) => !m.slow)
     ?? img[0];
+}
+
+type ImportBundle = { conversations: ChatConversationImport[]; presets: PresetImportItem[] };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function stringOrNull(v: unknown): string | null | undefined {
+  return typeof v === "string" ? v : v === null ? null : undefined;
+}
+
+function asRecord(v: unknown): Record<string, unknown> {
+  return isRecord(v) ? v : {};
+}
+
+function isPresent<T>(v: T | null | undefined): v is T {
+  return v != null;
+}
+
+function asMessageImport(v: unknown): ChatImportMessage | null {
+  if (!isRecord(v)) return null;
+  const role = v.role;
+  if (role !== "user" && role !== "assistant" && role !== "system") return null;
+  return {
+    role,
+    content: typeof v.content === "string" ? v.content : "",
+    error: typeof v.error === "boolean" ? v.error : undefined,
+    created_at: typeof v.created_at === "string" ? v.created_at : undefined,
+  };
+}
+
+function asConversationImport(v: unknown): ChatConversationImport | null {
+  if (!isRecord(v)) return null;
+  const hasConversationShape = Array.isArray(v.messages)
+    || typeof v.title === "string"
+    || typeof v.system === "string"
+    || typeof v.model_id === "string";
+  if (!hasConversationShape) return null;
+  return {
+    title: typeof v.title === "string" ? v.title : undefined,
+    model_id: stringOrNull(v.model_id),
+    system: stringOrNull(v.system),
+    params: asRecord(v.params),
+    created_at: typeof v.created_at === "string" ? v.created_at : undefined,
+    updated_at: typeof v.updated_at === "string" ? v.updated_at : undefined,
+    messages: Array.isArray(v.messages) ? v.messages.map(asMessageImport).filter(isPresent) : [],
+  };
+}
+
+function asPresetImport(v: unknown): PresetImportItem | null {
+  if (!isRecord(v)) return null;
+  if (typeof v.name !== "string" || (v.type !== "llm" && v.type !== "image")) return null;
+  return { name: v.name, type: v.type, params: asRecord(v.params) };
+}
+
+function parseImportBundle(data: unknown): ImportBundle {
+  if (Array.isArray(data)) {
+    return {
+      conversations: data.map(asConversationImport).filter(isPresent),
+      presets: data.map(asPresetImport).filter(isPresent),
+    };
+  }
+
+  if (!isRecord(data)) return { conversations: [], presets: [] };
+
+  const conversations = Array.isArray(data.conversations)
+    ? data.conversations.map(asConversationImport).filter(isPresent)
+    : (Array.isArray(data.messages) ? [asConversationImport(data)].filter(isPresent) : []);
+  const presets = Array.isArray(data.presets)
+    ? data.presets.map(asPresetImport).filter(isPresent)
+    : [asPresetImport(data)].filter(isPresent);
+
+  return { conversations, presets };
+}
+
+function downloadJson(filename: string, payload: unknown) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function ChatPanel({ models }: { models: Model[] }) {
@@ -70,9 +153,11 @@ export function ChatPanel({ models }: { models: Model[] }) {
   const [cfg, setCfg] = useState<LlmConfig | null>(null);
   const [ctxDraft, setCtxDraft] = useState<number | null>(null);
   const [cfgNote, setCfgNote] = useState("");
+  const [importNote, setImportNote] = useState("");
 
   const activeJob = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   // streaming-stat trackers
   const sendStart = useRef(0);
   const firstAt = useRef<number | null>(null);
@@ -347,6 +432,68 @@ export function ChatPanel({ models }: { models: Model[] }) {
     URL.revokeObjectURL(url);
   };
 
+  const exportJson = () => {
+    const activeConv = convs.find((c) => c.id === activeId);
+    const conversations = activeConv ? [{
+      title: activeConv.title,
+      model_id: activeConv.model_id,
+      system: activeConv.system,
+      params: activeConv.params,
+      created_at: activeConv.created_at,
+      updated_at: activeConv.updated_at,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        error: m.error,
+        created_at: m.created_at,
+      })),
+    }] : [];
+    const presets = personas.map((p) => ({ name: p.name, type: p.type, params: p.params }));
+    const title = activeConv?.title ?? "chat";
+    const slug = title.slice(0, 40).replace(/[^a-z0-9]+/gi, "-") || "imagefabric";
+    downloadJson(`${slug}.imagefabric.json`, {
+      format: "imagefabric.bundle.v1",
+      exported_at: new Date().toISOString(),
+      conversations,
+      presets,
+    });
+  };
+
+  const importJson = useCallback(async (file: File | null) => {
+    if (!file) return;
+    setImportNote("");
+    try {
+      const bundle = parseImportBundle(JSON.parse(await file.text()));
+      const parts: string[] = [];
+      let firstImportedConversation: string | null = null;
+
+      if (bundle.conversations.length) {
+        const res = await api.importConversations(bundle.conversations);
+        firstImportedConversation = res.conversations[0]?.id ?? null;
+        parts.push(`${res.imported} chat${res.imported === 1 ? "" : "s"}`);
+      }
+
+      if (bundle.presets.length) {
+        const res = await api.importPresets(bundle.presets, "rename");
+        parts.push(`${res.imported} preset${res.imported === 1 ? "" : "s"}`);
+      }
+
+      if (!parts.length) {
+        setImportNote("nothing importable in file");
+        return;
+      }
+
+      await refreshConvs();
+      await refreshPersonas();
+      if (firstImportedConversation) await selectConversation(firstImportedConversation);
+      setImportNote(`imported ${parts.join(", ")}`);
+    } catch (err) {
+      setImportNote(err instanceof Error ? err.message : "import failed");
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  }, [refreshConvs, refreshPersonas, selectConversation]);
+
   const filteredConvs = convQuery.trim()
     ? convs.filter((c) => c.title.toLowerCase().includes(convQuery.trim().toLowerCase()))
     : convs;
@@ -460,15 +607,40 @@ export function ChatPanel({ models }: { models: Model[] }) {
       <aside className="flex w-72 shrink-0 flex-col gap-4 overflow-y-auto rounded-lg border border-white/10 p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-white/75">Model settings</h2>
-          <button
-            onClick={exportChat}
-            disabled={!messages.length}
-            className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
-            title="Export conversation as Markdown"
-          >
-            Export
-          </button>
+          <div className="flex gap-1">
+            <button
+              onClick={exportChat}
+              disabled={!messages.length}
+              className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
+              title="Export conversation as Markdown"
+            >
+              MD
+            </button>
+            <button
+              onClick={exportJson}
+              disabled={!activeId && personas.length === 0}
+              className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
+              title="Export importable JSON bundle"
+            >
+              JSON
+            </button>
+            <button
+              onClick={() => importInputRef.current?.click()}
+              className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10"
+              title="Import JSON bundle"
+            >
+              Import
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => void importJson(e.currentTarget.files?.[0] ?? null)}
+            />
+          </div>
         </div>
+        {importNote && <div className="text-[11px] text-emerald-300/80">{importNote}</div>}
 
         <label>
           <div className={label}>Model</div>

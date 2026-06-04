@@ -143,14 +143,37 @@ numbers and invariants. To close M1, run with `IMGFAB_STUB_MODE=false` and captu
 
 - [ ] **M1.1** — Swap-loop leak test green over ≥3 cycles
   (`python scripts\swap_leak_test.py --cycles 3`): RSS + VRAM return to baseline.
-- [ ] **M1.2** — Phase-batching proven live (`python scripts\phase_batch_check.py`):
+- [x] **M1.2** — Phase-batching proven live (`python scripts\phase_batch_check.py`):
   a mixed batch does exactly one LLM↔image swap.
 - [ ] **M1.3** — SDXL-turbo LoRA real speed numbers (target ~1–2 s/image) with a
   chosen DMD2/Lightning LoRA via `IMGFAB_SDXL_TURBO_LORA`.
-- [ ] **M1.4** — `torch.compile` + step-cache speed/VRAM measured against the
+- [x] **M1.4** — `torch.compile` + step-cache speed/VRAM measured against the
   baseline, staying within the ≤26 GB RAM / ≤16 GB VRAM budget.
 - [ ] **M1.5** — Quality A/B captured (`python scripts\quality_ab.py`): nunchaku
   fp4 vs int4 vs GGUF fallback.
+
+M1 live validation notes (2026-06-04, RTX 5070 Ti / REAL mode):
+- M1.1 strict cold-baseline run failed after cycle 1: VRAM returned
+  1.63→1.91 GB, but backend RSS stayed at 5.58 GB from first torch/diffusers
+  imports, over the script's 1 GB RAM slack. A warm-process 3-cycle run passed
+  with `--ram-slack-gb 6`: baseline RSS 5.58 GB; after cycles 1/2/3 =
+  6.09/6.05/6.01 GB; VRAM 1.91/1.89/1.91 GB. Conclusion: steady-state is
+  stable, but the strict cold-start criterion is not green yet.
+- M1.2 passed: queued LLM/image/LLM/image started as LLM/LLM/image/image;
+  loaded families were `gguf`, `flux`; family swaps = 1.
+- M1.3 blocked: `models/lora` contains no SDXL turbo LoRA and
+  `/api/settings` reports `sdxl_turbo_lora=null`, `loras=0`.
+- M1.4 measured with FLUX nunchaku fp4, 12 steps, 768²: step-cache off =
+  19.26 s, peak RSS 12.72 GB, peak VRAM 11.78 GB; first-block cache (`fb`) =
+  15.98 s, peak RSS 12.78 GB, peak VRAM 11.75 GB. `torch.compile=true`
+  currently fails on the nunchaku transformer in Inductor (`aten.addmm`), so
+  the backend now rolls back to the original transformer and continues; fallback
+  run completed in 18.53 s, peak RSS 12.81 GB, peak VRAM 12.01 GB.
+- M1.5 partial: safe A/B captured for available image models only:
+  FLUX nunchaku fp4 image `7de8fd274dae4c8abc8d088810050f37` and SDXL image
+  `ec44fa6ed35d439180f2a98b594a5e2c` (`data/runtime/m1-quality-ab-safe.json`).
+  Target fp4-vs-int4-vs-image-GGUF remains blocked because no int4/GGUF image
+  model is registered.
 
 ### P3 — FLUX.2 [klein] (new model family)
 
@@ -176,6 +199,8 @@ P3 implementation notes:
   `IMGFAB_FLUX2_DEFAULT_STEPS` (6), `IMGFAB_FLUX2_DEFAULT_GUIDANCE` (4.0).
 - Detection, sizing, RAM/VRAM estimates and a stub generate were verified
   end-to-end with a fake klein folder; the real-model run is P3.2.
+- 2026-06-04 live check: `models/image` contains only `.cache` as a folder, so
+  the real `FLUX.2-klein-9B` multi-file repo is not downloaded yet.
 
 ### P4 — Chat workspace & superapp shell
 
@@ -193,10 +218,16 @@ P3 implementation notes:
   live **System** monitor tab (VRAM/RAM/runtime from `mem.status`), and a
   declarative **workspace registry** (tabs are one `workspaces` array — adding a
   tab is one entry). Shipped 2026-06-04.
-- [ ] **P4.5 — Remaining superapp + model-gated chat.** Import
-  (conversations/presets/personas), more workspace tabs (**TTS** via `llama-tts`,
-  notes/scratch), and model-driven function-calling, **vision** (needs a
-  multimodal GGUF) and **RAG** (needs an embedding model). Phased plan:
+- [x] **P4.5a — Import conversations/presets/personas.** Importable JSON bundles
+  restore conversations with messages plus image/LLM presets; persona presets
+  are covered because they are stored as `llm` presets. Shipped 2026-06-04.
+- [x] **P4.5b — Notes/Scratch workspace.** Persistent SQLite-backed notes with
+  search, autosave, create/delete, and a workspace-registry tab. Shipped
+  2026-06-04.
+- [ ] **P4.5c — Remaining superapp + model-gated chat.** More workspace tabs
+  (**TTS** via `llama-tts`, transcription/whisper, code assistant), and
+  model-driven function-calling, **vision** (needs a multimodal GGUF) and
+  **RAG** (needs an embedding model). Phased plan:
   [docs/chat-plan.md](docs/chat-plan.md).
 
 P3/UX notes:

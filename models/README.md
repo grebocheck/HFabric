@@ -1,23 +1,32 @@
 # Models
 
-Model weights are **not** tracked in git (they are huge). Drop your files here:
+Model weights are **not** tracked in git because they are huge. By default, keep
+every local model file, model repo, and LoRA under this `models/` folder so the
+app has one predictable place to scan and validate.
 
 ```text
 models/
-├─ image/   *.safetensors          (FLUX, SDXL, ... checkpoints)
-├─ lora/    *.safetensors/.pt/.bin (SDXL/FLUX LoRA adapters)
-└─ llm/     *.gguf                 (llama.cpp GGUF models)
+|- image/   *.safetensors or model folders (FLUX, FLUX.2 klein, SDXL, ...)
+|- lora/    *.safetensors/.pt/.bin        (SDXL/FLUX LoRA adapters)
+`- llm/     *.gguf                        (llama.cpp GGUF models)
 ```
 
-The backend scans these folders on startup (reading only the safetensors
-*header*, so it is instant) and classifies each file automatically:
+The backend scans these folders on startup:
 
-| Folder | Extensions | Detected families |
-|--------|------------|-------------------|
+| Folder | Extensions / marker | Detected families |
+|--------|---------------------|-------------------|
 | `image/` | `.safetensors` | `flux`, `sdxl` |
+| `image/<repo>/` | `model_index.json` | `flux2` |
 | `lora/` | `.safetensors`, `.pt`, `.bin` | `flux`, `sdxl`, or unknown |
 | `llm/` | `.gguf` | `gguf` (llama.cpp) |
 
-Override the locations with `IMGFAB_IMAGE_MODELS_DIR`, `IMGFAB_LORA_MODELS_DIR`,
-or `IMGFAB_LLM_MODELS_DIR` if you keep weights elsewhere (e.g. a different
-drive).
+FLUX.2 klein is a multi-file diffusers repo, not a single `.safetensors`; put the
+downloaded folder under `models/image/`, for example:
+
+```powershell
+huggingface-cli download black-forest-labs/FLUX.2-klein-9B --local-dir models/image/flux2-klein-9b
+```
+
+Environment variables like `IMGFAB_IMAGE_MODELS_DIR`, `IMGFAB_LORA_MODELS_DIR`,
+and `IMGFAB_LLM_MODELS_DIR` exist for development, but the project default is to
+keep model storage inside `models/`.

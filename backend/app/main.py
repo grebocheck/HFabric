@@ -22,7 +22,7 @@ from .core.events import Event, EventBus
 from .core.scheduler import Worker
 from .db.session import init_db
 from .util import sysmon
-from .api import chat, gallery, jobs, llm, models, presets, ws
+from .api import chat, gallery, jobs, llm, models, notes, presets, ws
 
 
 async def _mem_monitor(bus: EventBus) -> None:
@@ -71,6 +71,7 @@ app.include_router(jobs.router)
 app.include_router(llm.router)
 app.include_router(chat.router)
 app.include_router(gallery.router)
+app.include_router(notes.router)
 app.include_router(presets.router)
 app.include_router(ws.router)
 

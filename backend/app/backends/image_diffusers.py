@@ -337,17 +337,31 @@ class DiffusersImageBackend(ImageBackend):
             "mode": settings.torch_compile_mode,
             "before": self._memory_snapshot(torch),
         }
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats()
-        pipe.transformer = torch.compile(pipe.transformer, mode=settings.torch_compile_mode)
-        compile_report["after_wrap"] = self._memory_snapshot(torch)
-
-        if settings.torch_compile_warmup:
-            self._warmup_pipeline(torch, pipe)
-            compile_report["after_warmup"] = self._memory_snapshot(torch)
+        original_transformer = pipe.transformer
+        try:
             if torch.cuda.is_available():
-                compile_report["cuda_peak_allocated_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
-                compile_report["cuda_peak_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
+                torch.cuda.reset_peak_memory_stats()
+            pipe.transformer = torch.compile(pipe.transformer, mode=settings.torch_compile_mode)
+            compile_report["after_wrap"] = self._memory_snapshot(torch)
+
+            if settings.torch_compile_warmup:
+                self._warmup_pipeline(torch, pipe)
+                compile_report["after_warmup"] = self._memory_snapshot(torch)
+                if torch.cuda.is_available():
+                    compile_report["cuda_peak_allocated_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+                    compile_report["cuda_peak_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
+        except Exception as exc:
+            import gc  # noqa: PLC0415
+
+            pipe.transformer = original_transformer
+            compile_report["failed"] = repr(exc)
+            compile_report["after_rollback"] = self._memory_snapshot(torch)
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+            report["acceleration"]["torch_compile"] = compile_report
+            return
 
         self._active_features["torch_compile"] = {"mode": settings.torch_compile_mode}
         report["acceleration"]["torch_compile"] = compile_report

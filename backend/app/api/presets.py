@@ -7,10 +7,26 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Preset
-from ..schemas import PresetCreate, PresetOut
+from ..schemas import PresetCreate, PresetImportIn, PresetImportOut, PresetOut
 from .deps import get_session
 
 router = APIRouter(prefix="/api/presets", tags=["presets"])
+
+
+def _unique_name(name: str, existing: set[str]) -> str:
+    base = (name.strip() or "Imported preset")[:128]
+    if base not in existing:
+        existing.add(base)
+        return base
+
+    stem = base[:117].rstrip()
+    i = 2
+    while True:
+        candidate = f"{stem} ({i})"[:128]
+        if candidate not in existing:
+            existing.add(candidate)
+            return candidate
+        i += 1
 
 
 @router.get("", response_model=list[PresetOut])
@@ -31,6 +47,32 @@ async def create_preset(
         await session.rollback()
         raise HTTPException(409, f"preset name already exists: {body.name}")
     return PresetOut.model_validate(preset)
+
+
+@router.post("/import", response_model=PresetImportOut)
+async def import_presets(
+    body: PresetImportIn, session: AsyncSession = Depends(get_session)
+) -> PresetImportOut:
+    existing = set((await session.execute(select(Preset.name))).scalars().all())
+    imported: list[Preset] = []
+    skipped = 0
+
+    for item in body.presets:
+        requested_name = item.name.strip() or "Imported preset"
+        if requested_name in existing and body.on_conflict == "skip":
+            skipped += 1
+            continue
+        name = _unique_name(requested_name, existing)
+        preset = Preset(name=name, type=item.type, params=item.params)
+        session.add(preset)
+        imported.append(preset)
+
+    await session.commit()
+    return PresetImportOut(
+        imported=len(imported),
+        skipped=skipped,
+        presets=[PresetOut.model_validate(p) for p in imported],
+    )
 
 
 @router.delete("/{preset_id}")

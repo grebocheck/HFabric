@@ -1,4 +1,4 @@
-import type { ChatConversation, ChatConversationDetail, ChatSendBody, ChatSendResult, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Preset, RuntimeSettings } from "../types";
+import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, RuntimeSettings } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -40,6 +40,12 @@ export const api = {
       .then(j<ChatConversation>),
   deleteConversation: (id: string) =>
     fetch(`/api/chat/conversations/${id}`, { method: "DELETE" }).then(j<{ deleted: boolean }>),
+  importConversations: (conversations: ChatConversationImport[]) =>
+    fetch("/api/chat/import", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ conversations }),
+    }).then(j<ChatImportResult>),
   sendChatMessage: (id: string, body: ChatSendBody) =>
     fetch(`/api/chat/conversations/${id}/messages`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
       .then(j<ChatSendResult>),
@@ -68,5 +74,25 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, type, params }),
     }).then(j<Preset>),
+  importPresets: (presets: PresetImportItem[], on_conflict: "rename" | "skip" = "rename") =>
+    fetch("/api/presets/import", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ presets, on_conflict }),
+    }).then(j<PresetImportResult>),
   deletePreset: (id: string) => fetch(`/api/presets/${id}`, { method: "DELETE" }).then(j),
+
+  // --- notes ---
+  listNotes: (q?: string) => {
+    const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+    return fetch(`/api/notes${params}`).then(j<Note[]>);
+  },
+  createNote: (body: { title?: string; content?: string } = {}) =>
+    fetch("/api/notes", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<Note>),
+  updateNote: (id: string, body: Partial<Pick<Note, "title" | "content">>) =>
+    fetch(`/api/notes/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<Note>),
+  deleteNote: (id: string) =>
+    fetch(`/api/notes/${id}`, { method: "DELETE" }).then(j<{ deleted: string }>),
 };

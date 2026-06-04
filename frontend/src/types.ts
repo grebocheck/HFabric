@@ -140,6 +140,28 @@ export interface ChatConversationDetail extends ChatConversation {
   messages: ChatMessage[];
 }
 
+export interface ChatImportMessage {
+  role: ChatRole;
+  content: string;
+  error?: boolean;
+  created_at?: string;
+}
+
+export interface ChatConversationImport {
+  title?: string;
+  model_id?: string | null;
+  system?: string | null;
+  params?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+  messages?: ChatImportMessage[];
+}
+
+export interface ChatImportResult {
+  imported: number;
+  conversations: ChatConversationDetail[];
+}
+
 export interface ChatSendResult {
   job_id: string;
   conversation: ChatConversation;
@@ -167,4 +189,24 @@ export interface LlmConfig {
   loaded: boolean;
   model_id: string | null;
   defaults: { temperature: number; max_tokens: number };
+}
+
+export interface PresetImportItem {
+  name: string;
+  type: JobType;
+  params: Record<string, unknown>;
+}
+
+export interface PresetImportResult {
+  imported: number;
+  skipped: number;
+  presets: Preset[];
+}
+
+export interface Note {
+  id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
 }
