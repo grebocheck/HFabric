@@ -395,9 +395,10 @@ P3/UX notes:
   that auto-expands with a spinner while reasoning streams, then auto-collapses
   once the answer begins. *Remaining:* gpt-oss Harmony `analysis`-channel parsing
   (needs confirming how llama.cpp surfaces it) for models that don't use `<think>`.
-- [ ] **P5.C2 — Composer ergonomics.** Auto-growing textarea, a live context/token
-  meter, streaming caret + stop affordance, and a typing/"model is generating"
-  state. Quick chips to switch model/persona inline without opening Settings.
+- [x] **P5.C2 — Composer ergonomics.** Live token/context meter, tok/s + TTFT
+  stats, Stop affordance and a busy/"generating" state were already in place; the
+  auto-growing composer textarea (caps at 200 px, then scrolls) was added
+  2026-06-04. *Remaining:* inline model/persona quick-switch chips.
 - [ ] **P5.C3 — Styled selectors.** Replace the native model/persona/preset
   `<select>`s with a styled dropdown (searchable, keyboard-navigable) showing
   per-model badges (family, quant, est-VRAM).

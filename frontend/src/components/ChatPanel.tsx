@@ -162,6 +162,7 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
 
   const activeJob = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   // streaming-stat trackers
   const sendStart = useRef(0);
@@ -191,6 +192,14 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  // auto-grow the composer up to a cap, then scroll inside it
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [input]);
 
   // --- live streaming + stats for the in-flight assistant message ---
   const onChatEvent = useCallback((e: BusEvent) => {
@@ -598,13 +607,14 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
 
         <div className="border-t border-white/10 p-3">
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            rows={3}
+            rows={2}
             placeholder={modelId ? "Message…  (Enter to send, Shift+Enter for newline)" : "no LLM model available"}
             disabled={!modelId}
-            className={`${field} resize-none`}
+            className={`${field} max-h-[200px] resize-none`}
           />
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-white/35">
