@@ -396,9 +396,9 @@ P3/UX notes:
   [ImageComposer.tsx](frontend/src/components/ImageComposer.tsx) with visual
   cards carrying the existing quant / est-VRAM / "slow" badges; LoRA picker with
   weight sliders and on/off toggles.
-- [ ] **P5.D2 — Prompt & size ergonomics.** Aspect-ratio quick buttons
-  (respecting the 768² FLUX.2 pin from P3), prompt history recall, and a styled
-  sampler/steps/guidance control group.
+- [x] **P5.D2 — Prompt & size ergonomics.** Aspect-ratio quick buttons
+  (respecting the 768² FLUX.2 pin from P3) and a styled sampler/steps/guidance
+  control group shipped 2026-06-04. *Remaining:* prompt-history recall.
 - [ ] **P5.D3 — Reusable control kit.** Factor the styled `Select`, `Slider`,
   `Toggle`, `Badge`, and `Toast` into a small shared component set so the other
   tabs (RAG, Vision, TTS, Transcribe, Code) inherit the same look — they
@@ -411,6 +411,82 @@ P5 design constraints:
   entry in the `workspaces` array; the control kit (P5.D3) plugs into that.
 - Accessibility: every restyled control keeps keyboard operability and a focus
   ring; respect `prefers-reduced-motion` for all P5.B animations.
+
+P5 progress (2026-06-04):
+- Shared dark **`Select`** ([frontend/src/components/Select.tsx](frontend/src/components/Select.tsx))
+  shipped — keyboard-navigable, badge hints (quant/est-VRAM). It is the start of
+  the P5.D3 control kit and replaces the native `<select>`s in the Image tab
+  (model / LoRA / preset). *Remaining for C3/D3:* apply it to the LLM personas
+  and the RAG/Vision/TTS/Transcribe tabs, and add `Slider`/`Toggle`/`Toast`/`Badge`.
+- P5.D1 is still a dropdown (with badges), not yet visual cards.
+- P5.A/P5.B (brand mark, design tokens, activity indicator, denoise animation,
+  skeletons, toasts) and P5.C (thinking panel, composer ergonomics) are still open.
+
+### Shipped 2026-06-04 — Images page rebuild + queue/RAM reliability
+
+Out of the P5 effort plus user feedback, the Images workspace was rebuilt and a
+few reliability bugs were fixed (committed to `main`):
+
+- [x] **Images page relayout.** Two-column `composer | (result + queue)`: a wider
+  composer, a compact **`ResultPreview`** card, and a dedicated **History** tab
+  ([Gallery](frontend/src/components/Gallery.tsx)) for full browsing + metadata.
+- [x] **Scroll/visibility fix.** Added `min-h-0` through the flex/grid chain so the
+  composer scrolls and the **Queue** button stays pinned and visible (it had been
+  pushed off-screen).
+- [x] **Robust lightbox.** `vh/vw` absolute-centered image (was blank under the
+  old `max-h-full` flex layout). Verified the `/file` endpoint serves real PNGs.
+- [x] **Composer persistence.** Model/params/LoRA/preset persist to
+  `localStorage` (`hfabric.image.composer`) so switching tabs no longer resets them.
+- [x] **Cancel running jobs.** `GenerationCancelled` + `request_stop` threaded
+  through backend/arbiter/worker; a **Stop** button in the queue aborts the
+  in-flight LLM stream or diffusion denoise (best-effort, marks the job cancelled).
+- [x] **FLUX.2 RAM guard fix.** The bnb estimate was ~16 GB vs a measured ~9.8 GB
+  peak, causing false pre-load refusals; retuned to ~0.3× the repo + margin.
+- [x] **Startup hygiene.** Quieted transient vite proxy errors during backend boot;
+  `run.ps1` now frees the embeddings port and sweeps stray `llama-*` children.
+
+### P6 — Real-time voice changer (new)
+
+> The user wants **real-time voice conversion** (mic → target voice → output)
+> and notes the gap is the *interface* — existing tools (RVC GUIs, w-okada) work
+> but the UX is rough. Our differentiator is a clean, integrated control surface
+> in the same superapp shell. This is the most research-y feature on the roadmap:
+> latency, dropout-free buffering, and voice quality must be **measured**, so it
+> is staged offline-first, like the TTS/Vision/Transcribe tabs were.
+
+**Architecture reality (read first):**
+- The low-latency **duplex audio loop must live in the backend** (Python +
+  WASAPI via `sounddevice`/`pyaudio`). A browser cannot do reliable low-latency
+  capture+playback or feed a virtual audio device. The React UI only sends
+  control/params and shows levels/status over the existing WebSocket.
+- A live session **pins the GPU**. RVC-class models are small (~100–300 MB) and
+  run comfortably, but realtime conversion holds VRAM continuously — it needs a
+  dedicated low-VRAM **voice lane** coordinated with the arbiter (pause/refuse
+  heavy image/LLM jobs while a session is live), plus a CPU fallback.
+
+- [ ] **P6.1 — Voice-model management + offline conversion.** Mirror the
+  TTS/Vision pattern: scan `models/voice` (RVC `.pth` + `.index`, or seed-vc),
+  add a **Voice** tab shell and `/api/voice/*`, and do **file → file** conversion
+  first to validate the model/quality path end-to-end. Model-gated, CPU/GPU
+  configurable. *Lowest risk; do this before any realtime work.*
+- [ ] **P6.2 — Real-time streaming engine.** Backend duplex worker: rolling input
+  buffer → conversion model → crossfaded output, targeting **< ~150 ms** round
+  trip. Enumerate input/output devices; expose start/stop + live params over
+  `/api/voice/*` and the WebSocket. Measure latency and dropouts honestly.
+- [ ] **P6.3 — Output routing into other apps.** Detect a virtual audio cable
+  (VB-CABLE / VoiceMeeter) as an output so the converted voice appears as a
+  "microphone" in Discord/OBS/games. Document the one-time virtual-cable install.
+- [ ] **P6.4 — The UI (the differentiator).** Styled device pickers (reuse the
+  P5 `Select`), live input/output **VU meters**, pitch/formant sliders,
+  latency↔quality presets, a **bypass / push-to-talk hotkey**, and a
+  waveform/spectrogram monitor — the polish that existing voice changers lack.
+
+P6 constraints:
+- Engine choice is open: wrap an existing realtime VC core (e.g. w-okada-style
+  RVC, or seed-vc for zero-shot/low-latency) rather than reinventing inference;
+  our scope is the integration + UI, not a new model.
+- Respect ROADMAP objective #1 (no pagefile thrash): the voice lane has its own
+  small RAM/VRAM budget checked by the same `sysmon` guard before a session starts.
 
 ---
 
