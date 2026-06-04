@@ -34,6 +34,14 @@ from .deps import get_bus, get_registry, get_session, get_worker
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+IMAGE_TOOL_SYSTEM = (
+    "You can call one local tool when the user wants an image generated. "
+    "If an image should be generated, reply with only this JSON object and no markdown: "
+    '{"tool":"generate_image","prompt":"detailed image prompt","negative":"","steps":12,'
+    '"width":768,"height":768}. '
+    "Use the tool only when generation is useful; otherwise answer normally."
+)
+
 
 def _require_job_type(registry: ModelRegistry, model_id: str, job_type: JobType) -> None:
     try:
@@ -170,6 +178,10 @@ async def send_message(
     if not body.content.strip():
         raise HTTPException(400, "message content is empty")
     _require_job_type(registry, body.model_id, JobType.LLM)
+    if body.image_tool:
+        if not body.image_model_id:
+            raise HTTPException(400, "image_model_id is required when image_tool is enabled")
+        _require_job_type(registry, body.image_model_id, JobType.IMAGE)
 
     # persist the user turn; auto-title a fresh conversation from it
     user_msg = await chat_service.add_message(session, conv_id, role="user", content=body.content)
@@ -182,6 +194,8 @@ async def send_message(
     system = (body.system or conv.system or "").strip()
     if system:
         msgs.append({"role": "system", "content": system})
+    if body.image_tool:
+        msgs.append({"role": "system", "content": IMAGE_TOOL_SYSTEM})
     msgs.extend({"role": m.role, "content": m.content} for m in history)
 
     # empty assistant message the worker will fill in as it streams
@@ -199,6 +213,12 @@ async def send_message(
         value = getattr(body, key)
         if value is not None:
             params[key] = value
+    if body.image_tool:
+        params["image_tool"] = {
+            "model_id": body.image_model_id,
+            "conversation_id": conv_id,
+            "assistant_message_id": assistant_msg.id,
+        }
 
     job = await queue_service.create_job(
         session, JobCreate(type=JobType.LLM, model_id=body.model_id, params=params)
@@ -213,6 +233,7 @@ async def send_message(
         "temperature": body.temperature,
         "max_tokens": body.max_tokens,
         **{k: getattr(body, k) for k in ("top_p", "top_k", "min_p", "repeat_penalty", "stop") if getattr(body, k) is not None},
+        **({"image_tool": True, "image_model_id": body.image_model_id} if body.image_tool else {}),
     }
     await chat_service.touch(session, conv_id)
     await session.commit()

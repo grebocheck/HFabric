@@ -181,6 +181,8 @@ export interface ChatSendBody {
   repeat_penalty?: number;
   seed?: number;
   stop?: string[];
+  image_tool?: boolean;
+  image_model_id?: string;
 }
 
 export interface LlmConfig {

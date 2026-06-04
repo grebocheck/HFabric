@@ -43,11 +43,14 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
 
 ## Phase C3 — Power features
 
-- [x] **C3.3 / C3.4 (partial) — chat→image bridge.** `/image <prompt>` in chat
-  queues an image job on the shared arbiter; the worker writes the result back
-  into the assistant message as markdown so it renders inline and persists.
-  Shipped 2026-06-04. *(Next: true model-driven function-calling so the model can
-  decide to call `generate_image` itself, plus more slash-commands.)*
+- [x] **C3.3 — chat→image bridge.** `/image <prompt>` in chat queues an image
+  job on the shared arbiter; the worker writes the result back into the
+  assistant message as markdown so it renders inline and persists. Shipped
+  2026-06-04.
+- [x] **C3.4 — model-driven `generate_image` tool.** Chat can enable an Image
+  tool; when the LLM replies with a structured `generate_image` call, the worker
+  queues the child image job on the same arbiter and streams the result back into
+  the conversation. Shipped 2026-06-04.
 - [ ] **C3.1 Vision (multimodal).** We already ship `llama-mtmd`/`llava` binaries
   — wire image attachments (paste/drop) to a multimodal GGUF so you can chat
   about images. *(Needs a multimodal GGUF downloaded.)*

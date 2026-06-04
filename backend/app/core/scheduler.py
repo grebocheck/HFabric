@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -23,6 +25,14 @@ from ..db.session import session_scope
 from .arbiter import GpuArbiter
 from .enums import EventType, JobStatus, JobType
 from .events import Event, EventBus
+
+
+def _coerce_int(value: Any, default: int, *, min_value: int, max_value: int) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(min_value, min(max_value, n))
 
 
 @dataclass
@@ -204,17 +214,105 @@ class Worker:
         await self._bus.publish(done)
 
     async def _finish_llm(self, snap: JobSnapshot, text: str) -> None:
+        tool_call = self._parse_image_tool_call(text, snap)
+        child_job_id: str | None = None
+        child_text: str | None = None
         async with session_scope() as s:
             job = await s.get(Job, snap.id)
             if job:
                 job.status = JobStatus.DONE
                 job.progress = 1.0
-                job.result = {"text": text}
                 job.finished_at = datetime.now(timezone.utc)
-            await self._write_chat_reply(s, snap, text)
+            if tool_call:
+                image_job = Job(
+                    type=JobType.IMAGE,
+                    model_id=tool_call["model_id"],
+                    params=tool_call["params"],
+                    priority=0,
+                    status=JobStatus.QUEUED,
+                )
+                s.add(image_job)
+                await s.flush()
+                child_job_id = image_job.id
+                child_text = f"*generating image...*\n\n`{tool_call['params']['prompt']}`"
+                if job:
+                    job.result = {"text": text, "tool_call": tool_call["public"], "child_job_id": child_job_id}
+                await self._write_chat_reply(s, snap, child_text)
+            else:
+                if job:
+                    job.result = {"text": text}
+                await self._write_chat_reply(s, snap, text)
+        if child_job_id:
+            await self._bus.publish(Event(EventType.JOB_CREATED, job_id=child_job_id, job_type=JobType.IMAGE.value))
+            await self._bus.publish(Event(
+                EventType.JOB_DONE,
+                job_id=snap.id,
+                job_type=snap.type.value,
+                text=child_text,
+                tool_child_job_id=child_job_id,
+            ))
+            self.notify()
+            return
         await self._bus.publish(Event(
             EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value, text=text
         ))
+
+    def _parse_image_tool_call(self, text: str, snap: JobSnapshot) -> dict[str, Any] | None:
+        config = snap.params.get("image_tool")
+        if not isinstance(config, dict) or not config.get("model_id"):
+            return None
+        obj = self._extract_json_object(text)
+        if not isinstance(obj, dict):
+            return None
+        tool = obj.get("tool") or obj.get("name")
+        args = obj.get("arguments") if isinstance(obj.get("arguments"), dict) else obj
+        if tool != "generate_image" or not isinstance(args, dict):
+            return None
+        prompt = str(args.get("prompt") or "").strip()
+        if not prompt:
+            return None
+        image_params: dict[str, Any] = {
+            "prompt": prompt,
+            "assistant_message_id": config.get("assistant_message_id"),
+            "conversation_id": config.get("conversation_id"),
+            "source_llm_job_id": snap.id,
+        }
+        negative = str(args.get("negative") or "").strip()
+        if negative:
+            image_params["negative"] = negative
+        image_params["steps"] = _coerce_int(args.get("steps"), 12, min_value=1, max_value=80)
+        image_params["width"] = _coerce_int(args.get("width"), 768, min_value=256, max_value=2048)
+        image_params["height"] = _coerce_int(args.get("height"), 768, min_value=256, max_value=2048)
+        if args.get("seed") is not None:
+            image_params["seed"] = _coerce_int(args.get("seed"), -1, min_value=-1, max_value=2_147_483_647)
+        image_params["tool_call"] = "generate_image"
+        public = {
+            "tool": "generate_image",
+            "prompt": prompt,
+            "negative": negative,
+            "steps": image_params["steps"],
+            "width": image_params["width"],
+            "height": image_params["height"],
+        }
+        return {"model_id": str(config["model_id"]), "params": image_params, "public": public}
+
+    @staticmethod
+    def _extract_json_object(text: str) -> dict[str, Any] | None:
+        cleaned = text.strip()
+        fenced = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", cleaned, re.IGNORECASE)
+        if fenced:
+            cleaned = fenced.group(1).strip()
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(cleaned):
+            if ch != "{":
+                continue
+            try:
+                obj, _ = decoder.raw_decode(cleaned[i:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                return obj
+        return None
 
     async def _fail(self, snap: JobSnapshot, error: str) -> None:
         async with session_scope() as s:
@@ -223,7 +321,7 @@ class Worker:
                 job.status = JobStatus.ERROR
                 job.error = error
                 job.finished_at = datetime.now(timezone.utc)
-            if snap.type is JobType.LLM:
+            if snap.params.get("assistant_message_id"):
                 await self._write_chat_reply(s, snap, error, error=True)
         await self._bus.publish(Event(EventType.JOB_ERROR, job_id=snap.id, error=error))
 

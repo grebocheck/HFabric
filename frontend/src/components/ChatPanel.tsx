@@ -143,6 +143,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
   const [repeatPenalty, setRepeatPenalty] = useState<NumOrEmpty>("");
   const [seed, setSeed] = useState<NumOrEmpty>("");
   const [stop, setStop] = useState("");
+  const [imageTool, setImageTool] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // personas (stored as llm presets)
@@ -195,6 +196,13 @@ export function ChatPanel({ models }: { models: Model[] }) {
       tokCount.current += 1;
       setMessages((p) => appendToLastAssistant(p, e.token as string));
     } else if (e.type === "job.done") {
+      const childJob = typeof e.tool_child_job_id === "string" ? e.tool_child_job_id : null;
+      if (childJob) {
+        activeJob.current = childJob;
+        setBusy(true);
+        if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
+        return;
+      }
       activeJob.current = null;
       setBusy(false);
       if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
@@ -235,6 +243,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
       setMinP(typeof pr.min_p === "number" ? pr.min_p : "");
       setRepeatPenalty(typeof pr.repeat_penalty === "number" ? pr.repeat_penalty : "");
       setStop(Array.isArray(pr.stop) ? (pr.stop as string[]).join(", ") : "");
+      setImageTool(Boolean(pr.image_tool));
     } catch {
       setMessages([]);
     }
@@ -281,7 +290,13 @@ export function ChatPanel({ models }: { models: Model[] }) {
     tokCount.current = 0;
     setMessages((p) => [...p, { id: "tmp-u", role: "user", content }, { id: "tmp-a", role: "assistant", content: "" }]);
     try {
-      const res = await api.sendChatMessage(convId, { content, model_id: mdl, ...sampling() });
+      const img = imageTool ? pickImageModel(models) : undefined;
+      const res = await api.sendChatMessage(convId, {
+        content,
+        model_id: mdl,
+        ...sampling(),
+        ...(imageTool && img ? { image_tool: true, image_model_id: img.id } : {}),
+      });
       activeJob.current = res.job_id;
       setMessages((p) => p.map((m) =>
         m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
@@ -292,7 +307,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
       setBusy(false);
       setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
     }
-  }, [modelId, llmModels, sampling]);
+  }, [imageTool, modelId, llmModels, models, sampling]);
 
   const submitImage = useCallback(async (prompt: string, convId: string) => {
     const img = pickImageModel(models);
@@ -575,6 +590,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
             <span className="text-xs text-white/35">
               ~{approxTokens} / {cfg?.ctx ?? "?"} tokens
               <span className="ml-2 text-white/25">· /image &lt;prompt&gt; to generate</span>
+              {imageTool && <span className="ml-2 text-white/25">· image tool on</span>}
               {stats && <span className="ml-2 text-white/30">· {stats.tps.toFixed(1)} tok/s · TTFT {Math.round(stats.ttft)}ms</span>}
             </span>
             <div className="flex items-center gap-2">
@@ -648,6 +664,20 @@ export function ChatPanel({ models }: { models: Model[] }) {
             {llmModels.length === 0 && <option value="">no LLM models</option>}
             {llmModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
+        </label>
+
+        <label className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+          <span>
+            <span className="block text-sm font-medium text-white/70">Image tool</span>
+            <span className="block text-xs text-white/35">{pickImageModel(models)?.name ?? "no image model"}</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={imageTool}
+            disabled={!pickImageModel(models)}
+            onChange={(e) => setImageTool(e.target.checked)}
+            className="h-4 w-4 accent-emerald-500"
+          />
         </label>
 
         <div>

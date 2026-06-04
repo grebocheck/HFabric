@@ -165,6 +165,8 @@ class ChatSend(BaseModel):
     repeat_penalty: float | None = None
     seed: int | None = None
     stop: list[str] | None = None
+    image_tool: bool = False
+    image_model_id: str | None = None
 
 
 class ChatSendOut(BaseModel):
