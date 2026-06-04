@@ -14,6 +14,7 @@ import { ResultPreview } from "./components/ResultPreview";
 import { RagPanel } from "./components/RagPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SystemPanel } from "./components/SystemPanel";
+import { toast, ToastHost } from "./components/Toast";
 import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VisionPanel } from "./components/VisionPanel";
@@ -79,12 +80,18 @@ export default function App() {
         case "job.created":
         case "job.started":
         case "job.cancelled":
+          refreshJobs();
+          break;
         case "job.error":
           refreshJobs();
+          toast.error(`Job failed${typeof e.error === "string" && e.error ? `: ${e.error}` : ""}`);
           break;
         case "job.done":
           refreshJobs();
-          if (e.job_type === "image") refreshImages();
+          if (e.job_type === "image") {
+            refreshImages();
+            toast.success("Image ready", { onClick: () => setView("history") });
+          }
           break;
         case "image.ready":
           refreshImages();
@@ -123,6 +130,7 @@ export default function App() {
   }, []);
 
   const imageJobs = jobs.filter((j) => j.type === "image");
+  const busy = jobs.some((j) => j.status === "running");
 
   // --- workspace registry: the single source for tabs + main rendering ---
   const workspaces: Workspace[] = [
@@ -253,6 +261,7 @@ export default function App() {
       <ModelStatus
         gpu={gpu}
         connected={connected}
+        busy={busy}
         view={view}
         tabs={workspaces.map(({ id, label }) => ({ id, label }))}
         onView={setView}
@@ -265,6 +274,7 @@ export default function App() {
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
+      <ToastHost />
     </div>
   );
 }

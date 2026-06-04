@@ -13,6 +13,7 @@ const familyColor: Record<string, string> = {
 export function ModelStatus({
   gpu,
   connected,
+  busy,
   view,
   tabs,
   onView,
@@ -22,6 +23,7 @@ export function ModelStatus({
 }: {
   gpu: GpuStatus;
   connected: boolean;
+  busy: boolean;
   view: View;
   tabs: { id: View; label: string }[];
   onView: (v: View) => void;
@@ -35,10 +37,17 @@ export function ModelStatus({
         <div className="flex shrink-0 items-center gap-2">
           <Logo className="h-7 w-7" />
           <span className="text-lg font-semibold tracking-tight">HFabric</span>
-          <span
-            className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-red-500"}`}
-            title={connected ? "connected" : "disconnected"}
-          />
+          {busy ? (
+            <svg className="h-3.5 w-3.5 animate-spin text-accent" viewBox="0 0 24 24" fill="none" aria-label="working">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <span
+              className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-red-500"}`}
+              title={connected ? "connected" : "disconnected"}
+            />
+          )}
         </div>
 
         <nav className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-white/10 bg-black/20 p-1">
