@@ -10,6 +10,7 @@ import { NotesPanel } from "./components/NotesPanel";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SystemPanel } from "./components/SystemPanel";
+import { TtsPanel } from "./components/TtsPanel";
 import type { BusEvent, GpuStatus, ImageItem, Job, Lora, MemSnapshot, Model, Preset } from "./types";
 
 // A workspace is one top-level tab. Adding a tab = one entry here (label drives
@@ -146,6 +147,15 @@ export default function App() {
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
           <NotesPanel />
+        </main>
+      ),
+    },
+    {
+      id: "tts",
+      label: "TTS",
+      render: () => (
+        <main className="flex-1 overflow-hidden p-4">
+          <TtsPanel />
         </main>
       ),
     },

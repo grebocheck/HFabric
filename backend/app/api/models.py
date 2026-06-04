@@ -60,9 +60,11 @@ async def runtime_settings(
             "image_models_dir": str(settings.image_models_dir),
             "lora_models_dir": str(settings.lora_models_dir),
             "llm_models_dir": str(settings.llm_models_dir),
+            "tts_models_dir": str(settings.tts_models_dir),
             "outputs_dir": str(settings.outputs_dir),
             "db_path": str(settings.db_path),
             "llama_server_bin": str(settings.llama_server_bin),
+            "llama_tts_bin": str(settings.llama_tts_bin),
         },
         "memory": {
             "min_free_ram_gb": settings.min_free_ram_gb,

@@ -40,11 +40,12 @@ class Settings(BaseSettings):
     # Project default: all local model weights and multi-file model repos live
     # under ROOT/models so scans never depend on an unclear external location.
     # Env overrides remain available for development, but the documented default
-    # layout is models/image, models/lora, and models/llm.
+    # layout is models/image, models/lora, models/llm, and models/tts.
     root: Path = ROOT
     image_models_dir: Path = ROOT / "models" / "image"
     llm_models_dir: Path = ROOT / "models" / "llm"
     lora_models_dir: Path = ROOT / "models" / "lora"
+    tts_models_dir: Path = ROOT / "models" / "tts"
     data_dir: Path = ROOT / "data"
     outputs_dir: Path = ROOT / "data" / "outputs"
     db_path: Path = ROOT / "data" / "imagefabric.db"
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
     # --- llama.cpp ---
     # Path to a CUDA(sm_120) `llama-server` binary. Used in real (non-stub) mode.
     llama_server_bin: Path = ROOT / "bin" / "llama" / "llama-server.exe"
+    llama_tts_bin: Path = ROOT / "bin" / "llama" / "llama-tts.exe"
     llama_host: str = "127.0.0.1"
     llama_port: int = 8261
     # Default launch knobs (tunable per-model later). 999 = offload all layers.
@@ -133,7 +135,14 @@ class Settings(BaseSettings):
         return f"sqlite+aiosqlite:///{self.db_path.as_posix()}"
 
     def ensure_dirs(self) -> None:
-        for d in (self.data_dir, self.outputs_dir, self.lora_models_dir):
+        for d in (
+            self.data_dir,
+            self.outputs_dir,
+            self.image_models_dir,
+            self.lora_models_dir,
+            self.llm_models_dir,
+            self.tts_models_dir,
+        ):
             d.mkdir(parents=True, exist_ok=True)
 
 

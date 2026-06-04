@@ -212,3 +212,18 @@ export interface Note {
   created_at: string;
   updated_at: string;
 }
+
+export interface TtsModel {
+  id: string;
+  name: string;
+  path: string;
+  size_bytes: number;
+}
+
+export interface TtsStatus {
+  binary: string;
+  binary_exists: boolean;
+  models_dir: string;
+  models: TtsModel[];
+  ready: boolean;
+}

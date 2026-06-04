@@ -8,7 +8,8 @@ app has one predictable place to scan and validate.
 models/
 |- image/   *.safetensors or model folders (FLUX, FLUX.2 klein, SDXL, ...)
 |- lora/    *.safetensors/.pt/.bin        (SDXL/FLUX LoRA adapters)
-`- llm/     *.gguf                        (llama.cpp GGUF models)
+|- llm/     *.gguf                        (llama.cpp GGUF models)
+`- tts/     *.gguf                        (llama-tts voice/acoustic models)
 ```
 
 The backend scans these folders on startup:
@@ -19,6 +20,7 @@ The backend scans these folders on startup:
 | `image/<repo>/` | `model_index.json` | `flux2` |
 | `lora/` | `.safetensors`, `.pt`, `.bin` | `flux`, `sdxl`, or unknown |
 | `llm/` | `.gguf` | `gguf` (llama.cpp) |
+| `tts/` | `.gguf` | TTS models for `llama-tts` |
 
 FLUX.2 klein is a multi-file diffusers repo, not a single `.safetensors`; put the
 downloaded folder under `models/image/`, for example:
@@ -28,5 +30,5 @@ huggingface-cli download black-forest-labs/FLUX.2-klein-9B --local-dir models/im
 ```
 
 Environment variables like `IMGFAB_IMAGE_MODELS_DIR`, `IMGFAB_LORA_MODELS_DIR`,
-and `IMGFAB_LLM_MODELS_DIR` exist for development, but the project default is to
-keep model storage inside `models/`.
+`IMGFAB_LLM_MODELS_DIR`, and `IMGFAB_TTS_MODELS_DIR` exist for development, but
+the project default is to keep model storage inside `models/`.

@@ -72,8 +72,12 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
   commands, and the main render. Adding a tab is one entry. Shipped 2026-06-04.
 - [x] **C4.2 Notes/Scratch tab.** Persistent notes with search, autosave,
   create/delete, and a workspace-registry tab. Shipped 2026-06-04.
-- [ ] **C4.2 more tabs** (binaries already present): **TTS** (`llama-tts`),
-  transcription (whisper), code assistant.
+- [x] **C4.2 TTS readiness tab.** The app now has a TTS workspace that detects
+  `llama-tts.exe`, scans `models/tts` for local `.gguf` models, and keeps
+  generation disabled until a model exists. Shipped 2026-06-04.
+- [ ] **C4.2 more tabs** (binaries already present): transcription (whisper),
+  code assistant, and actual TTS generation once a local `models/tts/*.gguf`
+  model is installed.
 - [x] **C4.4 Import** of conversations/presets/personas. JSON bundles can
   restore conversations with messages plus image/LLM presets; persona presets
   are covered because they are stored as `llm` presets. Shipped 2026-06-04.
