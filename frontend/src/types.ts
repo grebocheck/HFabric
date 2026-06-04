@@ -135,7 +135,11 @@ export interface ChatSendBody {
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
+  top_k?: number;
+  min_p?: number;
   repeat_penalty?: number;
+  seed?: number;
+  stop?: string[];
 }
 
 export interface LlmConfig {

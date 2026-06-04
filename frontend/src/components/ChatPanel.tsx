@@ -1,22 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useEvents } from "../api/useEvents";
-import type { BusEvent, ChatConversation, ChatMessage, LlmConfig, Model } from "../types";
+import type { BusEvent, ChatConversation, ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
 import { Markdown } from "./Markdown";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
+const numField = "w-full rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs outline-none focus:border-emerald-500";
 const label = "text-xs uppercase tracking-wide text-white/40";
 const DEFAULTS_KEY = "imgfab.chat.defaults";
 
-type Defaults = { model_id: string; temperature: number; max_tokens: number };
+type NumOrEmpty = number | "";
+type Stats = { tokens: number; tps: number; ttft: number };
 
-function loadDefaults(): Partial<Defaults> {
+function loadDefaults(): { model_id?: string; temperature?: number; max_tokens?: number } {
   try {
     return JSON.parse(localStorage.getItem(DEFAULTS_KEY) ?? "{}");
   } catch {
     return {};
   }
 }
+
+const numOrUndef = (v: NumOrEmpty): number | undefined => (v === "" ? undefined : Number(v));
+const parseStop = (s: string): string[] | undefined => {
+  const items = s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+  return items.length ? items : undefined;
+};
 
 export function ChatPanel({ models }: { models: Model[] }) {
   const llmModels = models.filter((m) => m.job_type === "llm");
@@ -29,11 +37,26 @@ export function ChatPanel({ models }: { models: Model[] }) {
   const [input, setInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [stats, setStats] = useState<Stats | null>(null);
 
+  // settings (per conversation)
   const [modelId, setModelId] = useState(saved.model_id ?? "");
   const [system, setSystem] = useState("");
   const [temperature, setTemperature] = useState(saved.temperature ?? 0.8);
   const [maxTokens, setMaxTokens] = useState(saved.max_tokens ?? 512);
+  // advanced sampling ("" = unset -> use model default)
+  const [topP, setTopP] = useState<NumOrEmpty>("");
+  const [topK, setTopK] = useState<NumOrEmpty>("");
+  const [minP, setMinP] = useState<NumOrEmpty>("");
+  const [repeatPenalty, setRepeatPenalty] = useState<NumOrEmpty>("");
+  const [seed, setSeed] = useState<NumOrEmpty>("");
+  const [stop, setStop] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // personas (stored as llm presets)
+  const [personas, setPersonas] = useState<Preset[]>([]);
+  const [personaId, setPersonaId] = useState("");
+  const [personaName, setPersonaName] = useState("");
 
   const [cfg, setCfg] = useState<LlmConfig | null>(null);
   const [ctxDraft, setCtxDraft] = useState<number | null>(null);
@@ -41,13 +64,22 @@ export function ChatPanel({ models }: { models: Model[] }) {
 
   const activeJob = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // streaming-stat trackers
+  const sendStart = useRef(0);
+  const firstAt = useRef<number | null>(null);
+  const tokCount = useRef(0);
 
   const refreshConvs = useCallback(() => api.listConversations().then(setConvs).catch(() => {}), []);
+  const refreshPersonas = useCallback(
+    () => api.listPresets().then((p) => setPersonas(p.filter((x) => x.type === "llm"))).catch(() => {}),
+    [],
+  );
 
   useEffect(() => {
     refreshConvs();
+    refreshPersonas();
     api.getLlmConfig().then((c) => { setCfg(c); setCtxDraft((p) => p ?? c.ctx); }).catch(() => {});
-  }, [refreshConvs]);
+  }, [refreshConvs, refreshPersonas]);
 
   useEffect(() => {
     if (!modelId && llmModels[0]) setModelId(llmModels[0].id);
@@ -61,15 +93,21 @@ export function ChatPanel({ models }: { models: Model[] }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  // --- live streaming for the in-flight assistant message ---
+  // --- live streaming + stats for the in-flight assistant message ---
   const onChatEvent = useCallback((e: BusEvent) => {
     if (e.job_id !== activeJob.current) return;
     if (e.type === "llm.token") {
+      if (firstAt.current === null) firstAt.current = Date.now();
+      tokCount.current += 1;
       setMessages((p) => appendToLastAssistant(p, e.token as string));
     } else if (e.type === "job.done") {
       activeJob.current = null;
       setBusy(false);
       if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
+      if (firstAt.current && tokCount.current > 0) {
+        const secs = Math.max(0.001, (Date.now() - firstAt.current) / 1000);
+        setStats({ tokens: tokCount.current, tps: tokCount.current / secs, ttft: firstAt.current - sendStart.current });
+      }
       refreshConvs();
     } else if (e.type === "job.error") {
       activeJob.current = null;
@@ -85,19 +123,25 @@ export function ChatPanel({ models }: { models: Model[] }) {
   const selectConversation = useCallback(async (id: string) => {
     setActiveId(id);
     setEditingId(null);
+    setStats(null);
     try {
       const d = await api.getConversation(id);
       setMessages(d.messages);
       if (d.model_id) setModelId(d.model_id);
       setSystem(d.system ?? "");
-      if (typeof d.params.temperature === "number") setTemperature(d.params.temperature);
-      if (typeof d.params.max_tokens === "number") setMaxTokens(d.params.max_tokens);
+      const pr = d.params ?? {};
+      if (typeof pr.temperature === "number") setTemperature(pr.temperature);
+      if (typeof pr.max_tokens === "number") setMaxTokens(pr.max_tokens);
+      setTopP(typeof pr.top_p === "number" ? pr.top_p : "");
+      setTopK(typeof pr.top_k === "number" ? pr.top_k : "");
+      setMinP(typeof pr.min_p === "number" ? pr.min_p : "");
+      setRepeatPenalty(typeof pr.repeat_penalty === "number" ? pr.repeat_penalty : "");
+      setStop(Array.isArray(pr.stop) ? (pr.stop as string[]).join(", ") : "");
     } catch {
       setMessages([]);
     }
   }, []);
 
-  // open the most recent conversation on first load
   useEffect(() => {
     if (!activeId && convs[0]) void selectConversation(convs[0].id);
   }, [convs, activeId, selectConversation]);
@@ -108,46 +152,49 @@ export function ChatPanel({ models }: { models: Model[] }) {
     setActiveId(c.id);
     setMessages([]);
     setEditingId(null);
+    setStats(null);
   }, [modelId, llmModels]);
 
   const deleteConversation = useCallback(async (id: string) => {
     await api.deleteConversation(id).catch(() => {});
     setConvs((p) => p.filter((c) => c.id !== id));
-    if (activeId === id) {
-      setActiveId(null);
-      setMessages([]);
-    }
+    if (activeId === id) { setActiveId(null); setMessages([]); }
   }, [activeId]);
 
-  // core send used by the composer, regenerate and edit
+  const sampling = useCallback((): Omit<ChatSendBody, "content" | "model_id"> => ({
+    system: system.trim() || undefined,
+    temperature,
+    max_tokens: maxTokens,
+    top_p: numOrUndef(topP),
+    top_k: numOrUndef(topK),
+    min_p: numOrUndef(minP),
+    repeat_penalty: numOrUndef(repeatPenalty),
+    seed: numOrUndef(seed),
+    stop: parseStop(stop),
+  }), [system, temperature, maxTokens, topP, topK, minP, repeatPenalty, seed, stop]);
+
   const submit = useCallback(async (content: string, convId: string) => {
     const mdl = modelId || llmModels[0]?.id;
     if (!mdl) return;
     setBusy(true);
-    setMessages((p) => [
-      ...p,
-      { id: "tmp-u", role: "user", content },
-      { id: "tmp-a", role: "assistant", content: "" },
-    ]);
+    setStats(null);
+    sendStart.current = Date.now();
+    firstAt.current = null;
+    tokCount.current = 0;
+    setMessages((p) => [...p, { id: "tmp-u", role: "user", content }, { id: "tmp-a", role: "assistant", content: "" }]);
     try {
-      const res = await api.sendChatMessage(convId, {
-        content, model_id: mdl, system: system.trim() || undefined,
-        temperature, max_tokens: maxTokens,
-      });
+      const res = await api.sendChatMessage(convId, { content, model_id: mdl, ...sampling() });
       activeJob.current = res.job_id;
       setMessages((p) => p.map((m) =>
         m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
       ));
-      setConvs((p) => {
-        const others = p.filter((c) => c.id !== res.conversation.id);
-        return [res.conversation, ...others];
-      });
+      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
     } catch (err) {
       activeJob.current = null;
       setBusy(false);
       setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
     }
-  }, [modelId, llmModels, system, temperature, maxTokens]);
+  }, [modelId, llmModels, sampling]);
 
   const send = useCallback(async () => {
     const content = input.trim();
@@ -163,7 +210,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
     await submit(content, cid);
   }, [input, busy, activeId, modelId, llmModels, submit]);
 
-  const stop = useCallback(async () => {
+  const stop_ = useCallback(async () => {
     await api.stopLlm().catch(() => {});
     if (activeJob.current) await api.cancelJob(activeJob.current).catch(() => {});
   }, []);
@@ -204,6 +251,46 @@ export function ChatPanel({ models }: { models: Model[] }) {
     } catch (err) {
       setCfgNote(err instanceof Error ? err.message : "could not update");
     }
+  };
+
+  // --- personas ---
+  const applyPersona = (id: string) => {
+    setPersonaId(id);
+    const p = personas.find((x) => x.id === id);
+    if (!p) return;
+    const pr = p.params ?? {};
+    setSystem(typeof pr.system === "string" ? pr.system : "");
+    if (typeof pr.temperature === "number") setTemperature(pr.temperature);
+    if (typeof pr.max_tokens === "number") setMaxTokens(pr.max_tokens);
+    setTopP(typeof pr.top_p === "number" ? pr.top_p : "");
+    setTopK(typeof pr.top_k === "number" ? pr.top_k : "");
+    setMinP(typeof pr.min_p === "number" ? pr.min_p : "");
+    setRepeatPenalty(typeof pr.repeat_penalty === "number" ? pr.repeat_penalty : "");
+    setStop(Array.isArray(pr.stop) ? (pr.stop as string[]).join(", ") : "");
+  };
+
+  const savePersona = async () => {
+    const name = personaName.trim();
+    if (!name) return;
+    const s = sampling();
+    await api.createPreset(name, "llm", {
+      system: system.trim(),
+      temperature, max_tokens: maxTokens,
+      ...(s.top_p !== undefined ? { top_p: s.top_p } : {}),
+      ...(s.top_k !== undefined ? { top_k: s.top_k } : {}),
+      ...(s.min_p !== undefined ? { min_p: s.min_p } : {}),
+      ...(s.repeat_penalty !== undefined ? { repeat_penalty: s.repeat_penalty } : {}),
+      ...(s.stop ? { stop: s.stop } : {}),
+    }).catch(() => {});
+    setPersonaName("");
+    refreshPersonas();
+  };
+
+  const deletePersona = async () => {
+    if (!personaId) return;
+    await api.deletePreset(personaId).catch(() => {});
+    setPersonaId("");
+    refreshPersonas();
   };
 
   const approxTokens = Math.ceil(
@@ -276,6 +363,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-white/35">
               ~{approxTokens} / {cfg?.ctx ?? "?"} tokens
+              {stats && <span className="ml-2 text-white/30">· {stats.tps.toFixed(1)} tok/s · TTFT {Math.round(stats.ttft)}ms</span>}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -286,7 +374,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
                 Regenerate
               </button>
               {busy ? (
-                <button onClick={() => void stop()} className="rounded-md border border-red-400/40 px-4 py-1.5 text-sm font-medium text-red-200 hover:bg-red-400/10">
+                <button onClick={() => void stop_()} className="rounded-md border border-red-400/40 px-4 py-1.5 text-sm font-medium text-red-200 hover:bg-red-400/10">
                   Stop
                 </button>
               ) : (
@@ -318,7 +406,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
         <div>
           <div className={label}>Context window (tokens)</div>
           <div className="mt-1 flex gap-2">
-            <input type="number" min={512} step={512} value={ctxDraft ?? ""} onChange={(e) => setCtxDraft(Number(e.target.value))} className={field} />
+            <input type="number" min={512} step={512} value={ctxDraft ?? ""} onChange={(e) => setCtxDraft(Number(e.target.value))} className={numField} />
             <button onClick={() => void applyCtx()} disabled={ctxDraft == null || ctxDraft === cfg?.ctx}
               className="shrink-0 rounded-md border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30">
               Apply
@@ -338,8 +426,51 @@ export function ChatPanel({ models }: { models: Model[] }) {
 
         <label>
           <div className={label}>Max tokens</div>
-          <input type="number" min={1} max={8192} step={64} value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} className={`${field} mt-1`} />
+          <input type="number" min={1} max={8192} step={64} value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} className={`${numField} mt-1`} />
         </label>
+
+        {/* advanced sampling */}
+        <div>
+          <button onClick={() => setShowAdvanced((v) => !v)} className="flex w-full items-center justify-between text-xs uppercase tracking-wide text-white/40 hover:text-white/70">
+            <span>Advanced sampling</span>
+            <span>{showAdvanced ? "▾" : "▸"}</span>
+          </button>
+          {showAdvanced && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <NumOpt label="top_p" v={topP} set={setTopP} step={0.05} />
+              <NumOpt label="top_k" v={topK} set={setTopK} step={1} />
+              <NumOpt label="min_p" v={minP} set={setMinP} step={0.01} />
+              <NumOpt label="repeat_pen" v={repeatPenalty} set={setRepeatPenalty} step={0.05} />
+              <NumOpt label="seed" v={seed} set={setSeed} step={1} />
+              <label className="col-span-2">
+                <div className={label}>stop (comma-sep)</div>
+                <input value={stop} onChange={(e) => setStop(e.target.value)} placeholder="empty = none" className={`${numField} mt-1`} />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* persona */}
+        <div>
+          <div className={label}>Persona</div>
+          <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
+            <select value={personaId} onChange={(e) => applyPersona(e.target.value)} className={numField}>
+              <option value="">— none —</option>
+              {personas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button onClick={() => void deletePersona()} disabled={!personaId}
+              className="rounded-md border border-red-400/25 px-2 py-1 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-30">
+              Del
+            </button>
+          </div>
+          <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
+            <input value={personaName} onChange={(e) => setPersonaName(e.target.value)} placeholder="save current as…" className={numField} />
+            <button onClick={() => void savePersona()} disabled={!personaName.trim()}
+              className="rounded-md border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30">
+              Save
+            </button>
+          </div>
+        </div>
 
         <label className="flex min-h-0 flex-1 flex-col">
           <div className={label}>System prompt</div>
@@ -352,6 +483,22 @@ export function ChatPanel({ models }: { models: Model[] }) {
         </label>
       </aside>
     </div>
+  );
+}
+
+function NumOpt({ label: l, v, set, step }: { label: string; v: NumOrEmpty; set: (n: NumOrEmpty) => void; step: number }) {
+  return (
+    <label>
+      <div className={label}>{l}</div>
+      <input
+        type="number"
+        step={step}
+        value={v}
+        onChange={(e) => set(e.target.value === "" ? "" : Number(e.target.value))}
+        placeholder="default"
+        className={`${numField} mt-1`}
+      />
+    </label>
   );
 }
 
@@ -378,12 +525,7 @@ function Bubble({
     return (
       <div className="flex justify-end">
         <div className="w-[80%]">
-          <textarea
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            rows={3}
-            className={`${field} resize-none`}
-          />
+          <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={3} className={`${field} resize-none`} />
           <div className="mt-1 flex justify-end gap-2">
             <button onClick={onCancelEdit} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10">Cancel</button>
             <button onClick={onSaveEdit} className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium hover:bg-emerald-500">Save &amp; resend</button>

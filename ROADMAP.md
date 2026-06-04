@@ -182,8 +182,11 @@ P3 implementation notes:
 - [x] **P4.1 — Chat C1 (real chat tab).** Persistent conversations, sidebar,
   markdown + code blocks with copy, stop/regenerate/edit, per-conversation model
   settings, context meter. Shipped 2026-06-04.
-- [ ] **P4.2 — Chat C2+ (sampling UI, personas, vision, RAG, tools, superapp
-  shell).** Per the phased plan: [docs/chat-plan.md](docs/chat-plan.md).
+- [x] **P4.2 — Chat C2 (sampling + personas + stats).** Full sampling controls
+  (top_p/top_k/min_p/repeat_penalty/seed/stop), persona presets, and client-side
+  tokens/sec + TTFT. Shipped 2026-06-04.
+- [ ] **P4.3 — Chat C3+ (vision, RAG, tools/image-bridge, superapp shell).**
+  Per the phased plan: [docs/chat-plan.md](docs/chat-plan.md).
 
 P3/UX notes:
 - Gallery reworked: the just-generated image is shown large in **full

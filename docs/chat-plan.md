@@ -31,16 +31,15 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
   (truncate-from + resend).
 - [x] **C1.5 Context meter.** Live `~tokens / n_ctx` readout in the composer.
 
-## Phase C2 — Model & sampling control
+## Phase C2 — Model & sampling control ✅ SHIPPED 2026-06-04
 
-- **C2.1 Per-conversation settings**, persisted: model, system prompt,
-  temperature, top_p, top_k, min_p, repeat_penalty, max_tokens, seed, stop
-  sequences. (llama-server's `/v1/chat/completions` accepts all of these — just
-  pass them through `complete()`.)
-- **C2.2 System-prompt / persona presets** library (reuse the presets table with
-  a `chat` type), one-click apply.
-- **C2.3 Streaming stats.** tokens/sec + time-to-first-token from llama-server
-  `timings`, shown under each reply.
+- [x] **C2.1 Per-conversation sampling**, persisted: model, system, temperature,
+  max_tokens, top_p, top_k, min_p, repeat_penalty, stop (seed sent per-message,
+  not persisted). Passed straight through to llama-server.
+- [x] **C2.2 Persona presets** — save/apply/delete the current system + sampling
+  as a reusable persona (stored as `llm`-typed presets).
+- [x] **C2.3 Streaming stats** — tokens/sec + time-to-first-token shown in the
+  composer (measured client-side from the token stream).
 
 ## Phase C3 — Power features
 
