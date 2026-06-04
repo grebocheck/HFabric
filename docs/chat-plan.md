@@ -43,17 +43,17 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
 
 ## Phase C3 — Power features
 
-- **C3.1 Vision (multimodal).** We already ship `llama-mtmd`/`llava` binaries —
-  wire image attachments (paste/drop) to a multimodal GGUF so you can chat about
-  images. Bridges naturally with the Images tab.
-- **C3.2 Chat-with-documents (RAG).** Drop in PDFs/notes → local embeddings +
-  a lightweight vector store (sqlite-vss or an in-process index) → retrieved
-  context injected per turn. Fully local.
-- **C3.3 Tools / function-calling.** Let the model call local tools — most
-  interesting: a **`generate_image` tool that queues an image job** (chat ↔
-  image bridge), plus file read/write and optional web fetch. Gated/allowlisted.
-- **C3.4 Slash-commands & snippet library** (`/summarize`, `/image …`, saved
-  prompts).
+- [x] **C3.3 / C3.4 (partial) — chat→image bridge.** `/image <prompt>` in chat
+  queues an image job on the shared arbiter; the worker writes the result back
+  into the assistant message as markdown so it renders inline and persists.
+  Shipped 2026-06-04. *(Next: true model-driven function-calling so the model can
+  decide to call `generate_image` itself, plus more slash-commands.)*
+- [ ] **C3.1 Vision (multimodal).** We already ship `llama-mtmd`/`llava` binaries
+  — wire image attachments (paste/drop) to a multimodal GGUF so you can chat
+  about images. *(Needs a multimodal GGUF downloaded.)*
+- [ ] **C3.2 Chat-with-documents (RAG).** Drop in PDFs/notes → local embeddings +
+  a lightweight vector store → retrieved context injected per turn. *(Needs an
+  embedding model + vector store.)*
 
 ## Phase C4 — Superapp shell
 

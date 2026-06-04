@@ -185,7 +185,11 @@ P3 implementation notes:
 - [x] **P4.2 — Chat C2 (sampling + personas + stats).** Full sampling controls
   (top_p/top_k/min_p/repeat_penalty/seed/stop), persona presets, and client-side
   tokens/sec + TTFT. Shipped 2026-06-04.
-- [ ] **P4.3 — Chat C3+ (vision, RAG, tools/image-bridge, superapp shell).**
+- [x] **P4.3 — Chat→image bridge (C3.3).** `/image <prompt>` in chat queues an
+  image job on the shared arbiter and renders the result inline (persisted).
+  Shipped 2026-06-04.
+- [ ] **P4.4 — Chat C3 rest + superapp shell.** Model-driven function-calling,
+  vision (needs multimodal GGUF), RAG (needs embeddings), tabbed superapp shell.
   Per the phased plan: [docs/chat-plan.md](docs/chat-plan.md).
 
 P3/UX notes:

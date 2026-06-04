@@ -25,6 +25,9 @@ export function Markdown({ content }: { content: string }) {
               {children}
             </a>
           ),
+          img: ({ src, alt }) => (
+            <img src={src as string} alt={(alt as string) ?? ""} loading="lazy" className="my-2 max-h-[28rem] w-auto rounded-md border border-white/10" />
+          ),
           blockquote: ({ children }) => (
             <blockquote className="my-2 border-l-2 border-white/20 pl-3 text-white/70">{children}</blockquote>
           ),

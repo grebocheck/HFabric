@@ -163,6 +163,7 @@ class Worker:
 
     async def _finish_image(self, snap: JobSnapshot, records: list[dict[str, Any]]) -> None:
         image_ids: list[str] = []
+        chat_md: str | None = None
         async with session_scope() as s:
             for rec in records:
                 img = Image(
@@ -183,12 +184,24 @@ class Worker:
                 job.progress = 1.0
                 job.result = {"image_ids": image_ids}
                 job.finished_at = datetime.now(timezone.utc)
+            # /image chat bridge: render the result inline in the conversation
+            if snap.params.get("assistant_message_id"):
+                prompt = str(snap.params.get("prompt", "")).strip()
+                chat_md = "\n\n".join(f"![{prompt}](/api/images/{iid}/file)" for iid in image_ids) \
+                    or "(no image produced)"
+                from ..services import chat_service  # noqa: PLC0415
+                await chat_service.finalize_assistant_message(
+                    s, snap.params["assistant_message_id"], chat_md
+                )
         for iid, rec in zip(image_ids, records):
             await self._bus.publish(Event(
                 EventType.IMAGE_READY, job_id=snap.id, image_id=iid,
                 thumb=rec.get("thumb_path"), path=rec["path"],
             ))
-        await self._bus.publish(Event(EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value))
+        done = Event(EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value)
+        if chat_md is not None:
+            done = Event(EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value, text=chat_md)
+        await self._bus.publish(done)
 
     async def _finish_llm(self, snap: JobSnapshot, text: str) -> None:
         async with session_scope() as s:

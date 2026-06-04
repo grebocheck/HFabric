@@ -43,6 +43,9 @@ export const api = {
   sendChatMessage: (id: string, body: ChatSendBody) =>
     fetch(`/api/chat/conversations/${id}/messages`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
       .then(j<ChatSendResult>),
+  sendChatImage: (id: string, body: { prompt: string; model_id: string; negative?: string; steps?: number; width?: number; height?: number; seed?: number }) =>
+    fetch(`/api/chat/conversations/${id}/image`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<ChatSendResult>),
   truncateFrom: (id: string, messageId: string) =>
     fetch(`/api/chat/conversations/${id}/messages/${messageId}`, { method: "DELETE" }).then(j<{ removed: number }>),
   setPriority: (id: string, priority: number) =>

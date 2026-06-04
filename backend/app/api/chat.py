@@ -22,6 +22,7 @@ from ..schemas import (
     ConversationDetailOut,
     ConversationOut,
     ConversationUpdate,
+    ImageChatSend,
     MessageOut,
 )
 from ..services import chat_service, queue_service
@@ -31,13 +32,13 @@ from .deps import get_bus, get_registry, get_session, get_worker
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
-def _require_llm(registry: ModelRegistry, model_id: str) -> None:
+def _require_job_type(registry: ModelRegistry, model_id: str, job_type: JobType) -> None:
     try:
         desc = registry.get_descriptor(model_id)
     except KeyError:
         raise HTTPException(404, f"unknown model_id: {model_id}")
-    if desc.job_type is not JobType.LLM:
-        raise HTTPException(400, f"model '{desc.id}' is not an LLM")
+    if desc.job_type is not job_type:
+        raise HTTPException(400, f"model '{desc.id}' is not {job_type.value}")
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -119,7 +120,7 @@ async def send_message(
         raise HTTPException(404, "conversation not found")
     if not body.content.strip():
         raise HTTPException(400, "message content is empty")
-    _require_llm(registry, body.model_id)
+    _require_job_type(registry, body.model_id, JobType.LLM)
 
     # persist the user turn; auto-title a fresh conversation from it
     user_msg = await chat_service.add_message(session, conv_id, role="user", content=body.content)
@@ -164,6 +165,53 @@ async def send_message(
         "max_tokens": body.max_tokens,
         **{k: getattr(body, k) for k in ("top_p", "top_k", "min_p", "repeat_penalty", "stop") if getattr(body, k) is not None},
     }
+    await chat_service.touch(session, conv_id)
+    await session.commit()
+
+    bus.emit(EventType.JOB_CREATED, job_id=job.id, job_type=job.type.value)
+    worker.notify()
+    return ChatSendOut(
+        job_id=job.id,
+        conversation=ConversationOut.model_validate(conv),
+        user_message=MessageOut.model_validate(user_msg),
+        assistant_message=MessageOut.model_validate(assistant_msg),
+    )
+
+
+@router.post("/conversations/{conv_id}/image", response_model=ChatSendOut)
+async def send_image(
+    conv_id: str,
+    body: ImageChatSend,
+    session: AsyncSession = Depends(get_session),
+    registry: ModelRegistry = Depends(get_registry),
+    bus: EventBus = Depends(get_bus),
+    worker: Worker = Depends(get_worker),
+) -> ChatSendOut:
+    """Generate an image from inside a chat (the /image bridge). Queues an image
+    job on the shared arbiter; the worker writes the result back into the
+    assistant message as markdown so it renders inline."""
+    conv = await chat_service.get_conversation(session, conv_id)
+    if not conv:
+        raise HTTPException(404, "conversation not found")
+    if not body.prompt.strip():
+        raise HTTPException(400, "prompt is empty")
+    _require_job_type(registry, body.model_id, JobType.IMAGE)
+
+    user_msg = await chat_service.add_message(session, conv_id, role="user", content=f"/image {body.prompt.strip()}")
+    if not conv.title or conv.title == "New chat":
+        conv.title = body.prompt.strip()[:60]
+    assistant_msg = await chat_service.add_message(session, conv_id, role="assistant", content="")
+
+    params: dict = {"prompt": body.prompt.strip(), "assistant_message_id": assistant_msg.id, "conversation_id": conv_id}
+    for key in ("negative", "steps", "width", "height", "seed"):
+        value = getattr(body, key)
+        if value is not None:
+            params[key] = value
+
+    job = await queue_service.create_job(
+        session, JobCreate(type=JobType.IMAGE, model_id=body.model_id, params=params)
+    )
+    assistant_msg.job_id = job.id
     await chat_service.touch(session, conv_id)
     await session.commit()
 

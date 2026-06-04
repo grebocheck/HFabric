@@ -148,6 +148,16 @@ class ChatSendOut(BaseModel):
     assistant_message: MessageOut
 
 
+class ImageChatSend(BaseModel):
+    prompt: str
+    model_id: str
+    negative: str | None = None
+    steps: int | None = None
+    width: int | None = None
+    height: int | None = None
+    seed: int | None = None
+
+
 # -------------------------------------------------------------------- presets
 class PresetCreate(BaseModel):
     name: str

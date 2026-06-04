@@ -26,6 +26,14 @@ const parseStop = (s: string): string[] | undefined => {
   return items.length ? items : undefined;
 };
 
+function pickImageModel(models: Model[]): Model | undefined {
+  const img = models.filter((m) => m.job_type === "image");
+  return img.find((m) => m.family === "flux2")
+    ?? img.find((m) => m.quant?.startsWith("nunchaku"))
+    ?? img.find((m) => !m.slow)
+    ?? img[0];
+}
+
 export function ChatPanel({ models }: { models: Model[] }) {
   const llmModels = models.filter((m) => m.job_type === "llm");
   const saved = loadDefaults();
@@ -113,6 +121,10 @@ export function ChatPanel({ models }: { models: Model[] }) {
       activeJob.current = null;
       setBusy(false);
       setMessages((p) => setLastAssistant(p, `⚠ ${(e.error as string) ?? "generation failed"}`, true));
+    } else if (e.type === "job.progress") {
+      // image jobs (the /image bridge) report progress but stream no tokens
+      const pct = Math.round(((e.progress as number) ?? 0) * 100);
+      setMessages((p) => setLastAssistant(p, `*generating image… ${pct}%*`));
     } else if (e.type === "job.cancelled") {
       activeJob.current = null;
       setBusy(false);
@@ -196,6 +208,31 @@ export function ChatPanel({ models }: { models: Model[] }) {
     }
   }, [modelId, llmModels, sampling]);
 
+  const submitImage = useCallback(async (prompt: string, convId: string) => {
+    const img = pickImageModel(models);
+    if (!img) {
+      setMessages((p) => [...p, { id: "tmp-u", role: "user", content: `/image ${prompt}` },
+        { id: "tmp-a", role: "assistant", content: "⚠ no image model available", error: true }]);
+      return;
+    }
+    setBusy(true);
+    setStats(null);
+    setMessages((p) => [...p, { id: "tmp-u", role: "user", content: `/image ${prompt}` },
+      { id: "tmp-a", role: "assistant", content: "" }]);
+    try {
+      const res = await api.sendChatImage(convId, { prompt, model_id: img.id });
+      activeJob.current = res.job_id;
+      setMessages((p) => p.map((m) =>
+        m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
+      ));
+      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
+    } catch (err) {
+      activeJob.current = null;
+      setBusy(false);
+      setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
+    }
+  }, [models]);
+
   const send = useCallback(async () => {
     const content = input.trim();
     if (!content || busy) return;
@@ -207,8 +244,10 @@ export function ChatPanel({ models }: { models: Model[] }) {
       cid = c.id;
     }
     setInput("");
-    await submit(content, cid);
-  }, [input, busy, activeId, modelId, llmModels, submit]);
+    const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
+    if (imgCmd) await submitImage(imgCmd[1].trim(), cid);
+    else await submit(content, cid);
+  }, [input, busy, activeId, modelId, llmModels, submit, submitImage]);
 
   const stop_ = useCallback(async () => {
     await api.stopLlm().catch(() => {});
@@ -363,6 +402,7 @@ export function ChatPanel({ models }: { models: Model[] }) {
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-white/35">
               ~{approxTokens} / {cfg?.ctx ?? "?"} tokens
+              <span className="ml-2 text-white/25">· /image &lt;prompt&gt; to generate</span>
               {stats && <span className="ml-2 text-white/30">· {stats.tps.toFixed(1)} tok/s · TTFT {Math.round(stats.ttft)}ms</span>}
             </span>
             <div className="flex items-center gap-2">
