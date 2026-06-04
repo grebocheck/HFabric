@@ -183,8 +183,10 @@ M1 live validation notes (2026-06-04, RTX 5070 Ti / REAL mode):
   with diffusers' `Flux2KleinPipeline` (already in our diffusers 0.38) — we do
   **not** use nunchaku here because its FLUX.2 transformer is still unreleased
   (PR #926). FLUX.2 [dev] (32B + Mistral-24B) is intentionally out of scope.
-- [ ] **P3.2 — Live GPU validation.** Needs the model downloaded + a real run to
-  confirm VRAM/RAM/speed and tune `flux2_default_steps`/`guidance`.
+- [x] **P3.2 — Live GPU validation.** Validated on the local 16 GB GPU through
+  the normal REST queue + WebSocket progress + arbiter + diffusers path. The
+  checked profile is 768x768, 6 steps, guidance 4.0, seed 20260604; runtime
+  report: `data/runtime/p3-flux2-live-check.json`.
 - [ ] **P3.3 — nunchaku FLUX.2 fast path.** Once nunchaku ships
   `NunchakuFlux2Transformer2DModel`, add an SVDQuant fp4 path (Blackwell) for a
   ~3× speedup, mirroring the existing FLUX.1 nunchaku loader.
@@ -196,15 +198,24 @@ P3 implementation notes:
   `huggingface-cli download black-forest-labs/FLUX.2-klein-9B --local-dir models/image/flux2-klein-9b`.
 - Knobs: `IMGFAB_FLUX2_QUANT` (`bnb-nf4`|`bnb-fp4`|`none`),
   `IMGFAB_FLUX2_OFFLOAD` (`model`|`sequential`|`none`),
-  `IMGFAB_FLUX2_DEFAULT_STEPS` (6), `IMGFAB_FLUX2_DEFAULT_GUIDANCE` (4.0).
+  `IMGFAB_FLUX2_DEFAULT_STEPS` (6), `IMGFAB_FLUX2_DEFAULT_GUIDANCE` (4.0),
+  `IMGFAB_FLUX2_DEFAULT_WIDTH`/`HEIGHT` (768).
 - Detection, sizing, RAM/VRAM estimates and a stub generate were verified
-  end-to-end with a fake klein folder; the real-model run is P3.2.
-- 2026-06-04: the klein transformer is downloaded as a **single-file**
-  `flux-2-klein-9b.safetensors` (transformer-only, BF16, FLUX.2 modulation keys).
-  Detection now recognizes FLUX.2 by the `double_stream_modulation` keys, and the
-  loader handles both a single-file (transformer via `from_single_file` + 4-bit;
-  Qwen3 text encoder / VAE / tokenizer pulled from `IMGFAB_FLUX2_KLEIN_REPO`) and
-  a full repo folder. Real-GPU generation run is still P3.2.
+  end-to-end with a fake klein folder before the real-model run.
+- 2026-06-04: the local single-file transformer
+  `models/image/flux-2-klein-9b.safetensors` was converted into the validated
+  diffusers repo folder `models/image/flux2-klein-9b/` using cached
+  tokenizer/text-encoder/VAE files. The Hugging Face token on this machine can
+  list the gated repo but cannot download transformer weights directly (401), so
+  this folder is the local runtime source.
+- Live result: job `562d3d5fe1a5458ea9db8d964151e2dd`, image
+  `e6f4d2ce41d240ba931a61779dc3066b`, output
+  `data/outputs/2026-06-04/20260604_7159.png`. Runtime was ~41.94 s at 768x768;
+  peak sampled process RSS 9.79 GB, peak sampled VRAM 14.8 GB, minimum sampled
+  VRAM free 2.3 GB. 1024x1024 is not the default for FLUX.2 on this 16 GB GPU.
+- When the validated repo folder exists, the registry hides the original-format
+  FLUX.2 `.safetensors` from the UI so it remains a conversion source rather
+  than a duplicate runtime target.
 
 ### P4 — Chat workspace & superapp shell
 

@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     flux2_offload: str = "model"          # model | sequential | none
     flux2_default_steps: int = 6          # klein is distilled -> few steps
     flux2_default_guidance: float = 4.0
+    flux2_default_width: int = 768
+    flux2_default_height: int = 768
     # When a single-file klein transformer is used, the text encoder (Qwen3), VAE,
     # tokenizer and config come from this (license-gated) repo.
     flux2_klein_repo: str = "black-forest-labs/FLUX.2-klein-9B"

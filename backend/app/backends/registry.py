@@ -41,6 +41,10 @@ class ModelRegistry:
     def scan(self) -> None:
         self._descriptors.clear()
         self._loras.clear()
+        flux2_dirs = sorted(
+            sub for sub in settings.image_models_dir.iterdir()
+            if sub.is_dir() and is_flux2_dir(sub)
+        )
         for path in sorted(settings.image_models_dir.glob("*.safetensors")):
             name = path.stem.lower()
             if "svdq" in name or "nunchaku" in name:
@@ -48,12 +52,15 @@ class ModelRegistry:
                 self._add(path, ModelFamily.FLUX, quant=_nunchaku_quant(name))
             else:
                 fam = classify_image_model(path)
+                if fam is ModelFamily.FLUX2 and flux2_dirs:
+                    # Keep the original-format transformer as a local conversion
+                    # source; prefer the validated diffusers repo folder at run time.
+                    continue
                 quant = settings.flux2_quant if fam is ModelFamily.FLUX2 else None
                 self._add(path, fam, quant=quant)
         # FLUX.2 [klein] is a multi-file diffusers repo dropped in as a folder.
-        for sub in sorted(p for p in settings.image_models_dir.iterdir() if p.is_dir()):
-            if is_flux2_dir(sub):
-                self._add(sub, ModelFamily.FLUX2, quant=settings.flux2_quant)
+        for sub in flux2_dirs:
+            self._add(sub, ModelFamily.FLUX2, quant=settings.flux2_quant)
         for path in sorted(settings.llm_models_dir.glob("*.gguf")):
             self._add(path, ModelFamily.GGUF)
         for root in self._lora_scan_roots():

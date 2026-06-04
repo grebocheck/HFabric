@@ -59,7 +59,9 @@ bitsandbytes>=0.49             # 4-bit path (Blackwell sm_120 supported)
 #     --local-dir models/image/flux2-klein-9b
 # Drop it as a FOLDER (multi-file repo); ImageFabric auto-detects it by its
 # model_index.json. Knobs: IMGFAB_FLUX2_QUANT / _OFFLOAD / _DEFAULT_STEPS /
-# _DEFAULT_GUIDANCE. FLUX.2 [dev] (32B + Mistral-24B) is intentionally unsupported.
+# _DEFAULT_GUIDANCE / _DEFAULT_WIDTH / _DEFAULT_HEIGHT. Validated locally at
+# 768x768, 6 steps, guidance 4.0. FLUX.2 [dev] (32B + Mistral-24B) is
+# intentionally unsupported.
 
 # LLM (llama.cpp): we run the `llama-server` binary as a subprocess.
 # No python package required — place a CUDA(sm_120) build under bin/llama/.

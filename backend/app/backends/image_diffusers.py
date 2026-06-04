@@ -187,7 +187,11 @@ class DiffusersImageBackend(ImageBackend):
             # single-file transformer: 4-bit it, borrow the rest from the repo
             from diffusers import Flux2Transformer2DModel  # noqa: PLC0415
 
-            tkwargs: dict[str, Any] = {"torch_dtype": torch.bfloat16}
+            tkwargs: dict[str, Any] = {
+                "config": settings.flux2_klein_repo,
+                "subfolder": "transformer",
+                "torch_dtype": torch.bfloat16,
+            }
             if use_bnb:
                 from diffusers import BitsAndBytesConfig as DBnb  # noqa: PLC0415
 
@@ -206,7 +210,18 @@ class DiffusersImageBackend(ImageBackend):
             pipe.vae.enable_tiling()
 
         offload = settings.flux2_offload.lower().strip()
-        if offload == "sequential":
+        if use_bnb:
+            # Diffusers' bitsandbytes loader places quantized components via its
+            # own device_map. Calling pipe.to()/offload hooks afterwards can try
+            # to copy meta tensors and fail ("Cannot copy out of meta tensor").
+            if hasattr(getattr(pipe, "vae", None), "to"):
+                pipe.vae.to("cuda")
+            self._active_features["flux2_placement"] = {
+                "mode": "bnb-loader",
+                "requested_offload": offload or "model",
+                "vae": "cuda",
+            }
+        elif offload == "sequential":
             pipe.enable_sequential_cpu_offload()
         elif offload in ("", "none"):
             pipe.to("cuda")
@@ -487,8 +502,8 @@ class DiffusersImageBackend(ImageBackend):
     async def generate(
         self, params: dict[str, Any], progress: ProgressCb
     ) -> list[dict[str, Any]]:
-        width = int(params.get("width", settings.default_width))
-        height = int(params.get("height", settings.default_height))
+        width = self._dimension(params, "width", settings.default_width, settings.flux2_default_width)
+        height = self._dimension(params, "height", settings.default_height, settings.flux2_default_height)
         steps = self._steps(params)
         batch = int(params.get("batch_size", 1))
         base_seed = params.get("seed")
@@ -532,19 +547,35 @@ class DiffusersImageBackend(ImageBackend):
             )
             return kw
 
+        def _step_cb_flux2(*cb_args):
+            if len(cb_args) == 4:
+                _, step, timestep, kw = cb_args
+            else:
+                step, timestep, kw = cb_args
+            frac = (i + (step + 1) / steps) / batch
+            asyncio.run_coroutine_threadsafe(
+                progress(frac, f"step {step + 1}/{steps} (img {i + 1}/{batch})"), loop
+            )
+            return kw
+
         def _run():
             gen = torch.Generator(device="cuda").manual_seed(seed)
             self._apply_runtime_loras(params)
+            call_kwargs = {
+                "prompt": params.get("prompt", ""),
+                "width": width,
+                "height": height,
+                "num_inference_steps": steps,
+                "guidance_scale": self._guidance(params),
+                "generator": gen,
+                "callback_on_step_end": _step_cb_flux2
+                if self.descriptor.family is ModelFamily.FLUX2
+                else _step_cb,
+            }
+            if self.descriptor.family is not ModelFamily.FLUX2:
+                call_kwargs["negative_prompt"] = params.get("negative") or None
             with self._generation_context(steps), self._attention_context(torch):
-                out = self._pipe(
-                    prompt=params.get("prompt", ""),
-                    negative_prompt=params.get("negative") or None,
-                    width=width, height=height,
-                    num_inference_steps=steps,
-                    guidance_scale=self._guidance(params),
-                    generator=gen,
-                    callback_on_step_end=_step_cb,
-                )
+                out = self._pipe(**call_kwargs)
             return out.images[0]
 
         img = await asyncio.to_thread(_run)
@@ -552,6 +583,11 @@ class DiffusersImageBackend(ImageBackend):
                 "steps": steps, "guidance": self._guidance(params),
                 "model": self.descriptor.name, "acceleration": self._active_features}
         return self._persist(img, meta, seed, width, height)
+
+    def _dimension(self, params: dict[str, Any], key: str, default: int, flux2_default: int) -> int:
+        if self.descriptor.family is ModelFamily.FLUX2 and key not in params:
+            return flux2_default
+        return int(params.get(key, default))
 
     def _steps(self, params: dict[str, Any]) -> int:
         steps = int(params.get("steps", settings.default_steps))

@@ -9,7 +9,9 @@ models/
 |- image/   *.safetensors or model folders (FLUX, FLUX.2 klein, SDXL, ...)
 |- lora/    *.safetensors/.pt/.bin        (SDXL/FLUX LoRA adapters)
 |- llm/     *.gguf                        (llama.cpp GGUF models)
-`- tts/     *.gguf                        (llama-tts voice/acoustic models)
+|- tts/     *.gguf                        (llama-tts voice/acoustic models)
+|- embed/   embedding models              (future RAG workspace)
+`- vision/  multimodal/vision models      (future vision workspace)
 ```
 
 The backend scans these folders on startup:
@@ -28,6 +30,22 @@ downloaded folder under `models/image/`, for example:
 ```powershell
 huggingface-cli download black-forest-labs/FLUX.2-klein-9B --local-dir models/image/flux2-klein-9b
 ```
+
+The working local FLUX.2 klein runtime layout is:
+
+```text
+models/image/flux2-klein-9b/
+|- model_index.json
+|- scheduler/
+|- text_encoder/
+|- tokenizer/
+|- transformer/
+`- vae/
+```
+
+If you also keep an original-format `flux-2-klein-9b.safetensors` transformer in
+`models/image/`, ImageFabric treats the repo folder as the runtime model and the
+single file as a conversion/source artifact.
 
 Environment variables like `IMGFAB_IMAGE_MODELS_DIR`, `IMGFAB_LORA_MODELS_DIR`,
 `IMGFAB_LLM_MODELS_DIR`, and `IMGFAB_TTS_MODELS_DIR` exist for development, but

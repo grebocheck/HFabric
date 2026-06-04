@@ -1,4 +1,12 @@
 # --- Models (huge, never commit; folder structure is kept via .gitkeep) ---
+models/image/**
+models/lora/**
+models/llm/**
+models/tts/**
+models/embed/**
+models/vision/**
+!models/image/.gitkeep
+!models/llm/.gitkeep
 *.safetensors
 *.gguf
 *.ckpt

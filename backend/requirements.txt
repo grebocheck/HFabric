@@ -2,6 +2,7 @@
 # These let the whole app run in STUB mode without any GPU/ML stack.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+websockets==16.0
 pydantic==2.10.4
 pydantic-settings==2.7.1
 SQLAlchemy==2.0.36

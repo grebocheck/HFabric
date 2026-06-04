@@ -4,6 +4,12 @@ import type { Lora, Model, Preset } from "../types";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-violet-500";
 const label = "text-xs uppercase tracking-wide text-white/40";
+const DEFAULT_STEPS = 28;
+const DEFAULT_GUIDANCE = 3.5;
+const DEFAULT_SIZE = 1024;
+const FLUX2_STEPS = 6;
+const FLUX2_GUIDANCE = 4.0;
+const FLUX2_SIZE = 768;
 
 export function ImageComposer({
   models,
@@ -26,10 +32,10 @@ export function ImageComposer({
 
   const [imgModel, setImgModel] = useState("");
   const [negative, setNegative] = useState("");
-  const [steps, setSteps] = useState(28);
-  const [guidance, setGuidance] = useState(3.5);
-  const [width, setWidth] = useState(1024);
-  const [height, setHeight] = useState(1024);
+  const [steps, setSteps] = useState(DEFAULT_STEPS);
+  const [guidance, setGuidance] = useState(DEFAULT_GUIDANCE);
+  const [width, setWidth] = useState(DEFAULT_SIZE);
+  const [height, setHeight] = useState(DEFAULT_SIZE);
   const [seed, setSeed] = useState(-1);
   const [batch, setBatch] = useState(1);
   const [selectedLoras, setSelectedLoras] = useState<LoraSelection[]>([]);
@@ -61,6 +67,14 @@ export function ImageComposer({
       }),
     );
   }, [loras, selectedFamily]);
+
+  useEffect(() => {
+    if (selectedFamily !== "flux2") return;
+    setSteps((value) => value === DEFAULT_STEPS ? FLUX2_STEPS : value);
+    setGuidance((value) => value === DEFAULT_GUIDANCE ? FLUX2_GUIDANCE : value);
+    setWidth((value) => value === DEFAULT_SIZE ? FLUX2_SIZE : value);
+    setHeight((value) => value === DEFAULT_SIZE ? FLUX2_SIZE : value);
+  }, [selectedFamily]);
 
   const generate = async () => {
     if (!imgModel || !promptDraft.trim()) return;
@@ -182,6 +196,11 @@ export function ImageComposer({
             {selectedImgModel?.slow ? (
               <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-100">
                 Raw FLUX fp8 is slow and high-mem on 16 GB VRAM. Prefer the nunchaku FLUX entry when available.
+              </div>
+            ) : null}
+            {selectedFamily === "flux2" ? (
+              <div className="mt-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-2.5 py-2 text-xs text-sky-100">
+                FLUX.2 klein was validated at 768x768, 6 steps, guidance 4.0 on this 16 GB GPU. Negative prompt is ignored.
               </div>
             ) : null}
           </label>
