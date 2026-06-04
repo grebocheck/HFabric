@@ -206,13 +206,20 @@ async def cancel_job(
     job_id: str,
     session: AsyncSession = Depends(get_session),
     bus: EventBus = Depends(get_bus),
+    worker: Worker = Depends(get_worker),
 ) -> JobOut:
-    job = await queue_service.cancel_job(session, job_id)
+    job = await queue_service.get_job(session, job_id)
     if not job:
         raise HTTPException(404, "job not found")
+    # A running job can't be flipped in the DB from here — signal the worker to
+    # abort it; the worker marks it CANCELLED + emits JOB_CANCELLED as it unwinds.
+    if job.status == JobStatus.RUNNING:
+        worker.cancel_running(job_id)
+        return JobOut.model_validate(job)
+    cancelled = await queue_service.cancel_job(session, job_id)
     await session.commit()
-    bus.emit(EventType.JOB_CANCELLED, job_id=job.id)
-    return JobOut.model_validate(job)
+    bus.emit(EventType.JOB_CANCELLED, job_id=job_id)
+    return JobOut.model_validate(cancelled or job)
 
 
 @router.post("/{job_id}/priority", response_model=JobOut)

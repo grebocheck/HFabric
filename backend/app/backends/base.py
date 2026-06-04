@@ -22,6 +22,12 @@ ProgressCb = Callable[[float, str | None], Awaitable[None]]
 TokenCb = Callable[[str], Awaitable[None]]
 
 
+class GenerationCancelled(Exception):
+    """Raised inside a backend to abort in-flight work after ``request_stop()``.
+
+    The worker catches it and marks the job *cancelled* (not *errored*)."""
+
+
 @dataclass(frozen=True)
 class ModelDescriptor:
     id: str
@@ -74,6 +80,12 @@ class GpuBackend(abc.ABC):
     @property
     def load_report(self) -> dict[str, Any] | None:
         return self._load_report
+
+    def request_stop(self) -> None:
+        """Best-effort interrupt of in-flight work (to cancel a running job).
+
+        No-op by default; backends that can interrupt (LLM streaming, image
+        denoise step loop) override this."""
 
     @abc.abstractmethod
     async def load(self) -> None: ...

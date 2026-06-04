@@ -1,6 +1,6 @@
 import type { GpuStatus } from "../types";
 
-export type View = "images" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "system";
+export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "system";
 
 const familyColor: Record<string, string> = {
   flux: "bg-violet-600",
@@ -29,9 +29,9 @@ export function ModelStatus({
   onPalette: () => void;
 }) {
   return (
-    <header className="flex items-center justify-between border-b border-white/10 px-5 py-3">
-      <div className="flex items-center gap-5">
-        <div className="flex items-center gap-2">
+    <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-3">
+      <div className="flex min-w-0 items-center gap-5">
+        <div className="flex shrink-0 items-center gap-2">
           <span className="text-lg font-semibold tracking-tight">HFabric</span>
           <span
             className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-red-500"}`}
@@ -39,8 +39,7 @@ export function ModelStatus({
           />
         </div>
 
-        {/* --- workspace tabs --- */}
-        <nav className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/20 p-1">
+        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-white/10 bg-black/20 p-1">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -57,10 +56,10 @@ export function ModelStatus({
         </nav>
       </div>
 
-      <div className="flex items-center gap-3 text-sm">
+      <div className="flex shrink-0 items-center gap-3 text-sm">
         <span className="text-white/50">Active model:</span>
         {gpu.model ? (
-          <span className="flex items-center gap-2">
+          <span className="flex min-w-0 items-center gap-2">
             <span
               className={`rounded px-1.5 py-0.5 text-xs font-medium ${
                 familyColor[gpu.family ?? ""] ?? "bg-slate-600"
@@ -68,13 +67,13 @@ export function ModelStatus({
             >
               {gpu.family}
             </span>
-            <span className="font-mono">{gpu.model}</span>
+            <span className="max-w-52 truncate font-mono" title={gpu.model}>{gpu.model}</span>
             <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
               on GPU
             </span>
           </span>
         ) : (
-          <span className="text-white/40">— idle —</span>
+          <span className="text-white/40">idle</span>
         )}
         {gpu.warm?.length ? (
           <span className="flex items-center gap-1 text-xs text-white/45">
@@ -105,7 +104,7 @@ export function ModelStatus({
           title="Command palette (Ctrl+K)"
           className="rounded border border-white/15 px-2 py-1 text-xs text-white/50 hover:bg-white/10"
         >
-          ⌘K
+          Ctrl K
         </button>
       </div>
     </header>

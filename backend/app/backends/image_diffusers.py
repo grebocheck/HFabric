@@ -25,7 +25,7 @@ from typing import Any
 from ..config import settings
 from ..core.enums import ModelFamily
 from ..util import imaging, sysmon
-from .base import ImageBackend, ModelDescriptor, ProgressCb
+from .base import GenerationCancelled, ImageBackend, ModelDescriptor, ProgressCb
 
 
 class DiffusersImageBackend(ImageBackend):
@@ -34,6 +34,11 @@ class DiffusersImageBackend(ImageBackend):
         self._pipe: Any = None  # diffusers pipeline in real mode
         self._active_features: dict[str, Any] = {}
         self._loaded_loras: dict[str, str] = {}
+        self._stop = False
+
+    def request_stop(self) -> None:
+        """Ask the denoise loop to abort at the next step (see step callbacks)."""
+        self._stop = True
 
     @property
     def can_keep_warm(self) -> bool:
@@ -618,6 +623,7 @@ class DiffusersImageBackend(ImageBackend):
         if base_seed in (None, -1):
             base_seed = random.randint(0, 2**31 - 1)
 
+        self._stop = False
         results: list[dict[str, Any]] = []
         for i in range(batch):
             seed = int(base_seed) + i
@@ -649,6 +655,8 @@ class DiffusersImageBackend(ImageBackend):
         loop = asyncio.get_running_loop()
 
         def _step_cb(pipe, step, timestep, kw):
+            if self._stop:
+                raise GenerationCancelled()
             frac = (i + (step + 1) / steps) / batch
             asyncio.run_coroutine_threadsafe(
                 progress(frac, f"step {step + 1}/{steps} (img {i + 1}/{batch})"), loop
@@ -656,6 +664,8 @@ class DiffusersImageBackend(ImageBackend):
             return kw
 
         def _step_cb_flux2(*cb_args):
+            if self._stop:
+                raise GenerationCancelled()
             if len(cb_args) == 4:
                 _, step, timestep, kw = cb_args
             else:

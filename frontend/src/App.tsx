@@ -10,6 +10,7 @@ import { Gallery } from "./components/Gallery";
 import { ModelStatus, type View } from "./components/ModelStatus";
 import { NotesPanel } from "./components/NotesPanel";
 import { QueuePanel } from "./components/QueuePanel";
+import { ResultPreview } from "./components/ResultPreview";
 import { RagPanel } from "./components/RagPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SystemPanel } from "./components/SystemPanel";
@@ -129,18 +130,25 @@ export default function App() {
       id: "images",
       label: "Images",
       render: () => (
-        <main className="grid flex-1 grid-cols-[380px_320px_1fr] gap-4 overflow-hidden p-4">
-          <div className="overflow-y-auto">
-            <ImageComposer
-              models={models}
-              loras={loras}
-              presets={presets}
-              onPresetsChanged={refreshPresets}
-              promptDraft={promptDraft}
-              setPromptDraft={setPromptDraft}
-            />
-          </div>
+        <main className="grid flex-1 grid-cols-[390px_minmax(0,1fr)_330px] grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 max-[1240px]:grid-cols-[380px_minmax(0,1fr)] max-[1240px]:grid-rows-[minmax(0,1fr)_300px] max-[860px]:block max-[860px]:overflow-y-auto">
+          <ImageComposer
+            models={models}
+            loras={loras}
+            presets={presets}
+            onPresetsChanged={refreshPresets}
+            promptDraft={promptDraft}
+            setPromptDraft={setPromptDraft}
+          />
+          <ResultPreview images={images} onOpenHistory={() => setView("history")} />
           <QueuePanel jobs={imageJobs} onChanged={refreshJobs} />
+        </main>
+      ),
+    },
+    {
+      id: "history",
+      label: "History",
+      render: () => (
+        <main className="flex-1 overflow-hidden p-4">
           <Gallery images={images} onSearch={refreshImages} />
         </main>
       ),

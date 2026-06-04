@@ -46,8 +46,20 @@ function Stop-Port([int]$p) {
     }
 }
 Stop-Port $Port
-Stop-Port 8261          # llama-server
+Stop-Port 8261          # llama-server (LLM)
+Stop-Port 8262          # llama-server (RAG embeddings)
 Stop-Port $FrontendPort
+
+# Safety net: a run closed via the window 'X' (not Ctrl+C) skips the finally
+# block below, so its child llama processes can survive — orphaned, holding
+# RAM/VRAM and shrinking the "available RAM" the pre-load guard checks. Sweep
+# any strays so every launch starts from a clean slate.
+foreach ($n in @("llama-server", "llama-tts", "llama-mtmd-cli")) {
+    Get-Process -Name $n -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "[ports] stray $($_.ProcessName) (pid $($_.Id)) -> stopping" -ForegroundColor DarkGray
+        try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch {}
+    }
+}
 Start-Sleep -Milliseconds 400
 
 # --- bootstrap backend venv ---------------------------------------------------

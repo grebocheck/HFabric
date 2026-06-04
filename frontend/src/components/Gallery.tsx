@@ -61,7 +61,7 @@ export function Gallery({ images, onSearch }: { images: ImageItem[]; onSearch: (
       await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
       flash("image copied to clipboard");
     } catch {
-      flash("copy failed — browser blocked clipboard");
+      flash("copy failed - browser blocked clipboard");
     }
   };
 
@@ -76,9 +76,9 @@ export function Gallery({ images, onSearch }: { images: ImageItem[]; onSearch: (
   };
 
   return (
-    <div className="flex h-full flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center justify-between gap-2 px-1">
-        <h2 className="text-sm font-semibold text-white/70">Result</h2>
+        <h2 className="text-sm font-semibold text-white/70">History</h2>
         <div className="grid grid-cols-[minmax(110px,1fr)_auto_auto] gap-1.5">
           <input
             value={query}
@@ -158,13 +158,13 @@ export function Gallery({ images, onSearch }: { images: ImageItem[]; onSearch: (
 
       {lightbox && selected && (
         <div
-          className="fixed inset-0 z-30 flex items-center justify-center bg-black/85 p-6"
+          className="fixed inset-0 z-30 bg-black/85"
           onClick={() => setLightbox(false)}
         >
           <img
             src={selected.url}
             alt=""
-            className="max-h-full max-w-full object-contain"
+            className="absolute left-1/2 top-1/2 max-h-[92vh] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 object-contain"
             onClick={(e) => e.stopPropagation()}
           />
           <button

@@ -18,7 +18,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from ..backends.base import ImageBackend, LLMBackend
+from ..backends.base import GenerationCancelled, ImageBackend, LLMBackend
 from ..backends.registry import ModelRegistry
 from ..db.models import Image, Job
 from ..db.session import session_scope
@@ -52,6 +52,8 @@ class Worker:
         self._wakeup = asyncio.Event()
         self._task: asyncio.Task | None = None
         self._running = False
+        self._current_job_id: str | None = None
+        self._cancel_current = False
 
     # ----------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -68,6 +70,17 @@ class Worker:
     def notify(self) -> None:
         """Wake the worker (call after enqueue/cancel)."""
         self._wakeup.set()
+
+    def cancel_running(self, job_id: str) -> bool:
+        """Signal the in-flight job to abort. Returns True if it is the one
+        currently running (the worker then marks it cancelled as it unwinds)."""
+        if self._current_job_id != job_id:
+            return False
+        self._cancel_current = True
+        cur = self._arbiter.current
+        if cur is not None:
+            cur.request_stop()
+        return True
 
     # ---------------------------------------------------------------- loop
     async def _loop(self) -> None:
@@ -126,6 +139,8 @@ class Worker:
 
     # ----------------------------------------------------------- run a job
     async def _run(self, snap: JobSnapshot) -> None:
+        self._current_job_id = snap.id
+        self._cancel_current = False
         await self._bus.publish(Event(EventType.JOB_STARTED, job_id=snap.id, job_type=snap.type.value))
         try:
             backend = self._registry.get_backend(snap.model_id)
@@ -145,7 +160,10 @@ class Worker:
             if snap.type is JobType.IMAGE:
                 assert isinstance(backend, ImageBackend)
                 records = await backend.generate(self._with_lora_paths(snap.params), progress)
-                await self._finish_image(snap, records)
+                if self._cancel_current:
+                    await self._mark_cancelled(snap)
+                else:
+                    await self._finish_image(snap, records)
             else:
                 assert isinstance(backend, LLMBackend)
 
@@ -153,10 +171,18 @@ class Worker:
                     await self._bus.publish(Event(EventType.LLM_TOKEN, job_id=snap.id, token=tok))
 
                 text = await backend.complete(snap.params, on_token)
-                await self._finish_llm(snap, text)
+                if self._cancel_current:
+                    await self._mark_cancelled(snap, text)
+                else:
+                    await self._finish_llm(snap, text)
 
+        except GenerationCancelled:
+            await self._mark_cancelled(snap)
         except Exception as exc:  # noqa: BLE001
             await self._fail(snap, repr(exc))
+        finally:
+            self._current_job_id = None
+            self._cancel_current = False
 
     def _with_lora_paths(self, params: dict[str, Any]) -> dict[str, Any]:
         raw_loras = params.get("loras") or []
@@ -400,6 +426,19 @@ class Worker:
             if isinstance(obj, dict):
                 return obj
         return None
+
+    async def _mark_cancelled(self, snap: JobSnapshot, text: str | None = None) -> None:
+        async with session_scope() as s:
+            job = await s.get(Job, snap.id)
+            if job:
+                job.status = JobStatus.CANCELLED
+                job.finished_at = datetime.now(timezone.utc)
+                if text:
+                    job.result = {"text": text}
+            if snap.params.get("assistant_message_id"):
+                note = (text + "\n\n" if text else "") + "_(cancelled)_"
+                await self._write_chat_reply(s, snap, note)
+        await self._bus.publish(Event(EventType.JOB_CANCELLED, job_id=snap.id))
 
     async def _fail(self, snap: JobSnapshot, error: str) -> None:
         async with session_scope() as s:
