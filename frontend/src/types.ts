@@ -37,6 +37,25 @@ export interface GpuStatus {
   warm?: WarmModel[];
 }
 
+export interface RamStats {
+  total_gb: number;
+  available_gb: number;
+  used_gb: number;
+  percent: number;
+  process_rss_gb: number;
+}
+
+export interface VramStats {
+  total_gb: number;
+  free_gb: number;
+  used_gb: number;
+}
+
+export interface MemSnapshot {
+  ram: RamStats | null;
+  vram: VramStats | null;
+}
+
 export interface RuntimeSettings {
   stub_mode: boolean;
   paths: Record<string, string>;

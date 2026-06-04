@@ -1,6 +1,6 @@
 import type { GpuStatus } from "../types";
 
-export type View = "images" | "llm";
+export type View = "images" | "llm" | "system";
 
 const familyColor: Record<string, string> = {
   flux: "bg-violet-600",
@@ -12,6 +12,7 @@ const familyColor: Record<string, string> = {
 const tabs: { id: View; label: string }[] = [
   { id: "images", label: "Images" },
   { id: "llm", label: "LLM" },
+  { id: "system", label: "System" },
 ];
 
 export function ModelStatus({

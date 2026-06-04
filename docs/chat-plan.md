@@ -60,12 +60,14 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
 - [x] **C4.3 Command palette (Ctrl+K)** — navigate tabs + run actions (settings,
   free GPU); ⌘K button in the header. Plus conversation **search** in the chat
   sidebar and **export** a conversation to Markdown. Shipped 2026-06-04.
-- [ ] **C4.1 Workspace/plugin registry.** Promote tabs to a declared list of
-  workspaces (Images, Chat, + future). Each is a self-contained module over the
-  shared arbiter/queue.
-- [ ] **C4.2 Candidate future tabs** (we already have the binaries for some):
-  Transcription (whisper), **TTS** (`llama-tts`), Code assistant, Notes/scratch,
-  Batch/automation runner.
+- [x] **C4.2 (first new tab) — System monitor.** A third workspace showing live
+  VRAM/RAM gauges + resident/warm models + runtime info, fed by the `mem.status`
+  WebSocket stream. No model needed. Shipped 2026-06-04. Tabs are now a
+  declarative list (groundwork for C4.1).
+- [ ] **C4.1 Workspace/plugin registry.** Promote tabs to a fully declared list
+  of workspaces (component + props) so new tabs are pure data.
+- [ ] **C4.2 more tabs** (binaries already present): **TTS** (`llama-tts`),
+  transcription (whisper), code assistant, notes/scratch.
 - [ ] **C4.4 Import** of conversations/presets/personas (export shipped).
 
 ---

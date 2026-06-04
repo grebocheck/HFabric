@@ -8,7 +8,8 @@ import { Gallery } from "./components/Gallery";
 import { ModelStatus, type View } from "./components/ModelStatus";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import type { BusEvent, GpuStatus, ImageItem, Job, Lora, Model, Preset } from "./types";
+import { SystemPanel } from "./components/SystemPanel";
+import type { BusEvent, GpuStatus, ImageItem, Job, Lora, MemSnapshot, Model, Preset } from "./types";
 
 export default function App() {
   const [models, setModels] = useState<Model[]>([]);
@@ -17,6 +18,7 @@ export default function App() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [loras, setLoras] = useState<Lora[]>([]);
   const [gpu, setGpu] = useState<GpuStatus>({ resident: null, model_id: null, model: null, family: null, warm: [] });
+  const [mem, setMem] = useState<MemSnapshot | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<View>("images");
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -72,6 +74,12 @@ export default function App() {
           break;
         case "image.ready":
           refreshImages();
+          break;
+        case "mem.status":
+          setMem({
+            ram: (e.ram as MemSnapshot["ram"]) ?? null,
+            vram: (e.vram as MemSnapshot["vram"]) ?? null,
+          });
           break;
       }
     },
@@ -130,9 +138,13 @@ export default function App() {
           <QueuePanel jobs={imageJobs} onChanged={refreshJobs} />
           <Gallery images={images} onSearch={refreshImages} />
         </main>
-      ) : (
+      ) : view === "llm" ? (
         <main className="flex-1 overflow-hidden p-4">
           <ChatPanel models={models} />
+        </main>
+      ) : (
+        <main className="flex-1 overflow-hidden p-4">
+          <SystemPanel gpu={gpu} mem={mem} />
         </main>
       )}
 
