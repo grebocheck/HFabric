@@ -18,6 +18,8 @@ MODELS = ROOT / "models"
 
 # (repo_id, filename, destination_dir)
 JOBS = [
+    # SDXL turbo validation / optional acceleration
+    ("ByteDance/SDXL-Lightning", "sdxl_lightning_4step_lora.safetensors", MODELS / "lora"),
     # RAG embeddings (served via llama-server --embeddings)
     ("nomic-ai/nomic-embed-text-v1.5-GGUF", "nomic-embed-text-v1.5.f16.gguf", MODELS / "embed"),
     # TTS workspace: OuteTTS model + WavTokenizer vocoder

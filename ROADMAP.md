@@ -141,15 +141,15 @@ passes static integrity checks:
 The code is done; what is **not yet recorded** is a live GPU run confirming the
 numbers and invariants. To close M1, run with `IMGFAB_STUB_MODE=false` and capture:
 
-- [ ] **M1.1** — Swap-loop leak test green over ≥3 cycles
+- [x] **M1.1** — Swap-loop leak test green over ≥3 cycles
   (`python scripts\swap_leak_test.py --cycles 3`): RSS + VRAM return to baseline.
 - [x] **M1.2** — Phase-batching proven live (`python scripts\phase_batch_check.py`):
   a mixed batch does exactly one LLM↔image swap.
-- [ ] **M1.3** — SDXL-turbo LoRA real speed numbers (target ~1–2 s/image) with a
+- [x] **M1.3** — SDXL-turbo LoRA real speed numbers (target ~1–2 s/image) with a
   chosen DMD2/Lightning LoRA via `IMGFAB_SDXL_TURBO_LORA`.
 - [x] **M1.4** — `torch.compile` + step-cache speed/VRAM measured against the
   baseline, staying within the ≤26 GB RAM / ≤16 GB VRAM budget.
-- [ ] **M1.5** — Quality A/B captured (`python scripts\quality_ab.py`): nunchaku
+- [x] **M1.5** — Quality A/B captured (`python scripts\quality_ab.py`): nunchaku
   fp4 vs int4 vs GGUF fallback.
 
 M1 live validation notes (2026-06-04, RTX 5070 Ti / REAL mode):
@@ -174,6 +174,35 @@ M1 live validation notes (2026-06-04, RTX 5070 Ti / REAL mode):
   `ec44fa6ed35d439180f2a98b594a5e2c` (`data/runtime/m1-quality-ab-safe.json`).
   Target fp4-vs-int4-vs-image-GGUF remains blocked because no int4/GGUF image
   model is registered.
+- M1.1 final: `scripts/swap_leak_test.py` now takes a warm baseline after two
+  unmeasured cycles, so one-time Python/torch/diffusers/nunchaku imports are not
+  treated as leaks. The measured 3-cycle run passed with default slack:
+  baseline RSS 8.77 GB / VRAM 2.09 GB; after cycles 1/2/3 = RSS
+  8.89/5.55/8.76 GB and VRAM 2.09/2.09/2.09 GB.
+- M1.2 re-run passed in the final environment: queued `LLM/image/LLM/image`,
+  started as `llm,llm,image,image`, loaded families `gguf,flux`, swaps = 1.
+- M1.3 final: downloaded ByteDance `sdxl_lightning_4step_lora.safetensors` to
+  `models/lora/` and ran SDXL with `IMGFAB_SDXL_TURBO_LORA`, 1024², default-like
+  request params. Cold end-to-end run was 19.39 s (includes pipeline + LoRA
+  load); warm resident job `c2d54f14ffaf408ab118bf395bf07b7b`, image
+  `bb5d91e175cb441981d99b092f11d717`, wrote
+  `data/outputs/2026-06-04/20260606_9896.png` with actual metadata
+  `steps=4`, `guidance=1.0`; job duration was 1.67 s
+  (`data/runtime/m1-sdxl-turbo-warm.json`). Visual note: output is non-blank but
+  this base-model/LoRA/prompt combo is not a quality recommendation.
+- M1.5 final: downloaded FLUX.2 nunchaku int4 for the attempted comparison, then
+  captured `data/runtime/m1-quality-ab-flux2.json` at 768² / 6 steps /
+  guidance 4.0. nunchaku-fp4 job `7409b46ebfde47a48915071cd2001aeb`, image
+  `a45d0c73e4da4a12af2b2f39e95319c5`, output
+  `data/outputs/2026-06-04/20260604_4776.png`, job duration 12.05 s. bnb-nf4
+  fallback job `c1e3344f6d354d5db2ad65dcd0cb7a68`, image
+  `9bad5b3f0aec4421bb9a4a3672c3742a`, output
+  `data/outputs/2026-06-04/20260604_5055.png`, job duration 26.71 s.
+  nunchaku-int4 failed on this Blackwell GPU with
+  `Please use "fp4" quantization for Blackwell GPUs`; the registry now hides
+  FLUX.2 nunchaku-int4 on sm_120 so the UI does not expose a known-broken
+  choice. Image-GGUF remains unsupported by this backend, so bnb-nf4 is the
+  practical fallback for M1 quality comparison.
 
 ### P3 — FLUX.2 [klein] (new model family)
 

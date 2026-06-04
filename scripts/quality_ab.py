@@ -9,6 +9,7 @@ then it prints job/image ids and gallery URLs for side-by-side review.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import sys
 import time
@@ -95,6 +96,17 @@ def wait_job(base_url: str, job_id: str, timeout: float) -> dict[str, Any]:
     raise TimeoutError(f"Job {job_id} did not finish within {timeout:.0f}s")
 
 
+def job_duration_seconds(job: dict[str, Any]) -> float | None:
+    started = job.get("started_at")
+    finished = job.get("finished_at")
+    if not isinstance(started, str) or not isinstance(finished, str):
+        return None
+    try:
+        return (datetime.fromisoformat(finished) - datetime.fromisoformat(started)).total_seconds()
+    except ValueError:
+        return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8260")
@@ -113,6 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-stub", action="store_true")
     parser.add_argument("--allow-existing-jobs", action="store_true")
     parser.add_argument("--free-gpu-first", action="store_true")
+    parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--json-out", help="Optional path to write the result summary JSON.")
     return parser.parse_args()
 
@@ -154,9 +167,30 @@ def main() -> int:
         print(f"  {model['id']} ({model.get('family')}, {model.get('quant') or 'base'})")
 
     for model in candidates:
+        started = time.monotonic()
         job = create_job(args.base_url, model["id"], params)
         print(f"queued {job['id']} -> {model['id']}", flush=True)
-        done = wait_job(args.base_url, job["id"], args.job_timeout)
+        try:
+            done = wait_job(args.base_url, job["id"], args.job_timeout)
+        except Exception as exc:  # noqa: BLE001
+            if not args.continue_on_error:
+                raise
+            elapsed = time.monotonic() - started
+            summary.append({
+                "model_id": model["id"],
+                "model": model.get("name"),
+                "family": model.get("family"),
+                "quant": model.get("quant"),
+                "job_id": job["id"],
+                "image_ids": [],
+                "urls": [],
+                "elapsed_seconds": elapsed,
+                "job_duration_seconds": None,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            print(f"error {job['id']} -> {model['id']}: {exc}", flush=True)
+            continue
+        elapsed = time.monotonic() - started
         image_ids = (done.get("result") or {}).get("image_ids") or []
         summary.append({
             "model_id": model["id"],
@@ -166,6 +200,8 @@ def main() -> int:
             "job_id": job["id"],
             "image_ids": image_ids,
             "urls": [f"{args.base_url.rstrip('/')}/api/images/{iid}/file" for iid in image_ids],
+            "elapsed_seconds": elapsed,
+            "job_duration_seconds": job_duration_seconds(done),
         })
 
     print(json.dumps(summary, indent=2))

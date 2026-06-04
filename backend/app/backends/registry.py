@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ..config import settings
 from ..core.enums import ModelFamily
+from ..util import sysmon
 from .base import GpuBackend, LoraDescriptor, ModelDescriptor
 from .image_diffusers import DiffusersImageBackend
 from .inspect import classify_image_model, classify_lora_model, is_flux2_dir
@@ -68,7 +69,13 @@ class ModelRegistry:
             name = path.stem.lower()
             if "svdq" in name or "nunchaku" in name:
                 # SVDQuant transformer-only checkpoint (Blackwell fp4/int4 turbo)
-                self._add(path, _nunchaku_family(name), quant=_nunchaku_quant(name))
+                fam = _nunchaku_family(name)
+                quant = _nunchaku_quant(name)
+                if fam is ModelFamily.FLUX2 and quant == "nunchaku-int4" and sysmon.is_blackwell_gpu():
+                    # nunchaku rejects FLUX.2 int4 on Blackwell at load time:
+                    # "Please use fp4 quantization for Blackwell GPUs."
+                    continue
+                self._add(path, fam, quant=quant)
             else:
                 fam = classify_image_model(path)
                 if fam is ModelFamily.FLUX2 and flux2_dirs:

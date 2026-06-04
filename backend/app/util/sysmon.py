@@ -58,6 +58,20 @@ def vram_stats() -> dict | None:
         return None
 
 
+def cuda_compute_capability() -> tuple[int, int] | None:
+    try:
+        import pynvml  # noqa: PLC0415
+
+        return tuple(pynvml.nvmlDeviceGetCudaComputeCapability(_nvml_handle()))
+    except Exception:
+        return None
+
+
+def is_blackwell_gpu() -> bool:
+    capability = cuda_compute_capability()
+    return bool(capability and capability[0] >= 12)
+
+
 def snapshot() -> dict:
     return {"ram": ram_stats(), "vram": vram_stats()}
 

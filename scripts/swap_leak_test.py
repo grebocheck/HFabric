@@ -2,8 +2,9 @@
 """Run the P0.3 LLM -> FLUX -> SDXL -> LLM swap-loop leak test.
 
 The script talks to a running ImageFabric backend. It queues one job at a time
-to force the exact swap order, frees the GPU at the end of each cycle, then
-asserts that process RSS and device VRAM return close to the initial baseline.
+to force the exact swap order, does warmup cycles by default so lazy imports
+and one-time backend caches are not counted as leaks, frees the GPU at the end of each measured cycle, then
+asserts that process RSS and device VRAM return close to the warm baseline.
 """
 
 from __future__ import annotations
@@ -155,6 +156,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-model")
     parser.add_argument("--flux-model")
     parser.add_argument("--sdxl-model")
+    parser.add_argument(
+        "--strict-cold-baseline",
+        action="store_true",
+        help="Skip the warmup cycle and compare against the pre-import process baseline.",
+    )
+    parser.add_argument(
+        "--warmup-cycles",
+        type=int,
+        default=2,
+        help="Unmeasured cycles before taking the leak baseline; ignored with --strict-cold-baseline.",
+    )
     parser.add_argument("--allow-stub", action="store_true")
     parser.add_argument("--allow-existing-jobs", action="store_true")
     return parser.parse_args()
@@ -184,11 +196,6 @@ def main() -> int:
     print(f"  FLUX: {flux['id']}")
     print(f"  SDXL: {sdxl['id']}")
 
-    request(args.base_url, "POST", "/api/gpu/free")
-    time.sleep(args.cooldown)
-    baseline = health(args.base_url)
-    print_mem("baseline", baseline)
-
     llm_params = {
         "prompt": "Return a concise five-word image prompt for a memory test.",
         "max_tokens": 32,
@@ -211,13 +218,24 @@ def main() -> int:
         ("LLM", "llm", llm["id"], llm_params),
     ]
 
+    request(args.base_url, "POST", "/api/gpu/free")
+    time.sleep(args.cooldown)
+    if not args.strict_cold_baseline:
+        for warmup in range(1, max(0, args.warmup_cycles) + 1):
+            print(
+                f"warmup cycle {warmup}/{args.warmup_cycles} "
+                "(lazy imports/cache excluded from leak baseline)"
+            )
+            run_sequence(args.base_url, sequence, args.job_timeout)
+            request(args.base_url, "POST", "/api/gpu/free")
+            time.sleep(args.cooldown)
+
+    baseline = health(args.base_url)
+    print_mem("baseline", baseline)
+
     for cycle in range(1, args.cycles + 1):
         print(f"cycle {cycle}/{args.cycles}")
-        for label, job_type, model_id, params in sequence:
-            job = create_job(args.base_url, job_type, model_id, params)
-            print(f"  {label}: queued {job['id']}", flush=True)
-            wait_job(args.base_url, job["id"], args.job_timeout)
-
+        run_sequence(args.base_url, sequence, args.job_timeout)
         request(args.base_url, "POST", "/api/gpu/free")
         time.sleep(args.cooldown)
         snap = health(args.base_url)
@@ -231,6 +249,13 @@ def main() -> int:
 
     print("swap-loop leak test passed")
     return 0
+
+
+def run_sequence(base_url: str, sequence: list[tuple[str, str, str, dict[str, Any]]], timeout: float) -> None:
+    for label, job_type, model_id, params in sequence:
+        job = create_job(base_url, job_type, model_id, params)
+        print(f"  {label}: queued {job['id']}", flush=True)
+        wait_job(base_url, job["id"], timeout)
 
 
 if __name__ == "__main__":

@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     # folder, or Hugging Face repo id to make SDXL default to low-step turbo mode.
     sdxl_turbo_lora: str | None = None
     sdxl_turbo_lora_weight: float = 1.0
-    sdxl_turbo_steps: int = 6
+    sdxl_turbo_steps: int = 4
     sdxl_turbo_guidance: float = 1.0
 
     # --- optional keep-warm policy (P2.1) ---

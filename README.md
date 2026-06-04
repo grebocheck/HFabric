@@ -169,7 +169,8 @@ python .\scripts\swap_leak_test.py --cycles 3
 ```
 
 The test forces `LLM -> FLUX(nunchaku) -> SDXL -> LLM`, frees the GPU after each
-cycle, then checks that process RSS and VRAM return close to baseline.
+cycle, then checks that process RSS and VRAM return close to a warm baseline.
+Use `--strict-cold-baseline` only when diagnosing one-time import/cache growth.
 
 To validate live phase-batching against the running app:
 
@@ -184,12 +185,19 @@ swap.
 To queue a same-seed quality A/B across image models:
 
 ```powershell
-python .\scripts\quality_ab.py --family flux --limit 2 --free-gpu-first
+python .\scripts\quality_ab.py --family flux --limit 2 --free-gpu-first --json-out data\runtime\quality-ab.json
 ```
 
 The runner prints the job ids, image ids, and `/api/images/{id}/file` URLs. It
 uses the model metadata exposed by `/api/models`, including `nunchaku-fp4` and
-`nunchaku-int4` quant labels when those filenames are present.
+`nunchaku-int4` quant labels when those filenames are present. Pass
+`--continue-on-error` when the comparison should record incompatible candidates
+and continue.
+
+For SDXL turbo validation, put a Lightning/DMD2 LoRA in `models/lora` and start
+the backend with `IMGFAB_SDXL_TURBO_LORA=<path>`. The local M1 run used
+`models/lora/sdxl_lightning_4step_lora.safetensors`, `IMGFAB_SDXL_TURBO_STEPS=4`,
+and `IMGFAB_SDXL_TURBO_GUIDANCE=1.0`.
 
 ## Next: milestone M0 (GPU bring-up)
 

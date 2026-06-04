@@ -7,7 +7,7 @@ app has one predictable place to scan and validate.
 ```text
 models/
 |- image/   *.safetensors or model folders (FLUX, FLUX.2 klein, SDXL, ...)
-|- lora/    *.safetensors/.pt/.bin        (SDXL/FLUX LoRA adapters)
+|- lora/    *.safetensors/.pt/.bin        (SDXL/FLUX LoRA adapters, SDXL turbo)
 |- llm/     *.gguf                        (llama.cpp GGUF models)
 |- tts/     *.gguf                        (llama-tts voice/acoustic models)
 |- embed/   embedding models              (future RAG workspace)
@@ -60,6 +60,10 @@ Those sidecar Python files are loaded dynamically from the model folder; they ar
 not copied into `.venv`. The nunchaku transformer is used with the existing
 `models/image/flux2-klein-9b/` diffusers repo and a bitsandbytes 4-bit Qwen3
 text encoder.
+
+On Blackwell GPUs, FLUX.2 nunchaku int4 is kept as a local file if downloaded
+but is hidden from the runtime model list because nunchaku requires fp4 for this
+GPU family.
 
 Environment variables like `IMGFAB_IMAGE_MODELS_DIR`, `IMGFAB_LORA_MODELS_DIR`,
 `IMGFAB_LLM_MODELS_DIR`, and `IMGFAB_TTS_MODELS_DIR` exist for development, but
