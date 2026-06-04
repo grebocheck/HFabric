@@ -9,16 +9,11 @@ const familyColor: Record<string, string> = {
   gguf: "bg-emerald-600",
 };
 
-const tabs: { id: View; label: string }[] = [
-  { id: "images", label: "Images" },
-  { id: "llm", label: "LLM" },
-  { id: "system", label: "System" },
-];
-
 export function ModelStatus({
   gpu,
   connected,
   view,
+  tabs,
   onView,
   onFree,
   onSettings,
@@ -27,6 +22,7 @@ export function ModelStatus({
   gpu: GpuStatus;
   connected: boolean;
   view: View;
+  tabs: { id: View; label: string }[];
   onView: (v: View) => void;
   onFree: () => void;
   onSettings: () => void;

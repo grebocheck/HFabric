@@ -64,8 +64,9 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
   VRAM/RAM gauges + resident/warm models + runtime info, fed by the `mem.status`
   WebSocket stream. No model needed. Shipped 2026-06-04. Tabs are now a
   declarative list (groundwork for C4.1).
-- [ ] **C4.1 Workspace/plugin registry.** Promote tabs to a fully declared list
-  of workspaces (component + props) so new tabs are pure data.
+- [x] **C4.1 Workspace registry.** Tabs are a single `workspaces` array in App
+  (`{id, label, render}`) that drives the header tabs, the command-palette nav
+  commands, and the main render. Adding a tab is one entry. Shipped 2026-06-04.
 - [ ] **C4.2 more tabs** (binaries already present): **TTS** (`llama-tts`),
   transcription (whisper), code assistant, notes/scratch.
 - [ ] **C4.4 Import** of conversations/presets/personas (export shipped).

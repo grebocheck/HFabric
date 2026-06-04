@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "./api/client";
 import { useEvents } from "./api/useEvents";
 import { ChatPanel } from "./components/ChatPanel";
@@ -10,6 +10,10 @@ import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SystemPanel } from "./components/SystemPanel";
 import type { BusEvent, GpuStatus, ImageItem, Job, Lora, MemSnapshot, Model, Preset } from "./types";
+
+// A workspace is one top-level tab. Adding a tab = one entry here (label drives
+// the header tab + command palette; render() owns the whole main area).
+type Workspace = { id: View; label: string; render: () => ReactNode };
 
 export default function App() {
   const [models, setModels] = useState<Model[]>([]);
@@ -102,28 +106,14 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const commands = useMemo<Command[]>(() => [
-    { id: "images", label: "Go to Images", hint: "tab", run: () => setView("images") },
-    { id: "llm", label: "Go to LLM / Chat", hint: "tab", run: () => setView("llm") },
-    { id: "settings", label: "Open Settings", run: () => setSettingsOpen(true) },
-    { id: "free", label: "Free GPU", hint: "unload models", run: onFree },
-  ], [onFree]);
-
   const imageJobs = jobs.filter((j) => j.type === "image");
 
-  return (
-    <div className="flex h-screen flex-col">
-      <ModelStatus
-        gpu={gpu}
-        connected={connected}
-        view={view}
-        onView={setView}
-        onFree={onFree}
-        onSettings={() => setSettingsOpen(true)}
-        onPalette={() => setPaletteOpen(true)}
-      />
-
-      {view === "images" ? (
+  // --- workspace registry: the single source for tabs + main rendering ---
+  const workspaces: Workspace[] = [
+    {
+      id: "images",
+      label: "Images",
+      render: () => (
         <main className="grid flex-1 grid-cols-[380px_320px_1fr] gap-4 overflow-hidden p-4">
           <div className="overflow-y-auto">
             <ImageComposer
@@ -138,15 +128,50 @@ export default function App() {
           <QueuePanel jobs={imageJobs} onChanged={refreshJobs} />
           <Gallery images={images} onSearch={refreshImages} />
         </main>
-      ) : view === "llm" ? (
+      ),
+    },
+    {
+      id: "llm",
+      label: "LLM",
+      render: () => (
         <main className="flex-1 overflow-hidden p-4">
           <ChatPanel models={models} />
         </main>
-      ) : (
+      ),
+    },
+    {
+      id: "system",
+      label: "System",
+      render: () => (
         <main className="flex-1 overflow-hidden p-4">
           <SystemPanel gpu={gpu} mem={mem} />
         </main>
-      )}
+      ),
+    },
+  ];
+  const active = workspaces.find((w) => w.id === view) ?? workspaces[0];
+
+  const commands = useMemo<Command[]>(() => [
+    ...workspaces.map((w) => ({ id: `go-${w.id}`, label: `Go to ${w.label}`, hint: "tab", run: () => setView(w.id) })),
+    { id: "settings", label: "Open Settings", run: () => setSettingsOpen(true) },
+    { id: "free", label: "Free GPU", hint: "unload models", run: onFree },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [onFree]);
+
+  return (
+    <div className="flex h-screen flex-col">
+      <ModelStatus
+        gpu={gpu}
+        connected={connected}
+        view={view}
+        tabs={workspaces.map(({ id, label }) => ({ id, label }))}
+        onView={setView}
+        onFree={onFree}
+        onSettings={() => setSettingsOpen(true)}
+        onPalette={() => setPaletteOpen(true)}
+      />
+
+      {active.render()}
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
