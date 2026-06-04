@@ -198,6 +198,7 @@ class Worker:
                 job.progress = 1.0
                 job.result = {"text": text}
                 job.finished_at = datetime.now(timezone.utc)
+            await self._write_chat_reply(s, snap, text)
         await self._bus.publish(Event(
             EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value, text=text
         ))
@@ -209,4 +210,16 @@ class Worker:
                 job.status = JobStatus.ERROR
                 job.error = error
                 job.finished_at = datetime.now(timezone.utc)
+            if snap.type is JobType.LLM:
+                await self._write_chat_reply(s, snap, error, error=True)
         await self._bus.publish(Event(EventType.JOB_ERROR, job_id=snap.id, error=error))
+
+    @staticmethod
+    async def _write_chat_reply(s, snap: JobSnapshot, text: str, *, error: bool = False) -> None:
+        """If this LLM job backs a chat message, persist the reply into it."""
+        message_id = snap.params.get("assistant_message_id")
+        if not message_id:
+            return
+        from ..services import chat_service  # noqa: PLC0415
+
+        await chat_service.finalize_assistant_message(s, message_id, text, error=error)

@@ -46,6 +46,16 @@ def _status(arbiter: GpuArbiter, **extra) -> dict:
     }
 
 
+@router.post("/stop")
+async def stop_generation(arbiter: GpuArbiter = Depends(get_arbiter)) -> dict:
+    """Interrupt the LLM that is currently streaming (best-effort)."""
+    cur = arbiter.current
+    if cur and cur.descriptor.family is ModelFamily.GGUF and hasattr(cur, "request_stop"):
+        cur.request_stop()
+        return {"stopped": True}
+    return {"stopped": False}
+
+
 @router.get("/config")
 async def get_config(arbiter: GpuArbiter = Depends(get_arbiter)) -> dict:
     return _status(arbiter)

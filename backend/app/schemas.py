@@ -85,6 +85,69 @@ class ImageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ----------------------------------------------------------------------- chat
+class MessageOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    error: bool = False
+    job_id: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ConversationOut(BaseModel):
+    id: str
+    title: str
+    model_id: str | None = None
+    system: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ConversationDetailOut(ConversationOut):
+    messages: list[MessageOut] = Field(default_factory=list)
+
+
+class ConversationCreate(BaseModel):
+    title: str | None = None
+    model_id: str | None = None
+    system: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = None
+    model_id: str | None = None
+    system: str | None = None
+    params: dict[str, Any] | None = None
+
+
+class ChatSend(BaseModel):
+    content: str
+    model_id: str
+    system: str | None = None
+    temperature: float = 0.8
+    max_tokens: int = 512
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    repeat_penalty: float | None = None
+    seed: int | None = None
+    stop: list[str] | None = None
+
+
+class ChatSendOut(BaseModel):
+    job_id: str
+    conversation: ConversationOut
+    user_message: MessageOut
+    assistant_message: MessageOut
+
+
 # -------------------------------------------------------------------- presets
 class PresetCreate(BaseModel):
     name: str

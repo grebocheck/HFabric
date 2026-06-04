@@ -99,9 +99,43 @@ export interface BusEvent {
 export type ChatRole = "user" | "assistant" | "system";
 
 export interface ChatMessage {
+  id: string;
   role: ChatRole;
   content: string;
   error?: boolean;
+  job_id?: string | null;
+  created_at?: string;
+}
+
+export interface ChatConversation {
+  id: string;
+  title: string;
+  model_id: string | null;
+  system: string | null;
+  params: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatConversationDetail extends ChatConversation {
+  messages: ChatMessage[];
+}
+
+export interface ChatSendResult {
+  job_id: string;
+  conversation: ChatConversation;
+  user_message: ChatMessage;
+  assistant_message: ChatMessage;
+}
+
+export interface ChatSendBody {
+  content: string;
+  model_id: string;
+  system?: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  repeat_penalty?: number;
 }
 
 export interface LlmConfig {

@@ -1,4 +1,6 @@
-import type { ChatMessage, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Preset, RuntimeSettings } from "../types";
+import type { ChatConversation, ChatConversationDetail, ChatSendBody, ChatSendResult, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Preset, RuntimeSettings } from "../types";
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -19,27 +21,30 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(jobs),
     }).then(j<Job[]>),
-  chat: (body: {
-    model_id: string;
-    messages: ChatMessage[];
-    system?: string;
-    temperature?: number;
-    max_tokens?: number;
-  }) =>
-    fetch("/api/jobs/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then(j<Job>),
   getJob: (id: string) => fetch(`/api/jobs/${id}`).then(j<Job>),
+  cancelJob: (id: string) => fetch(`/api/jobs/${id}`, { method: "DELETE" }).then(j<Job>),
   getLlmConfig: () => fetch("/api/llm/config").then(j<LlmConfig>),
   setLlmConfig: (body: { ctx?: number; ngl?: number }) =>
-    fetch("/api/llm/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then(j<LlmConfig & { changed: boolean; reloaded: boolean }>),
-  cancelJob: (id: string) => fetch(`/api/jobs/${id}`, { method: "DELETE" }).then(j<Job>),
+    fetch("/api/llm/config", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<LlmConfig & { changed: boolean; reloaded: boolean }>),
+  stopLlm: () => fetch("/api/llm/stop", { method: "POST" }).then(j<{ stopped: boolean }>),
+
+  // --- chat conversations ---
+  listConversations: () => fetch("/api/chat/conversations").then(j<ChatConversation[]>),
+  createConversation: (body: { title?: string; model_id?: string; system?: string } = {}) =>
+    fetch("/api/chat/conversations", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<ChatConversation>),
+  getConversation: (id: string) => fetch(`/api/chat/conversations/${id}`).then(j<ChatConversationDetail>),
+  updateConversation: (id: string, body: Partial<Pick<ChatConversation, "title" | "model_id" | "system">>) =>
+    fetch(`/api/chat/conversations/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<ChatConversation>),
+  deleteConversation: (id: string) =>
+    fetch(`/api/chat/conversations/${id}`, { method: "DELETE" }).then(j<{ deleted: boolean }>),
+  sendChatMessage: (id: string, body: ChatSendBody) =>
+    fetch(`/api/chat/conversations/${id}/messages`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<ChatSendResult>),
+  truncateFrom: (id: string, messageId: string) =>
+    fetch(`/api/chat/conversations/${id}/messages/${messageId}`, { method: "DELETE" }).then(j<{ removed: number }>),
   setPriority: (id: string, priority: number) =>
     fetch(`/api/jobs/${id}/priority`, {
       method: "POST",

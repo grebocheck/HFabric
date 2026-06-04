@@ -24,6 +24,11 @@ class LlamaCppBackend(LLMBackend):
     def __init__(self, descriptor: ModelDescriptor) -> None:
         super().__init__(descriptor)
         self._proc: asyncio.subprocess.Process | None = None
+        self._stop = False
+
+    def request_stop(self) -> None:
+        """Best-effort interrupt of the in-flight streamed completion."""
+        self._stop = True
 
     @property
     def _base_url(self) -> str:
@@ -100,6 +105,7 @@ class LlamaCppBackend(LLMBackend):
 
     # ------------------------------------------------------------- complete
     async def complete(self, params: dict[str, Any], on_token: TokenCb | None = None) -> str:
+        self._stop = False
         messages = self._build_messages(params)
         if settings.stub_mode:
             return await self._complete_stub(messages, on_token)
@@ -123,6 +129,8 @@ class LlamaCppBackend(LLMBackend):
         )
         out = []
         for tok in text.split(" "):
+            if self._stop:
+                break
             await asyncio.sleep(0.02)
             piece = tok + " "
             out.append(piece)
@@ -138,6 +146,14 @@ class LlamaCppBackend(LLMBackend):
             "max_tokens": int(params.get("max_tokens", 512)),
             "stream": True,
         }
+        # Optional sampling knobs — pass through to llama-server when supplied.
+        for key in ("top_p", "min_p", "repeat_penalty", "seed"):
+            if params.get(key) is not None:
+                payload[key] = params[key]
+        if params.get("top_k") is not None:
+            payload["top_k"] = int(params["top_k"])
+        if params.get("stop"):
+            payload["stop"] = params["stop"]
         chunks: list[str] = []
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
@@ -145,6 +161,8 @@ class LlamaCppBackend(LLMBackend):
             ) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
+                    if self._stop:
+                        break
                     if not line.startswith("data:"):
                         continue
                     data = line[5:].strip()

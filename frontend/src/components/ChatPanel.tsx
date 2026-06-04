@@ -1,123 +1,265 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { ChatMessage, LlmConfig, Model } from "../types";
+import { useEvents } from "../api/useEvents";
+import type { BusEvent, ChatConversation, ChatMessage, LlmConfig, Model } from "../types";
+import { Markdown } from "./Markdown";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
 const label = "text-xs uppercase tracking-wide text-white/40";
+const DEFAULTS_KEY = "imgfab.chat.defaults";
 
-type ChatSettings = {
-  model_id: string;
-  system: string;
-  temperature: number;
-  max_tokens: number;
-};
+type Defaults = { model_id: string; temperature: number; max_tokens: number };
 
-const SETTINGS_KEY = "imgfab.chat.settings";
-
-function loadSettings(): Partial<ChatSettings> {
+function loadDefaults(): Partial<Defaults> {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}");
+    return JSON.parse(localStorage.getItem(DEFAULTS_KEY) ?? "{}");
   } catch {
     return {};
   }
 }
 
-export function ChatPanel({
-  models,
-  messages,
-  busy,
-  onSend,
-  onClear,
-}: {
-  models: Model[];
-  messages: ChatMessage[];
-  busy: boolean;
-  onSend: (content: string, opts: { model_id: string; system?: string; temperature: number; max_tokens: number }) => void;
-  onClear: () => void;
-}) {
+export function ChatPanel({ models }: { models: Model[] }) {
   const llmModels = models.filter((m) => m.job_type === "llm");
-  const saved = loadSettings();
+  const saved = loadDefaults();
+
+  const [convs, setConvs] = useState<ChatConversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [input, setInput] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
   const [modelId, setModelId] = useState(saved.model_id ?? "");
-  const [system, setSystem] = useState(saved.system ?? "");
+  const [system, setSystem] = useState("");
   const [temperature, setTemperature] = useState(saved.temperature ?? 0.8);
   const [maxTokens, setMaxTokens] = useState(saved.max_tokens ?? 512);
-  const [input, setInput] = useState("");
 
   const [cfg, setCfg] = useState<LlmConfig | null>(null);
   const [ctxDraft, setCtxDraft] = useState<number | null>(null);
-  const [cfgBusy, setCfgBusy] = useState(false);
   const [cfgNote, setCfgNote] = useState("");
 
+  const activeJob = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const refreshConvs = useCallback(() => api.listConversations().then(setConvs).catch(() => {}), []);
+
+  useEffect(() => {
+    refreshConvs();
+    api.getLlmConfig().then((c) => { setCfg(c); setCtxDraft((p) => p ?? c.ctx); }).catch(() => {});
+  }, [refreshConvs]);
 
   useEffect(() => {
     if (!modelId && llmModels[0]) setModelId(llmModels[0].id);
   }, [llmModels, modelId]);
 
   useEffect(() => {
-    api.getLlmConfig().then((c) => {
-      setCfg(c);
-      setCtxDraft((prev) => prev ?? c.ctx);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(
-      SETTINGS_KEY,
-      JSON.stringify({ model_id: modelId, system, temperature, max_tokens: maxTokens }),
-    );
-  }, [modelId, system, temperature, maxTokens]);
+    localStorage.setItem(DEFAULTS_KEY, JSON.stringify({ model_id: modelId, temperature, max_tokens: maxTokens }));
+  }, [modelId, temperature, maxTokens]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  const send = () => {
+  // --- live streaming for the in-flight assistant message ---
+  const onChatEvent = useCallback((e: BusEvent) => {
+    if (e.job_id !== activeJob.current) return;
+    if (e.type === "llm.token") {
+      setMessages((p) => appendToLastAssistant(p, e.token as string));
+    } else if (e.type === "job.done") {
+      activeJob.current = null;
+      setBusy(false);
+      if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
+      refreshConvs();
+    } else if (e.type === "job.error") {
+      activeJob.current = null;
+      setBusy(false);
+      setMessages((p) => setLastAssistant(p, `⚠ ${(e.error as string) ?? "generation failed"}`, true));
+    } else if (e.type === "job.cancelled") {
+      activeJob.current = null;
+      setBusy(false);
+    }
+  }, [refreshConvs]);
+  useEvents(onChatEvent);
+
+  const selectConversation = useCallback(async (id: string) => {
+    setActiveId(id);
+    setEditingId(null);
+    try {
+      const d = await api.getConversation(id);
+      setMessages(d.messages);
+      if (d.model_id) setModelId(d.model_id);
+      setSystem(d.system ?? "");
+      if (typeof d.params.temperature === "number") setTemperature(d.params.temperature);
+      if (typeof d.params.max_tokens === "number") setMaxTokens(d.params.max_tokens);
+    } catch {
+      setMessages([]);
+    }
+  }, []);
+
+  // open the most recent conversation on first load
+  useEffect(() => {
+    if (!activeId && convs[0]) void selectConversation(convs[0].id);
+  }, [convs, activeId, selectConversation]);
+
+  const newChat = useCallback(async () => {
+    const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
+    setConvs((p) => [c, ...p]);
+    setActiveId(c.id);
+    setMessages([]);
+    setEditingId(null);
+  }, [modelId, llmModels]);
+
+  const deleteConversation = useCallback(async (id: string) => {
+    await api.deleteConversation(id).catch(() => {});
+    setConvs((p) => p.filter((c) => c.id !== id));
+    if (activeId === id) {
+      setActiveId(null);
+      setMessages([]);
+    }
+  }, [activeId]);
+
+  // core send used by the composer, regenerate and edit
+  const submit = useCallback(async (content: string, convId: string) => {
+    const mdl = modelId || llmModels[0]?.id;
+    if (!mdl) return;
+    setBusy(true);
+    setMessages((p) => [
+      ...p,
+      { id: "tmp-u", role: "user", content },
+      { id: "tmp-a", role: "assistant", content: "" },
+    ]);
+    try {
+      const res = await api.sendChatMessage(convId, {
+        content, model_id: mdl, system: system.trim() || undefined,
+        temperature, max_tokens: maxTokens,
+      });
+      activeJob.current = res.job_id;
+      setMessages((p) => p.map((m) =>
+        m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
+      ));
+      setConvs((p) => {
+        const others = p.filter((c) => c.id !== res.conversation.id);
+        return [res.conversation, ...others];
+      });
+    } catch (err) {
+      activeJob.current = null;
+      setBusy(false);
+      setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
+    }
+  }, [modelId, llmModels, system, temperature, maxTokens]);
+
+  const send = useCallback(async () => {
     const content = input.trim();
-    if (!content || !modelId || busy) return;
-    onSend(content, { model_id: modelId, system: system.trim() || undefined, temperature, max_tokens: maxTokens });
+    if (!content || busy) return;
+    let cid = activeId;
+    if (!cid) {
+      const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
+      setConvs((p) => [c, ...p]);
+      setActiveId(c.id);
+      cid = c.id;
+    }
     setInput("");
-  };
+    await submit(content, cid);
+  }, [input, busy, activeId, modelId, llmModels, submit]);
+
+  const stop = useCallback(async () => {
+    await api.stopLlm().catch(() => {});
+    if (activeJob.current) await api.cancelJob(activeJob.current).catch(() => {});
+  }, []);
+
+  const regenerate = useCallback(async () => {
+    if (busy || !activeId) return;
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUser || lastUser.id.startsWith("tmp")) return;
+    await api.truncateFrom(activeId, lastUser.id).catch(() => {});
+    const idx = messages.findIndex((m) => m.id === lastUser.id);
+    setMessages((p) => p.slice(0, idx));
+    await submit(lastUser.content, activeId);
+  }, [busy, activeId, messages, submit]);
+
+  const startEdit = (m: ChatMessage) => { setEditingId(m.id); setEditText(m.content); };
+  const saveEdit = useCallback(async () => {
+    if (!activeId || !editingId) return;
+    const content = editText.trim();
+    const idx = messages.findIndex((m) => m.id === editingId);
+    setEditingId(null);
+    if (!content || idx < 0) return;
+    await api.truncateFrom(activeId, editingId).catch(() => {});
+    setMessages((p) => p.slice(0, idx));
+    await submit(content, activeId);
+  }, [activeId, editingId, editText, messages, submit]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
   };
 
   const applyCtx = async () => {
     if (ctxDraft == null) return;
-    setCfgBusy(true);
     setCfgNote("");
     try {
       const next = await api.setLlmConfig({ ctx: ctxDraft });
-      setCfg(next);
-      setCtxDraft(next.ctx);
+      setCfg(next); setCtxDraft(next.ctx);
       setCfgNote(next.reloaded ? "applied — model reloaded" : next.changed ? "applied (next load)" : "no change");
     } catch (err) {
       setCfgNote(err instanceof Error ? err.message : "could not update");
-    } finally {
-      setCfgBusy(false);
     }
   };
 
+  const approxTokens = Math.ceil(
+    (system.length + input.length + messages.reduce((n, m) => n + m.content.length, 0)) / 4,
+  );
+
   return (
-    <div className="flex h-full gap-4">
+    <div className="flex h-full gap-3">
+      {/* --- conversations --- */}
+      <aside className="flex w-56 shrink-0 flex-col rounded-lg border border-white/10">
+        <button onClick={() => void newChat()} className="m-2 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500">
+          + New chat
+        </button>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          {convs.length === 0 && <div className="px-1 text-xs text-white/30">no conversations</div>}
+          {convs.map((c) => (
+            <div
+              key={c.id}
+              onClick={() => void selectConversation(c.id)}
+              className={`group mb-1 flex cursor-pointer items-center justify-between gap-1 rounded-md px-2 py-1.5 text-sm ${
+                activeId === c.id ? "bg-white/15" : "hover:bg-white/5"
+              }`}
+            >
+              <span className="min-w-0 flex-1 truncate text-white/80">{c.title}</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); void deleteConversation(c.id); }}
+                className="shrink-0 text-white/30 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
+                title="delete"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      </aside>
+
       {/* --- conversation --- */}
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-white/10">
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
           {messages.length === 0 ? (
             <div className="flex h-full items-center justify-center text-center text-sm text-white/30">
-              Chat with the local model. Ask it to write image prompts, brainstorm, or anything else,
-              then copy what you need.
+              Start a conversation with the local model.
             </div>
           ) : (
-            messages.map((m, i) => <Bubble key={i} msg={m} />)
-          )}
-          {busy && messages[messages.length - 1]?.role !== "assistant" && (
-            <div className="text-xs text-white/40">thinking…</div>
+            messages.map((m) => (
+              <Bubble
+                key={m.id}
+                msg={m}
+                editing={editingId === m.id}
+                editText={editText}
+                setEditText={setEditText}
+                onStartEdit={() => startEdit(m)}
+                onSaveEdit={() => void saveEdit()}
+                onCancelEdit={() => setEditingId(null)}
+              />
+            ))
           )}
         </div>
 
@@ -127,70 +269,62 @@ export function ChatPanel({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             rows={3}
-            placeholder={modelId ? "Message the model…  (Enter to send, Shift+Enter for newline)" : "no LLM model available"}
+            placeholder={modelId ? "Message…  (Enter to send, Shift+Enter for newline)" : "no LLM model available"}
             disabled={!modelId}
             className={`${field} resize-none`}
           />
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-white/35">
-              {busy ? "generating…" : `${messages.length} message${messages.length === 1 ? "" : "s"}`}
+              ~{approxTokens} / {cfg?.ctx ?? "?"} tokens
             </span>
-            <button
-              onClick={send}
-              disabled={!input.trim() || !modelId || busy}
-              className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
-            >
-              Send
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void regenerate()}
+                disabled={busy || !messages.some((m) => m.role === "assistant")}
+                className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/10 disabled:opacity-30"
+              >
+                Regenerate
+              </button>
+              {busy ? (
+                <button onClick={() => void stop()} className="rounded-md border border-red-400/40 px-4 py-1.5 text-sm font-medium text-red-200 hover:bg-red-400/10">
+                  Stop
+                </button>
+              ) : (
+                <button
+                  onClick={() => void send()}
+                  disabled={!input.trim() || !modelId}
+                  className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
+                >
+                  Send
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* --- settings --- */}
       <aside className="flex w-72 shrink-0 flex-col gap-4 overflow-y-auto rounded-lg border border-white/10 p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white/75">Model settings</h2>
-          <button
-            onClick={onClear}
-            disabled={!messages.length}
-            className="text-xs text-white/40 hover:text-white/80 disabled:opacity-30"
-          >
-            new chat
-          </button>
-        </div>
+        <h2 className="text-sm font-semibold text-white/75">Model settings</h2>
 
         <label>
           <div className={label}>Model</div>
           <select value={modelId} onChange={(e) => setModelId(e.target.value)} className={`${field} mt-1`}>
             {llmModels.length === 0 && <option value="">no LLM models</option>}
-            {llmModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
+            {llmModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </label>
 
         <div>
           <div className={label}>Context window (tokens)</div>
           <div className="mt-1 flex gap-2">
-            <input
-              type="number"
-              min={512}
-              step={512}
-              value={ctxDraft ?? ""}
-              onChange={(e) => setCtxDraft(Number(e.target.value))}
-              className={field}
-            />
-            <button
-              onClick={applyCtx}
-              disabled={cfgBusy || ctxDraft == null || ctxDraft === cfg?.ctx}
-              className="shrink-0 rounded-md border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
-            >
-              {cfgBusy ? "…" : "Apply"}
+            <input type="number" min={512} step={512} value={ctxDraft ?? ""} onChange={(e) => setCtxDraft(Number(e.target.value))} className={field} />
+            <button onClick={() => void applyCtx()} disabled={ctxDraft == null || ctxDraft === cfg?.ctx}
+              className="shrink-0 rounded-md border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30">
+              Apply
             </button>
           </div>
-          <div className="mt-1 text-[11px] text-white/35">
-            current {cfg?.ctx ?? "?"} · ngl {cfg?.ngl ?? "?"} · {cfg?.loaded ? "loaded" : "not loaded"}
-          </div>
+          <div className="mt-1 text-[11px] text-white/35">current {cfg?.ctx ?? "?"} · {cfg?.loaded ? "loaded" : "not loaded"}</div>
           {cfgNote && <div className="mt-1 text-[11px] text-emerald-300/80">{cfgNote}</div>}
           {ctxDraft != null && cfg && ctxDraft !== cfg.ctx && cfg.loaded && (
             <div className="mt-1 text-[11px] text-amber-300/80">applying reloads the running model</div>
@@ -199,28 +333,12 @@ export function ChatPanel({
 
         <label>
           <div className={label}>Temperature · {temperature.toFixed(2)}</div>
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={0.05}
-            value={temperature}
-            onChange={(e) => setTemperature(Number(e.target.value))}
-            className="mt-2 w-full accent-emerald-500"
-          />
+          <input type="range" min={0} max={2} step={0.05} value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} className="mt-2 w-full accent-emerald-500" />
         </label>
 
         <label>
           <div className={label}>Max tokens</div>
-          <input
-            type="number"
-            min={1}
-            max={8192}
-            step={64}
-            value={maxTokens}
-            onChange={(e) => setMaxTokens(Number(e.target.value))}
-            className={`${field} mt-1`}
-          />
+          <input type="number" min={1} max={8192} step={64} value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} className={`${field} mt-1`} />
         </label>
 
         <label className="flex min-h-0 flex-1 flex-col">
@@ -237,21 +355,81 @@ export function ChatPanel({
   );
 }
 
-function Bubble({ msg }: { msg: ChatMessage }) {
+function Bubble({
+  msg, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit,
+}: {
+  msg: ChatMessage;
+  editing: boolean;
+  editText: string;
+  setEditText: (v: string) => void;
+  onStartEdit: () => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+}) {
   const isUser = msg.role === "user";
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(msg.content).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+
+  if (editing) {
+    return (
+      <div className="flex justify-end">
+        <div className="w-[80%]">
+          <textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            rows={3}
+            className={`${field} resize-none`}
+          />
+          <div className="mt-1 flex justify-end gap-2">
+            <button onClick={onCancelEdit} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10">Cancel</button>
+            <button onClick={onSaveEdit} className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium hover:bg-emerald-500">Save &amp; resend</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
-          isUser
-            ? "bg-violet-600/30 text-white"
-            : msg.error
-              ? "border border-red-400/30 bg-red-400/10 text-red-200"
-              : "border border-white/10 bg-white/[0.04] text-white/90"
-        }`}
-      >
-        {msg.content || (isUser ? "" : <span className="text-white/30">…</span>)}
+    <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={`max-w-[80%] rounded-lg px-3 py-2 ${
+        isUser ? "bg-violet-600/30 text-white"
+          : msg.error ? "border border-red-400/30 bg-red-400/10 text-red-200"
+          : "border border-white/10 bg-white/[0.04]"
+      }`}>
+        {isUser ? (
+          <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+        ) : msg.content ? (
+          <Markdown content={msg.content} />
+        ) : (
+          <span className="text-sm text-white/30">…</span>
+        )}
+        <div className="mt-1 flex gap-2 opacity-0 transition group-hover:opacity-100">
+          <button onClick={copy} className="text-[11px] text-white/40 hover:text-white/80">{copied ? "copied" : "copy"}</button>
+          {isUser && !msg.id.startsWith("tmp") && (
+            <button onClick={onStartEdit} className="text-[11px] text-white/40 hover:text-white/80">edit</button>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function appendToLastAssistant(msgs: ChatMessage[], token: string): ChatMessage[] {
+  const out = [...msgs];
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role === "assistant") { out[i] = { ...out[i], content: out[i].content + token }; return out; }
+  }
+  return out;
+}
+
+function setLastAssistant(msgs: ChatMessage[], content: string, error = false): ChatMessage[] {
+  const out = [...msgs];
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role === "assistant") { out[i] = { ...out[i], content, error }; return out; }
+  }
+  return out;
 }
