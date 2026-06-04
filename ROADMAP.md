@@ -389,11 +389,12 @@ P3/UX notes:
   `prefers-reduced-motion` reset for all P5.B animations.
 
 **P5.C — LLM tab comfort**
-- [ ] **P5.C1 — Thinking / reasoning panel.** gpt-oss emits a Harmony
-  `analysis` channel (and other models use `<think>…</think>`). Parse it on the
-  backend stream and render a collapsible **"Thinking…"** disclosure that streams
-  live, shows a thinking spinner, then auto-collapses when the `final` answer
-  starts — so reasoning is visible but not in the way.
+- [x] **P5.C1 — Thinking / reasoning panel.** Shipped 2026-06-04:
+  [Thinking.tsx](frontend/src/components/Thinking.tsx) parses `<think>…</think>`
+  / `<thinking>` out of the assistant stream and renders a collapsible disclosure
+  that auto-expands with a spinner while reasoning streams, then auto-collapses
+  once the answer begins. *Remaining:* gpt-oss Harmony `analysis`-channel parsing
+  (needs confirming how llama.cpp surfaces it) for models that don't use `<think>`.
 - [ ] **P5.C2 — Composer ergonomics.** Auto-growing textarea, a live context/token
   meter, streaming caret + stop affordance, and a typing/"model is generating"
   state. Quick chips to switch model/persona inline without opening Settings.

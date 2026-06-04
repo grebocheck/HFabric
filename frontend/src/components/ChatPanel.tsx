@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useEvents } from "../api/useEvents";
 import type { BusEvent, ChatConversation, ChatConversationImport, ChatImportMessage, ChatMessage, ChatSendBody, LlmConfig, Model, Preset, PresetImportItem } from "../types";
-import { Markdown } from "./Markdown";
+import { AssistantContent } from "./Thinking";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
 const numField = "w-full rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs outline-none focus:border-emerald-500";
@@ -870,10 +870,8 @@ function Bubble({
       }`}>
         {isUser ? (
           <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-        ) : msg.content ? (
-          <Markdown content={msg.content} />
         ) : (
-          <span className="text-sm text-white/30">…</span>
+          <AssistantContent content={msg.content} />
         )}
         <div className="mt-1 flex gap-2 opacity-0 transition group-hover:opacity-100">
           <button onClick={copy} className="text-[11px] text-white/40 hover:text-white/80">{copied ? "copied" : "copy"}</button>
