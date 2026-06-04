@@ -352,9 +352,10 @@ P3/UX notes:
 > reasoning. This is presentation only — no change to the memory/VRAM invariants.
 
 **P5.A — Visual identity & design system**
-- [ ] **P5.A1 — Brand mark + app shell.** An SVG HFabric logo/wordmark in the
-  header, a matching favicon, and an app/window icon. Replace the bare title with
-  a brand lockup.
+- [x] **P5.A1 — Brand mark + app shell.** SVG HFabric mark (violet tile + woven
+  "H") shipped 2026-06-04 as [Logo.tsx](frontend/src/components/Logo.tsx) in the
+  header lockup, plus a matching [favicon.svg](frontend/public/favicon.svg).
+  *Remaining:* a packaged desktop/window icon for the VS Code-extension shell.
 - [ ] **P5.A2 — Design tokens.** Centralize the palette (surfaces, borders, text,
   one **accent** color, success/warn/error) as CSS variables / Tailwind 4
   `@theme` tokens in [index.css](frontend/src/index.css), replacing the ad-hoc

@@ -1,3 +1,4 @@
+import { Logo } from "./Logo";
 import type { GpuStatus } from "../types";
 
 export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "system";
@@ -32,6 +33,7 @@ export function ModelStatus({
     <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-3">
       <div className="flex min-w-0 items-center gap-5">
         <div className="flex shrink-0 items-center gap-2">
+          <Logo className="h-7 w-7" />
           <span className="text-lg font-semibold tracking-tight">HFabric</span>
           <span
             className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-red-500"}`}
