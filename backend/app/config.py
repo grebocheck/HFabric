@@ -8,6 +8,7 @@ file (prefix ``HFAB_``).
 
 from __future__ import annotations
 
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -16,6 +17,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # repo root = .../ImageFabric  (this file is .../ImageFabric/backend/app/config.py)
 ROOT = Path(__file__).resolve().parents[2]
+
+# llama.cpp binaries are named `llama-server.exe` on Windows, `llama-server` on
+# Linux/macOS. Default to the right one for the host (overridable via HFAB_*).
+_EXE = ".exe" if sys.platform == "win32" else ""
 
 
 class Settings(BaseSettings):
@@ -56,9 +61,9 @@ class Settings(BaseSettings):
 
     # --- llama.cpp ---
     # Path to a CUDA(sm_120) `llama-server` binary. Used in real (non-stub) mode.
-    llama_server_bin: Path = ROOT / "bin" / "llama" / "llama-server.exe"
-    llama_tts_bin: Path = ROOT / "bin" / "llama" / "llama-tts.exe"
-    llama_mtmd_bin: Path = ROOT / "bin" / "llama" / "llama-mtmd-cli.exe"
+    llama_server_bin: Path = ROOT / "bin" / "llama" / f"llama-server{_EXE}"
+    llama_tts_bin: Path = ROOT / "bin" / "llama" / f"llama-tts{_EXE}"
+    llama_mtmd_bin: Path = ROOT / "bin" / "llama" / f"llama-mtmd-cli{_EXE}"
     llama_host: str = "127.0.0.1"
     llama_port: int = 8261
     llama_embed_port: int = 8262

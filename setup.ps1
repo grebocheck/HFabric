@@ -1,4 +1,4 @@
-<#
+﻿<#
   HFabric automated setup script
 
     .\setup.ps1              # Guided setup (STUB → REAL → models)
@@ -22,7 +22,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
+# setup.ps1 lives at the repo root, so $PSScriptRoot *is* the root. (Do NOT take
+# its parent — that would create the venv/deps one level above the project.)
+$root = $PSScriptRoot
 Set-Location $root
 
 $venvPath = ".venv"
@@ -63,6 +65,16 @@ function Write-Warning-Text {
 function Write-Error-Text {
     param([string]$msg)
     Write-Host "  ✗ $msg" -ForegroundColor Red
+}
+
+function Assert-LastExit {
+    # pip/npm are native exes: a non-zero exit does NOT throw in PowerShell, so a
+    # failed install would otherwise be silently swallowed by "| Out-Null".
+    param([string]$what)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Text "$what failed (exit $LASTEXITCODE). Re-run without '| Out-Null' suppression to see the error, or check your network / Python version."
+        exit 1
+    }
 }
 
 # --- Check prerequisites ------------------------------------------------------
@@ -148,11 +160,18 @@ if ((Test-Path $venvPath) -and -not $Force) {
     }
     Write-Host "  Creating venv..." -ForegroundColor Cyan
     & python -m venv $venvPath
+    Assert-LastExit "venv creation"
     Write-Success "venv created"
+}
+
+if (-not (Test-Path $venvPy)) {
+    Write-Error-Text "venv python not found at $venvPy — venv creation may have failed."
+    exit 1
 }
 
 Write-Host "  Upgrading pip..." -ForegroundColor Cyan
 & $venvPy -m pip install --upgrade pip 2>&1 | Out-Null
+Assert-LastExit "pip upgrade"
 Write-Success "pip upgraded"
 
 # --- Install foundation deps --------------------------------------------------
@@ -160,6 +179,7 @@ Write-Success "pip upgraded"
 Write-Section "Installing foundation dependencies"
 Write-Host "  Installing from backend/requirements.txt..." -ForegroundColor Cyan
 & $venvPip install -r backend\requirements.txt 2>&1 | Out-Null
+Assert-LastExit "foundation dependency install"
 Write-Success "Foundation packages installed (FastAPI, SQLAlchemy, Pydantic, etc.)"
 
 # --- Install GPU deps if needed -----------------------------------------------
@@ -170,6 +190,7 @@ if ($Real) {
     Write-Host "  Installing PyTorch 2.11 + CUDA 12.8..." -ForegroundColor Cyan
     Write-Host "  (this takes 2–5 min, ~2 GB download)" -ForegroundColor DarkGray
     & $venvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 2>&1 | Out-Null
+    Assert-LastExit "PyTorch install"
     Write-Success "PyTorch + CUDA installed"
     
     Write-Host "  Verifying PyTorch installation..." -ForegroundColor Cyan
@@ -180,6 +201,7 @@ if ($Real) {
     Write-Host "  Installing GPU backends (diffusers, transformers, accelerate, bitsandbytes)..." -ForegroundColor Cyan
     Write-Host "  (this takes 3–5 min, ~1 GB download)" -ForegroundColor DarkGray
     & $venvPip install -r backend\requirements-gpu.txt 2>&1 | Out-Null
+    Assert-LastExit "GPU backend install"
     Write-Success "GPU backends installed"
     
     # Optional: Nunchaku for FLUX
@@ -210,7 +232,12 @@ if ((Test-Path "frontend\node_modules") -and -not $Force) {
     Write-Host "  Running npm install..." -ForegroundColor Cyan
     Push-Location frontend
     & npm install 2>&1 | Out-Null
+    $npmExit = $LASTEXITCODE
     Pop-Location
+    if ($npmExit -ne 0) {
+        Write-Error-Text "npm install failed (exit $npmExit). Check that Node.js 18+ is installed and on PATH."
+        exit 1
+    }
     Write-Success "Frontend packages installed (React, Tailwind, Vite, etc.)"
 }
 

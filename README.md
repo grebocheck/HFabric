@@ -47,16 +47,23 @@ by flipping `HFAB_STUB_MODE=false` after the GPU stack is installed.
 
 ### Automated Setup (Recommended)
 
-**Double-click `setup.bat`** to run an interactive guided setup that handles everything automatically:
+**Use the setup script for your platform** to run an interactive guided install:
 
 ```bat
-setup.bat          # Interactive: choose STUB, REAL, or REAL+models
+setup.bat          # Windows interactive: choose STUB, REAL, or REAL+models
 setup.bat stub     # STUB mode (no GPU, ~1 min)
 setup.bat real     # REAL mode + GPU stack (10–15 min)
 setup.bat all      # REAL mode + GPU stack + download ALL models (30–60 min + 80 GB)
 ```
 
-Or from PowerShell:
+```bash
+./setup.sh          # Linux/macOS interactive: choose STUB, REAL, or REAL+models
+./setup.sh stub     # STUB mode (no GPU)
+./setup.sh real     # REAL mode + GPU stack
+./setup.sh all      # REAL mode + download curated models
+```
+
+Or from PowerShell on Windows:
 ```powershell
 .\setup.ps1        # Guided setup
 .\setup.ps1 -Stub  # STUB mode
