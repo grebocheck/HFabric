@@ -352,6 +352,26 @@ export interface VisionResult {
   duration_seconds: number;
 }
 
+export interface VoiceModel {
+  id: string;
+  name: string;
+  path: string;
+  size_bytes: number;
+  has_index: boolean;
+  index_path: string | null;
+}
+
+export interface VoiceStatus {
+  engine: string;
+  models_dir: string;
+  models: VoiceModel[];
+  deps: { torch: boolean; rvc: boolean };
+  device: string;
+  max_upload_mb: number;
+  ready: boolean;
+  realtime: boolean;
+}
+
 export interface CodeFile {
   path: string;
   size_bytes: number;

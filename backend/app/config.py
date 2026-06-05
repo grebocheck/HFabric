@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     transcription_models_dir: Path = ROOT / "models" / "transcribe"
     embed_models_dir: Path = ROOT / "models" / "embed"
     vision_models_dir: Path = ROOT / "models" / "vision"
+    voice_models_dir: Path = ROOT / "models" / "voice"
     data_dir: Path = ROOT / "data"
     outputs_dir: Path = ROOT / "data" / "outputs"
     db_path: Path = ROOT / "data" / "hfabric.db"
@@ -85,6 +86,12 @@ class Settings(BaseSettings):
     vision_gpu_layers: int = 0
     vision_timeout_seconds: int = 900
     vision_max_upload_mb: int = 64
+    # Voice changer (P6, RVC w-okada-style). CPU-first by default so an offline
+    # conversion does not bypass the shared GPU arbiter; realtime (P6.2) will get
+    # its own coordinated voice lane.
+    voice_device: str = "cpu"
+    voice_timeout_seconds: int = 600
+    voice_max_upload_mb: int = 64
 
     # --- FLUX loading (M0 finding) ---
     # The local flux_dev is an fp8 all-in-one checkpoint; diffusers needs a
@@ -178,6 +185,7 @@ class Settings(BaseSettings):
             self.transcription_models_dir,
             self.embed_models_dir,
             self.vision_models_dir,
+            self.voice_models_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 

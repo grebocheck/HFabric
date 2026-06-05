@@ -23,7 +23,7 @@ from .core.scheduler import Worker
 from .db.session import init_db
 from .services.embedding_service import embedding_service
 from .util import sysmon
-from .api import chat, code, gallery, jobs, llm, models, notes, presets, rag, transcription, tts, vision, ws
+from .api import chat, code, gallery, jobs, llm, models, notes, presets, rag, transcription, tts, vision, voice, ws
 
 
 async def _mem_monitor(bus: EventBus) -> None:
@@ -80,6 +80,7 @@ app.include_router(rag.router)
 app.include_router(transcription.router)
 app.include_router(tts.router)
 app.include_router(vision.router)
+app.include_router(voice.router)
 app.include_router(ws.router)
 
 

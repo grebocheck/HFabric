@@ -1,4 +1,4 @@
-import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus } from "../types";
+import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -133,6 +133,7 @@ export const api = {
       .then(j<RagSearchResponse>),
 
   visionStatus: () => fetch("/api/vision/status").then(j<VisionStatus>),
+  voiceStatus: () => fetch("/api/voice/status").then(j<VoiceStatus>),
   analyzeVision: (body: { file: File; prompt: string; model_id: string; projector_id: string }) => {
     const form = new FormData();
     form.append("file", body.file);

@@ -1,7 +1,7 @@
 import { Logo } from "./Logo";
 import type { GpuStatus, MemSnapshot } from "../types";
 
-export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "system";
+export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "voice" | "system";
 
 const familyColor: Record<string, string> = {
   flux: "bg-violet-600",

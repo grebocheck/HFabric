@@ -478,11 +478,15 @@ few reliability bugs were fixed (committed to `main`):
   dedicated low-VRAM **voice lane** coordinated with the arbiter (pause/refuse
   heavy image/LLM jobs while a session is live), plus a CPU fallback.
 
-- [ ] **P6.1 — Voice-model management + offline conversion.** Mirror the
-  TTS/Vision pattern: scan `models/voice` (RVC `.pth` + `.index`, or seed-vc),
-  add a **Voice** tab shell and `/api/voice/*`, and do **file → file** conversion
-  first to validate the model/quality path end-to-end. Model-gated, CPU/GPU
-  configurable. *Lowest risk; do this before any realtime work.*
+- [~] **P6.1 — Voice-model management + offline conversion.** Engine chosen:
+  **RVC (w-okada-style)**. Shipped 2026-06-05 (shell): a **Voice** tab
+  ([VoicePanel.tsx](frontend/src/components/VoicePanel.tsx)) + `/api/voice/status`
+  that scans `models/voice` for RVC voices (`.pth` weight + optional same-stem
+  `.index`) and reports engine deps (`torch` / RVC stack); `/api/voice/convert`
+  is wired but **gated** (503 until the engine is installed), CPU-first via
+  `HFAB_VOICE_*`. Smoke-tested live (`ready=false`, no engine/models yet).
+  *Remaining:* install/wire the RVC inference stack and do real **file → file**
+  conversion to validate model/quality.
 - [ ] **P6.2 — Real-time streaming engine.** Backend duplex worker: rolling input
   buffer → conversion model → crossfaded output, targeting **< ~150 ms** round
   trip. Enumerate input/output devices; expose start/stop + live params over

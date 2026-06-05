@@ -18,6 +18,7 @@ import { toast, ToastHost } from "./components/Toast";
 import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VisionPanel } from "./components/VisionPanel";
+import { VoicePanel } from "./components/VoicePanel";
 import type { BusEvent, GpuStatus, ImageItem, Job, Lora, MemSnapshot, Model, Preset } from "./types";
 
 // A workspace is one top-level tab. Adding a tab = one entry here (label drives
@@ -237,6 +238,15 @@ export default function App() {
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
           <VisionPanel />
+        </main>
+      ),
+    },
+    {
+      id: "voice",
+      label: "Voice",
+      render: () => (
+        <main className="flex-1 overflow-hidden p-4">
+          <VoicePanel />
         </main>
       ),
     },
