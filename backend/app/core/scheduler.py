@@ -36,6 +36,59 @@ def _coerce_int(value: Any, default: int, *, min_value: int, max_value: int) -> 
     return max(min_value, min(max_value, n))
 
 
+def _type_value(t: Any) -> str:
+    return t.value if isinstance(t, JobType) else str(t)
+
+
+def select_in_tier(tier: list, resident_model: str | None, resident_type: str | None):
+    """The phase-batching rule, shared by the live scheduler and the plan preview
+    so the predicted swap count can never drift from what actually runs: within a
+    priority tier prefer a job that needs the *resident model*, then one of the
+    *resident type*, else the oldest (tier is pre-sorted oldest-first)."""
+    if resident_model is not None:
+        same_model = next((j for j in tier if j.model_id == resident_model), None)
+        if same_model is not None:
+            return same_model
+        if resident_type is not None:
+            same_type = next((j for j in tier if _type_value(j.type) == resident_type), None)
+            if same_type is not None:
+                return same_type
+    return tier[0]
+
+
+@dataclass
+class PlanStep:
+    model_id: str
+    job_type: str
+    count: int
+
+
+def plan_queue(jobs: list, current_model_id: str | None, current_job_type: str | None) -> tuple[int, list[PlanStep]]:
+    """Simulate the scheduler over a static snapshot of queued jobs and return the
+    predicted (model-swap count, compressed run sequence). A swap is a change of
+    resident model from a previously-resident one (the first load from idle is a
+    load, not a swap). New arrivals during draining are intentionally ignored."""
+    remaining = sorted(jobs, key=lambda j: (-j.priority, j.created_at))
+    resident_model = current_model_id
+    resident_type = current_job_type
+    swaps = 0
+    steps: list[PlanStep] = []
+    while remaining:
+        top = remaining[0].priority
+        tier = [j for j in remaining if j.priority == top]
+        chosen = select_in_tier(tier, resident_model, resident_type)
+        if resident_model is not None and chosen.model_id != resident_model:
+            swaps += 1
+        resident_model = chosen.model_id
+        resident_type = _type_value(chosen.type)
+        if steps and steps[-1].model_id == chosen.model_id:
+            steps[-1].count += 1
+        else:
+            steps.append(PlanStep(chosen.model_id, _type_value(chosen.type), 1))
+        remaining.remove(chosen)
+    return swaps, steps
+
+
 @dataclass
 class JobSnapshot:
     id: str
@@ -145,15 +198,11 @@ class Worker:
             tier = [j for j in rows if j.priority == top_priority]
 
             cur = self._arbiter.current
-            chosen = None
-            if cur is not None:
-                chosen = next((j for j in tier if j.model_id == cur.descriptor.id), None)
-                if chosen is None:
-                    chosen = next(
-                        (j for j in tier if j.type == cur.descriptor.job_type), None
-                    )
-            if chosen is None:
-                chosen = tier[0]
+            chosen = select_in_tier(
+                tier,
+                cur.descriptor.id if cur is not None else None,
+                cur.descriptor.job_type.value if cur is not None else None,
+            )
 
             chosen.status = JobStatus.RUNNING
             chosen.started_at = datetime.now(timezone.utc)

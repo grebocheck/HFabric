@@ -9,14 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..backends.base import ModelDescriptor
 from ..backends.registry import ModelRegistry
+from ..core.arbiter import GpuArbiter
 from ..core.enums import EventType, JobStatus, JobType
 from ..core.events import EventBus
-from ..core.scheduler import Worker
+from ..core.scheduler import Worker, plan_queue
 from pydantic import BaseModel
 
 from ..schemas import JobCreate, JobOut, PriorityUpdate
 from ..services import prompt_service, queue_service
-from .deps import get_bus, get_registry, get_session, get_worker
+from .deps import get_arbiter, get_bus, get_registry, get_session, get_worker
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -191,6 +192,38 @@ async def list_jobs(
 ) -> list[JobOut]:
     jobs = await queue_service.list_jobs(session, status=status, type=type, limit=limit)
     return [JobOut.model_validate(j) for j in jobs]
+
+
+@router.get("/plan")
+async def queue_plan(
+    session: AsyncSession = Depends(get_session),
+    registry: ModelRegistry = Depends(get_registry),
+    arbiter: GpuArbiter = Depends(get_arbiter),
+) -> dict:
+    """Predict how the scheduler will drain the current queue: the model-swap
+    count and the run sequence. Lets the user trust that a mixed batch swaps once
+    (ROADMAP P7.4). Uses the same selection rule as the live worker."""
+    rows = await queue_service.list_jobs(session, status=JobStatus.QUEUED, limit=1000)
+    cur = arbiter.current
+    current_model_id = cur.descriptor.id if cur is not None else None
+    current_type = cur.descriptor.job_type.value if cur is not None else None
+    swaps, steps = plan_queue(rows, current_model_id, current_type)
+    names = {d.id: d.name for d in registry.descriptors()}
+    return {
+        "queued": len(rows),
+        "swaps": swaps,
+        "current_model_id": current_model_id,
+        "current_model": cur.descriptor.name if cur is not None else None,
+        "steps": [
+            {
+                "model_id": s.model_id,
+                "model": names.get(s.model_id, s.model_id),
+                "type": s.job_type,
+                "count": s.count,
+            }
+            for s in steps
+        ],
+    }
 
 
 @router.get("/{job_id}", response_model=JobOut)

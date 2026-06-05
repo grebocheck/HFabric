@@ -60,9 +60,12 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   buffer of `mem.status` samples (last ~90) and draws a sparkline of VRAM-used and
   RAM-% with dashed **swap markers** where the resident model changed. *Remaining:*
   optional process-RSS series and hover tooltips.
-- [ ] **P7.4 — Swap-plan preview.** Expose the worker's phase-batching plan: show
-  the predicted LLM↔image swap count for the current queue and let the user see
-  (and trust) that a mixed batch will swap once, not N times.
+- [x] **P7.4 — Swap-plan preview.** The phase-batching selection rule is now a
+  shared pure function (`scheduler.select_in_tier`) used by both the live worker
+  and a `plan_queue` simulator; `GET /api/jobs/plan` returns the predicted swap
+  count + run sequence, and the System tab shows it ("now → model ×n → …"). A
+  mixed batch correctly previews as one swap. *Remaining:* surface it inline on the
+  Images-tab queue too (currently image-only there).
 
 ### P8 — Generation pages: functionality & comfort (differentiator #2)
 

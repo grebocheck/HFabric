@@ -1,24 +1,32 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
-import type { ArbiterNote, GpuStatus, MemPoint, MemSnapshot, RuntimeSettings } from "../types";
+import type { ArbiterNote, GpuStatus, MemPoint, MemSnapshot, QueuePlan, RuntimeSettings } from "../types";
 
 export function SystemPanel({
   gpu,
   mem,
   history = [],
   note,
+  queueKey = "",
 }: {
   gpu: GpuStatus;
   mem: MemSnapshot | null;
   history?: MemPoint[];
   note?: ArbiterNote | null;
+  queueKey?: string;
 }) {
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
+  const [plan, setPlan] = useState<QueuePlan | null>(null);
 
   useEffect(() => {
     api.runtimeSettings().then(setSettings).catch(() => {});
   }, []);
+
+  // Refetch the swap-plan whenever the queue or the resident model changes.
+  useEffect(() => {
+    api.queuePlan().then(setPlan).catch(() => {});
+  }, [queueKey, gpu.model_id]);
 
   const ram = mem?.ram;
   const vram = mem?.vram;
@@ -35,6 +43,8 @@ export function SystemPanel({
       </WorkspaceHeader>
 
       <ArbiterStatus note={note} />
+
+      <SwapPlan plan={plan} />
 
       <MemoryTimeline history={history} />
 
@@ -147,6 +157,45 @@ function ArbiterStatus({ note }: { note?: ArbiterNote | null }) {
         {when && <span className="text-[11px] opacity-60">{note?.reason} · {when}</span>}
       </div>
       <p className="mt-1 text-sm">{note ? note.message : "No recent arbiter activity — the GPU is idle or steadily serving one model."}</p>
+    </section>
+  );
+}
+
+function SwapPlan({ plan }: { plan: QueuePlan | null }) {
+  const typeColor = (t: string) => (t === "image" ? "bg-violet-500/20 text-violet-200 border-violet-400/30" : "bg-emerald-500/20 text-emerald-200 border-emerald-400/30");
+  return (
+    <section className="rounded-lg border border-white/10 bg-surface p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h3 className="text-sm font-semibold text-white/75">Queue plan</h3>
+        <span className="text-xs text-white/35">
+          {plan && plan.queued > 0
+            ? `${plan.queued} queued · ${plan.swaps} swap${plan.swaps === 1 ? "" : "s"}`
+            : "queue empty"}
+        </span>
+      </div>
+      {!plan || plan.queued === 0 ? (
+        <div className="text-sm text-white/30">Nothing queued — no model swaps planned.</div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 text-white/45">
+            now: {plan.current_model ?? "idle"}
+          </span>
+          {plan.steps.map((step, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              <span className="text-white/25">→</span>
+              <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${typeColor(step.type)}`} title={step.model_id}>
+                <span className="max-w-[150px] truncate">{step.model}</span>
+                {step.count > 1 && <span className="opacity-70">×{step.count}</span>}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+      {plan && plan.queued > 0 && (
+        <p className="mt-2 text-[11px] text-white/35">
+          The scheduler drains same-model jobs together to minimize swaps; this is the predicted order.
+        </p>
+      )}
     </section>
   );
 }

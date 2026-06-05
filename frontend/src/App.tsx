@@ -178,6 +178,15 @@ export default function App() {
 
   const imageJobs = jobs.filter((j) => j.type === "image");
   const busy = jobs.some((j) => j.status === "running");
+  // Changes whenever the pending queue changes, so the System tab can refetch
+  // the swap-plan preview without polling.
+  const queueKey = useMemo(
+    () => jobs
+      .filter((j) => j.status === "queued" || j.status === "running")
+      .map((j) => `${j.id}:${j.status}:${j.priority}`)
+      .join("|"),
+    [jobs],
+  );
 
   // --- workspace registry: the single source for tabs + main rendering ---
   const workspaces: Workspace[] = [
@@ -302,7 +311,7 @@ export default function App() {
       label: "System",
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
-          <SystemPanel gpu={gpu} mem={mem} history={memHistory} note={arbiterNote} />
+          <SystemPanel gpu={gpu} mem={mem} history={memHistory} note={arbiterNote} queueKey={queueKey} />
         </main>
       ),
     },

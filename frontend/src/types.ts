@@ -65,6 +65,22 @@ export interface MemPoint {
   resident: string | null;
 }
 
+// Predicted scheduler drain order for the current queue (P7.4).
+export interface QueuePlanStep {
+  model_id: string;
+  model: string;
+  type: JobType;
+  count: number;
+}
+
+export interface QueuePlan {
+  queued: number;
+  swaps: number;
+  current_model_id: string | null;
+  current_model: string | null;
+  steps: QueuePlanStep[];
+}
+
 // A structured reason the arbiter held / swapped / refused a load (P7.1).
 export interface ArbiterNote {
   reason: string;
