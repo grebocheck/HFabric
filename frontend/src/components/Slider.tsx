@@ -21,7 +21,7 @@ export function Slider({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-violet-500"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-accent"
       />
       <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-white/55">{value.toFixed(2)}</span>
     </div>

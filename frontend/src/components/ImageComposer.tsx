@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { Badge } from "./Badge";
 import { Select, type SelectOption } from "./Select";
 import { Slider } from "./Slider";
+import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
 import { Toggle } from "./Toggle";
 import type { ComposerApply, Lora, Model, Preset } from "../types";
 
@@ -33,7 +34,7 @@ const FLUX2_GUIDANCE = 4.0;
 const FLUX2_SIZE = 768;
 
 const field =
-  "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-white/25 focus:border-violet-500";
+  "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-white/25 focus:border-accent";
 const label = "text-[10px] font-medium uppercase tracking-wide text-white/45";
 const section = "border-b border-white/10 p-3 last:border-b-0";
 const subtleButton = "rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
@@ -66,16 +67,22 @@ function loadPromptHistory(): string[] {
 
 export function ImageComposer({
   models,
+  modelsLoading = false,
   loras,
+  lorasLoading = false,
   presets,
+  presetsLoading = false,
   onPresetsChanged,
   promptDraft,
   setPromptDraft,
   apply,
 }: {
   models: Model[];
+  modelsLoading?: boolean;
   loras: Lora[];
+  lorasLoading?: boolean;
   presets: Preset[];
+  presetsLoading?: boolean;
   onPresetsChanged: () => void;
   promptDraft: string;
   setPromptDraft: (v: string) => void;
@@ -358,7 +365,9 @@ export function ImageComposer({
         <section className={section}>
           <div className={label}>Model</div>
           <div className="mt-1.5 grid gap-2">
-            {imgModels.length === 0 ? (
+            {modelsLoading && imgModels.length === 0 ? (
+              <SkeletonRows rows={3} />
+            ) : imgModels.length === 0 ? (
               <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/35">no image models</div>
             ) : (
               imgModels.map((model) => (
@@ -400,7 +409,7 @@ export function ImageComposer({
                   key={r.label}
                   onClick={() => applyRatio(r.w, r.h)}
                   className={`h-7 rounded-md border px-2.5 text-xs transition ${
-                    active ? "border-violet-400/70 bg-violet-500/20 text-white" : "border-white/15 text-white/60 hover:bg-white/10"
+                    active ? "border-accent/70 bg-accent/20 text-white" : "border-white/15 text-white/60 hover:bg-white/10"
                   }`}
                 >
                   {r.label}
@@ -429,7 +438,11 @@ export function ImageComposer({
             <div className={label}>LoRA</div>
             <span className="text-[11px] text-white/35">{selectedLoras.length ? `${selectedLoras.length} active` : "none active"}</span>
           </div>
-          {compatibleLoras.length ? (
+          {lorasLoading && selectedImgModel && compatibleLoras.length === 0 ? (
+            <div className="mt-1.5">
+              <SkeletonRows rows={3} />
+            </div>
+          ) : compatibleLoras.length ? (
             <div className="mt-1.5 flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">
               {compatibleLoras.map((lora) => {
                 const selected = selectedLoras.find((item) => item.id === lora.id);
@@ -454,7 +467,11 @@ export function ImageComposer({
         <section className={section}>
           <div className={label}>Preset</div>
           <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
-            <Select value={presetId} options={presetOptions} onChange={setPresetId} placeholder="unsaved" />
+            {presetsLoading && imagePresets.length === 0 ? (
+              <SkeletonLine className="h-9 w-full rounded-md" />
+            ) : (
+              <Select value={presetId} options={presetOptions} onChange={setPresetId} placeholder="unsaved" />
+            )}
             <button onClick={applyPreset} disabled={!presetId} className={subtleButton}>Apply</button>
             <button
               onClick={deletePreset}
@@ -486,13 +503,13 @@ export function ImageComposer({
               value={count}
               min={1}
               onChange={(e) => setCount(Math.max(1, Number(e.target.value)))}
-              className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-2 py-2 text-sm outline-none focus:border-violet-500"
+              className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-2 py-2 text-sm outline-none focus:border-accent"
             />
           </label>
           <button
             onClick={generate}
             disabled={!canQueue}
-            className="mt-4 rounded-md bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:opacity-40"
+            className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-hover disabled:opacity-40"
           >
             {queueLabel}
           </button>
@@ -523,7 +540,7 @@ function ModelCard({ model, active, onSelect }: { model: Model; active: boolean;
       onClick={onSelect}
       className={`min-w-0 rounded-md border px-3 py-2 text-left transition ${
         active
-          ? "border-violet-400/60 bg-violet-500/15 shadow-sm shadow-violet-950/40"
+          ? "border-accent/60 bg-accent/15 shadow-sm shadow-accent/25"
           : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.06]"
       }`}
     >
@@ -546,7 +563,7 @@ function ModelCard({ model, active, onSelect }: { model: Model; active: boolean;
       <div className="mt-2 flex flex-wrap gap-1.5">
         {model.slow ? <Badge color="bg-amber-600/35 text-amber-100">slow</Badge> : null}
         {isNunchaku(model) ? <Badge color="bg-emerald-700/55 text-emerald-100">fast path</Badge> : null}
-        {active ? <Badge color="bg-violet-600/45 text-violet-100">selected</Badge> : null}
+        {active ? <Badge color="bg-accent/45 text-accent-fg">selected</Badge> : null}
       </div>
     </button>
   );
@@ -568,7 +585,7 @@ function LoraCard({
 
   return (
     <div className={`rounded-md border px-2.5 py-2 transition ${
-      enabled ? "border-violet-400/45 bg-violet-500/10" : "border-white/10 bg-black/20"
+      enabled ? "border-accent/45 bg-accent/10" : "border-white/10 bg-black/20"
     }`}>
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
@@ -600,7 +617,7 @@ function Num({ label: l, v, set, step = 1 }: { label: string; v: number; set: (n
         value={v}
         step={step}
         onChange={(e) => set(Number(e.target.value))}
-        className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm outline-none focus:border-violet-500"
+        className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm outline-none focus:border-accent"
       />
     </label>
   );
@@ -651,7 +668,7 @@ function formatVram(model: Model): string {
 
 function familyColor(family: string): string {
   if (family === "flux2") return "bg-sky-700/50 text-sky-100";
-  if (family === "flux") return "bg-violet-700/55 text-violet-100";
+  if (family === "flux") return "bg-accent/55 text-accent-fg";
   if (family === "sdxl") return "bg-emerald-700/55 text-emerald-100";
   if (family === "gguf") return "bg-amber-700/50 text-amber-100";
   return "bg-white/10 text-white/65";

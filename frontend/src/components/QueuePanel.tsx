@@ -5,7 +5,7 @@ import type { ArbiterNote, Job } from "../types";
 
 const statusColor: Record<string, string> = {
   queued: "text-white/55",
-  running: "text-violet-300",
+  running: "text-accent",
   done: "text-emerald-400",
   error: "text-red-400",
   cancelled: "text-white/30",
@@ -13,7 +13,7 @@ const statusColor: Record<string, string> = {
 
 const statusBorder: Record<string, string> = {
   queued: "border-l-white/25",
-  running: "border-l-violet-400",
+  running: "border-l-accent",
   done: "border-l-emerald-400",
   error: "border-l-red-400",
   cancelled: "border-l-white/15",
@@ -21,7 +21,7 @@ const statusBorder: Record<string, string> = {
 
 const order: Record<string, number> = { running: 0, queued: 1, error: 2, done: 3, cancelled: 4 };
 const previewCells = Array.from({ length: 16 });
-const cellColors = ["bg-white/45", "bg-violet-300/45", "bg-cyan-300/35", "bg-fuchsia-300/35"];
+const cellColors = ["bg-white/45", "bg-accent/35", "bg-cyan-300/35", "bg-fuchsia-300/35"];
 
 // Only the "why is the queue blocked" reasons belong in the queue banner;
 // transient swaps are shown on the System timeline instead.
@@ -144,12 +144,12 @@ function JobCard({
         void reorderQueued(job.id);
       }}
       className={`animate-fade-in rounded-md border border-l-2 bg-black/20 p-2.5 text-sm transition ${
-        draggedId === job.id ? "border-violet-400/60 opacity-60" : `border-white/10 ${statusBorder[job.status]}`
+        draggedId === job.id ? "border-accent/60 opacity-60" : `border-white/10 ${statusBorder[job.status]}`
       } ${job.status === "queued" ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Badge color="bg-violet-700/80 text-white">{job.type}</Badge>
+          <Badge color="bg-accent/80 text-white">{job.type}</Badge>
           <span className="min-w-0 truncate font-mono text-xs text-white/55" title={job.model_id}>{job.model_id}</span>
         </div>
         <span className={`shrink-0 text-xs ${statusColor[job.status]}`}>{job.status}</span>
@@ -164,7 +164,7 @@ function JobCard({
           <div className="mt-2 flex items-center gap-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded bg-white/10">
               <div
-                className="h-full bg-violet-500 transition-all"
+                className="h-full bg-accent transition-all"
                 style={{ width: `${progress}%` }}
               />
             </div>

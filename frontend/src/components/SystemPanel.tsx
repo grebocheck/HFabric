@@ -59,7 +59,7 @@ export function SystemPanel({
         <Card title="VRAM" subtitle={vram ? `${vram.total_gb.toFixed(1)} GB total` : "no GPU telemetry"}>
           {vram ? (
             <>
-              <Gauge used={vram.used_gb} total={vram.total_gb} color="bg-violet-500" />
+              <Gauge used={vram.used_gb} total={vram.total_gb} color="bg-accent" />
               <Rows rows={{
                 "Used": gb(vram.used_gb),
                 "Free": gb(vram.free_gb),
@@ -171,7 +171,7 @@ function ModelCounts({ rows }: { rows: ImageStats["by_model"] }) {
             <span className="shrink-0 font-mono text-white/55">{row.count}</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded bg-white/10">
-            <div className="h-full rounded bg-violet-500/75" style={{ width: `${Math.max(6, (row.count / max) * 100)}%` }} />
+            <div className="h-full rounded bg-accent/75" style={{ width: `${Math.max(6, (row.count / max) * 100)}%` }} />
           </div>
         </div>
       ))}
@@ -184,7 +184,7 @@ const gb = (v: number) => `${v.toFixed(1)} GB`;
 const NOTE_TONES: Record<string, string> = {
   ram_budget: "border-red-400/30 bg-red-500/10 text-red-200",
   voice_lane: "border-sky-400/30 bg-sky-500/10 text-sky-200",
-  swap: "border-violet-400/30 bg-violet-500/10 text-violet-200",
+  swap: "border-accent/30 bg-accent/10 text-accent-fg",
   idle: "border-white/10 bg-white/5 text-white/55",
 };
 
@@ -203,7 +203,7 @@ function ArbiterStatus({ note }: { note?: ArbiterNote | null }) {
 }
 
 function SwapPlan({ plan }: { plan: QueuePlan | null }) {
-  const typeColor = (t: string) => (t === "image" ? "bg-violet-500/20 text-violet-200 border-violet-400/30" : "bg-emerald-500/20 text-emerald-200 border-emerald-400/30");
+  const typeColor = (t: string) => (t === "image" ? "bg-accent/20 text-accent-fg border-accent/30" : "bg-emerald-500/20 text-emerald-200 border-emerald-400/30");
   return (
     <section className="rounded-lg border border-white/10 bg-surface p-4">
       <div className="mb-3 flex items-baseline justify-between">
@@ -289,7 +289,7 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
             {vramPath && <polyline points={vramPath} fill="none" stroke="rgb(139 92 246 / 0.95)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
           </svg>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/45">
-            <Legend color="bg-violet-500" label={`VRAM used${last?.vram ? ` · ${last.vram.used_gb.toFixed(1)}/${last.vram.total_gb.toFixed(0)} GB` : ""}`} />
+            <Legend color="bg-accent" label={`VRAM used${last?.vram ? ` · ${last.vram.used_gb.toFixed(1)}/${last.vram.total_gb.toFixed(0)} GB` : ""}`} />
             <Legend color="bg-emerald-500" label={`RAM %${last?.ram ? ` · ${last.ram.percent.toFixed(0)}%` : ""}`} />
             <Legend color="bg-white/30" label="model swap" dashed />
           </div>

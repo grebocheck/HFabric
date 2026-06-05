@@ -1,4 +1,4 @@
-// HFabric brand mark: a violet tile with a woven "H". Kept in sync with
+// HFabric brand mark: an accent tile with a woven "H". Kept in sync with
 // public/favicon.svg. Scales via the `className` (set height/width there).
 export function Logo({ className = "h-7 w-7" }: { className?: string }) {
   return (

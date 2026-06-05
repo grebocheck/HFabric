@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
-import { EmptyState, InfoRows, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
+import { EmptyState, InfoRows, Panel, SectionTitle, SkeletonLine, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { Model, RagDocument, RagSearchResponse, RagStatus } from "../types";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
@@ -23,13 +23,16 @@ function buildPrompt(query: string, context: string): string {
 
 export function RagPanel({
   models,
+  modelsLoading = false,
   onOpenChat,
 }: {
   models: Model[];
+  modelsLoading?: boolean;
   onOpenChat: (conversationId: string, jobId: string) => void;
 }) {
   const llmModels = useMemo(() => models.filter((m) => m.job_type === "llm"), [models]);
   const [status, setStatus] = useState<RagStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [docQuery, setDocQuery] = useState("");
   const [embedModelId, setEmbedModelId] = useState("");
@@ -44,10 +47,11 @@ export function RagPanel({
   const [note, setNote] = useState("");
 
   useEffect(() => {
+    setStatusLoading(true);
     api.ragStatus().then((s) => {
       setStatus(s);
       setEmbedModelId((prev) => prev || s.models[0]?.id || "");
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setStatusLoading(false));
     refreshDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -250,24 +254,32 @@ export function RagPanel({
 
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">Embedding</div>
-          <Select
-            value={embedModelId}
-            onChange={setEmbedModelId}
-            placeholder="no embed models"
-            className="mt-1"
-            options={(status?.models ?? []).map((m) => ({ value: m.id, label: m.name, hint: size(m.size_bytes) }))}
-          />
+          {statusLoading && !status ? (
+            <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
+          ) : (
+            <Select
+              value={embedModelId}
+              onChange={setEmbedModelId}
+              placeholder="no embed models"
+              className="mt-1"
+              options={(status?.models ?? []).map((m) => ({ value: m.id, label: m.name, hint: size(m.size_bytes) }))}
+            />
+          )}
         </label>
 
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">LLM</div>
-          <Select
-            value={llmModelId}
-            onChange={setLlmModelId}
-            placeholder="no LLM models"
-            className="mt-1"
-            options={llmModels.map((m) => ({ value: m.id, label: m.name }))}
-          />
+          {modelsLoading && llmModels.length === 0 ? (
+            <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
+          ) : (
+            <Select
+              value={llmModelId}
+              onChange={setLlmModelId}
+              placeholder="no LLM models"
+              className="mt-1"
+              options={llmModels.map((m) => ({ value: m.id, label: m.name }))}
+            />
+          )}
         </label>
 
         <div className="grid grid-cols-2 gap-2">

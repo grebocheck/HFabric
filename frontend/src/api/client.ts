@@ -67,10 +67,11 @@ export const api = {
     const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
     return fetch(`/api/images${params}`).then(j<ImageItem[]>);
   },
-  queryImages: (opts: { q?: string; model?: string; size?: string; lora?: string; favorite?: boolean; tag?: string; date_from?: string; date_to?: string; limit?: number; offset?: number } = {}) => {
+  queryImages: (opts: { q?: string; model?: string; family?: string; size?: string; lora?: string; favorite?: boolean; tag?: string; date_from?: string; date_to?: string; limit?: number; offset?: number } = {}) => {
     const p = new URLSearchParams();
     if (opts.q?.trim()) p.set("q", opts.q.trim());
     if (opts.model) p.set("model", opts.model);
+    if (opts.family) p.set("family", opts.family);
     if (opts.size) p.set("size", opts.size);
     if (opts.lora) p.set("lora", opts.lora);
     if (opts.favorite != null) p.set("favorite", String(opts.favorite));

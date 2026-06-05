@@ -19,20 +19,35 @@ import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VisionPanel } from "./components/VisionPanel";
 import { VoicePanel } from "./components/VoicePanel";
-import type { ArbiterNote, BusEvent, ComposerApply, GpuStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
+import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, GpuStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
 
 const MEM_HISTORY_MAX = 90; // rolling timeline points (~a few minutes at the poll rate)
+const THEME_KEY = "hfabric.theme";
+const THEMES: AppTheme[] = ["dark", "dim", "light"];
+const THEME_META: Record<AppTheme, string> = {
+  dark: "#0b0d12",
+  dim: "#12151b",
+  light: "#f5f7fb",
+};
 
 // A workspace is one top-level tab. Adding a tab = one entry here (label drives
 // the header tab + command palette; render() owns the whole main area).
 type Workspace = { id: View; label: string; render: () => ReactNode };
 
+function readTheme(): AppTheme {
+  const value = localStorage.getItem(THEME_KEY);
+  return value === "dark" || value === "dim" || value === "light" ? value : "dark";
+}
+
 export default function App() {
   const [models, setModels] = useState<Model[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [presetsLoading, setPresetsLoading] = useState(true);
   const [loras, setLoras] = useState<Lora[]>([]);
+  const [lorasLoading, setLorasLoading] = useState(true);
   const [gpu, setGpu] = useState<GpuStatus>({ resident: null, model_id: null, model: null, family: null, warm: [] });
   const [mem, setMem] = useState<MemSnapshot | null>(null);
   const [memHistory, setMemHistory] = useState<MemPoint[]>([]);
@@ -43,6 +58,7 @@ export default function App() {
   useEffect(() => { gpuRef.current = gpu; }, [gpu]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<View>(() => (localStorage.getItem("hfabric.view") as View) || "images");
+  const [theme, setTheme] = useState<AppTheme>(() => readTheme());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const tabIdsRef = useRef<View[]>([]);
   const [chatJump, setChatJump] = useState<ChatJump | null>(null);
@@ -55,15 +71,44 @@ export default function App() {
 
   const refreshJobs = useCallback(() => api.listJobs().then(setJobs).catch(() => {}), []);
   const refreshImages = useCallback((q?: string) => api.listImages(q).then(setImages).catch(() => {}), []);
-  const refreshPresets = useCallback(() => api.listPresets().then(setPresets).catch(() => {}), []);
+  const refreshModels = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      setModels(await api.listModels());
+    } catch {
+      // The UI keeps its last known model list if the backend is momentarily down.
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+  const refreshLoras = useCallback(async () => {
+    setLorasLoading(true);
+    try {
+      setLoras(await api.listLoras());
+    } catch {
+      // Same stale-list behavior as models.
+    } finally {
+      setLorasLoading(false);
+    }
+  }, []);
+  const refreshPresets = useCallback(async () => {
+    setPresetsLoading(true);
+    try {
+      setPresets(await api.listPresets());
+    } catch {
+      // Presets are optional polish; failed refresh should not block generation.
+    } finally {
+      setPresetsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    api.listModels().then(setModels).catch(() => {});
-    api.listLoras().then(setLoras).catch(() => {});
+    void refreshModels();
+    void refreshLoras();
     refreshJobs();
     refreshImages();
     refreshPresets();
-  }, [refreshJobs, refreshImages, refreshPresets]);
+  }, [refreshModels, refreshLoras, refreshJobs, refreshImages, refreshPresets]);
 
   const onEvent = useCallback(
     (e: BusEvent) => {
@@ -143,6 +188,9 @@ export default function App() {
   const { connected } = useEvents(onEvent);
 
   const onFree = useCallback(() => api.freeGpu().catch(() => {}), []);
+  const cycleTheme = useCallback(() => {
+    setTheme((current) => THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]);
+  }, []);
 
   // Reproduce a History image in the composer. The stored snapshot keys the
   // model by *name*; resolve it back to a live model id when one matches.
@@ -160,6 +208,12 @@ export default function App() {
 
   // remember the last active tab
   useEffect(() => { localStorage.setItem("hfabric.view", view); }, [view]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle("dark", theme !== "light");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_META[theme]);
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   // global shortcuts: Ctrl/Cmd+K opens the palette; Alt+1..N switches tabs
   useEffect(() => {
@@ -197,8 +251,11 @@ export default function App() {
         <main className="grid flex-1 grid-cols-[390px_minmax(0,1fr)_330px] grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 max-[1240px]:grid-cols-[380px_minmax(0,1fr)] max-[1240px]:grid-rows-[minmax(0,1fr)_300px] max-[860px]:block max-[860px]:overflow-y-auto">
           <ImageComposer
             models={models}
+            modelsLoading={modelsLoading}
             loras={loras}
+            lorasLoading={lorasLoading}
             presets={presets}
+            presetsLoading={presetsLoading}
             onPresetsChanged={refreshPresets}
             promptDraft={promptDraft}
             setPromptDraft={setPromptDraft}
@@ -227,7 +284,7 @@ export default function App() {
       label: "LLM",
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
-          <ChatPanel models={models} jump={chatJump} />
+          <ChatPanel models={models} modelsLoading={modelsLoading} jump={chatJump} />
         </main>
       ),
     },
@@ -265,6 +322,7 @@ export default function App() {
         <main className="flex-1 overflow-hidden p-4">
           <CodePanel
             models={models}
+            modelsLoading={modelsLoading}
             onOpenChat={(conversationId, jobId) => {
               setChatJump({ conversationId, jobId, nonce: Date.now() });
               setView("llm");
@@ -280,6 +338,7 @@ export default function App() {
         <main className="flex-1 overflow-hidden p-4">
           <RagPanel
             models={models}
+            modelsLoading={modelsLoading}
             onOpenChat={(conversationId, jobId) => {
               setChatJump({ conversationId, jobId, nonce: Date.now() });
               setView("llm");
@@ -322,9 +381,10 @@ export default function App() {
   const commands = useMemo<Command[]>(() => [
     ...workspaces.map((w) => ({ id: `go-${w.id}`, label: `Go to ${w.label}`, hint: "tab", run: () => setView(w.id) })),
     { id: "settings", label: "Open Settings", run: () => setSettingsOpen(true) },
+    { id: "theme", label: "Cycle Theme", hint: theme, run: cycleTheme },
     { id: "free", label: "Free GPU", hint: "unload models", run: onFree },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [onFree]);
+  ], [cycleTheme, onFree, theme]);
 
   return (
     <div className="flex h-screen flex-col">
@@ -334,9 +394,11 @@ export default function App() {
         busy={busy}
         mem={mem}
         view={view}
+        theme={theme}
         tabs={workspaces.map(({ id, label }) => ({ id, label }))}
         onView={setView}
         onFree={onFree}
+        onTheme={cycleTheme}
         onSettings={() => setSettingsOpen(true)}
         onPalette={() => setPaletteOpen(true)}
       />

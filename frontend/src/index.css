@@ -1,15 +1,32 @@
 @import "tailwindcss";
 
-/* Design tokens (P5.A2). Tailwind 4 turns these into utilities — e.g.
-   --color-surface -> bg-surface / text-surface / border-surface. Centralizing
-   them here means a theme toggle (P5.A3) can later flip one place. */
+/* Design tokens (P5.A2/P5.A3). Tailwind 4 turns these into utilities, e.g.
+   --color-surface -> bg-surface / text-surface / border-surface. Runtime theme
+   variants override the same CSS variables below, so accent/theming is one knob. */
 @theme {
   --color-base: #0b0d12;        /* page background */
+  --color-white: #ffffff;       /* semantic foreground utility source */
+  --color-black: #000000;       /* semantic overlay utility source */
   --color-surface: #101219;     /* panels / cards */
   --color-surface-2: #12151c;   /* raised: dropdowns, popovers */
   --color-fg: #e6e8ef;          /* primary text */
-  --color-accent: #7c3aed;      /* violet-600 — matches the brand mark */
+  --color-muted: #8f96a3;
+  --color-line: rgb(255 255 255 / 0.1);
+  --color-accent: #7c3aed;      /* brand accent */
   --color-accent-hover: #8b5cf6;
+  --color-accent-fg: #ede9fe;
+  --color-success: #10b981;
+  --color-success-fg: #d1fae5;
+  --color-warn: #f59e0b;
+  --color-warn-fg: #fef3c7;
+  --color-error: #ef4444;
+  --color-error-fg: #fee2e2;
+  --color-info: #0ea5e9;
+  --color-info-fg: #e0f2fe;
+  --radius-panel: 0.5rem;
+  --radius-control: 0.375rem;
+  --shadow-panel: 0 18px 60px rgb(0 0 0 / 0.28);
+  --shadow-popover: 0 18px 45px rgb(0 0 0 / 0.42);
   --animate-fade-in: fade-in 0.25s ease-out;   /* enter transition (P5.B3) */
 }
 
@@ -28,17 +45,86 @@
   .skeleton {
     background: linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.04) 25%,
-      rgba(255, 255, 255, 0.10) 37%,
-      rgba(255, 255, 255, 0.04) 63%
+      color-mix(in oklab, var(--color-fg) 6%, transparent) 25%,
+      color-mix(in oklab, var(--color-fg) 14%, transparent) 37%,
+      color-mix(in oklab, var(--color-fg) 6%, transparent) 63%
     );
     background-size: 400% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
   }
 }
 
-:root {
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
+  --color-base: #0b0d12;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-surface: #101219;
+  --color-surface-2: #12151c;
+  --color-fg: #e6e8ef;
+  --color-muted: #8f96a3;
+  --color-line: rgb(255 255 255 / 0.1);
+  --color-accent: #7c3aed;
+  --color-accent-hover: #8b5cf6;
+  --color-accent-fg: #ede9fe;
+  --color-success: #10b981;
+  --color-success-fg: #d1fae5;
+  --color-warn: #f59e0b;
+  --color-warn-fg: #fef3c7;
+  --color-error: #ef4444;
+  --color-error-fg: #fee2e2;
+  --color-info: #0ea5e9;
+  --color-info-fg: #e0f2fe;
+  --color-accent-glow: rgb(124 58 237 / 0.55);
+}
+
+:root[data-theme="dim"] {
+  color-scheme: dark;
+  --color-base: #12151b;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-surface: #171b22;
+  --color-surface-2: #1d222b;
+  --color-fg: #edf1f7;
+  --color-muted: #a5adba;
+  --color-line: rgb(255 255 255 / 0.13);
+  --color-accent: #14b8a6;
+  --color-accent-hover: #2dd4bf;
+  --color-accent-fg: #ccfbf1;
+  --color-success: #22c55e;
+  --color-success-fg: #dcfce7;
+  --color-warn: #f59e0b;
+  --color-warn-fg: #fef3c7;
+  --color-error: #f87171;
+  --color-error-fg: #fee2e2;
+  --color-info: #38bdf8;
+  --color-info-fg: #e0f2fe;
+  --color-accent-glow: rgb(20 184 166 / 0.48);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-base: #f5f7fb;
+  --color-white: #18202b;
+  --color-black: #0f172a;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef2f8;
+  --color-fg: #18202b;
+  --color-muted: #5e6878;
+  --color-line: rgb(15 23 42 / 0.12);
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-fg: #eff6ff;
+  --color-success: #059669;
+  --color-success-fg: #065f46;
+  --color-warn: #d97706;
+  --color-warn-fg: #92400e;
+  --color-error: #dc2626;
+  --color-error-fg: #991b1b;
+  --color-info: #0284c7;
+  --color-info-fg: #075985;
+  --color-accent-glow: rgb(37 99 235 / 0.3);
 }
 
 body {

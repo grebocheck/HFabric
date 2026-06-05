@@ -104,7 +104,7 @@ export function Select({
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-left text-sm outline-none transition focus:border-violet-500 hover:border-white/20"
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-left text-sm outline-none transition focus:border-accent hover:border-white/20"
       >
         <span className={`min-w-0 truncate ${selected ? "" : "text-white/40"}`}>
           {selected ? selected.label : placeholder}
@@ -133,7 +133,7 @@ export function Select({
                 }}
                 onKeyDown={onSearchKeyDown}
                 placeholder="search..."
-                className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none transition placeholder:text-white/25 focus:border-violet-500"
+                className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none transition placeholder:text-white/25 focus:border-accent"
               />
             </div>
           ) : null}
@@ -148,7 +148,7 @@ export function Select({
                 onMouseEnter={() => setActive(i)}
                 className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-30 ${
                   o.value === value
-                    ? "bg-violet-600/30 text-white"
+                    ? "bg-accent/30 text-white"
                     : i === active
                       ? "bg-white/10 text-white/90"
                       : "text-white/80"

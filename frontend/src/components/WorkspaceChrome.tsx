@@ -4,10 +4,10 @@ type Tone = "neutral" | "good" | "warn" | "bad" | "info";
 
 const toneClass: Record<Tone, string> = {
   neutral: "bg-white/10 text-white/60",
-  good: "bg-emerald-700/55 text-emerald-100",
-  warn: "bg-amber-600/40 text-amber-100",
-  bad: "bg-red-500/20 text-red-100",
-  info: "bg-sky-700/50 text-sky-100",
+  good: "bg-success/20 text-success-fg",
+  warn: "bg-warn/20 text-warn-fg",
+  bad: "bg-error/20 text-error-fg",
+  info: "bg-info/20 text-info-fg",
 };
 
 export function WorkspaceHeader({
@@ -37,7 +37,7 @@ export function WorkspaceHeader({
 }
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-lg border border-white/10 bg-surface ${className}`}>{children}</section>;
+  return <section className={`rounded-panel border border-line bg-surface shadow-panel ${className}`}>{children}</section>;
 }
 
 export function SectionTitle({
@@ -73,6 +73,29 @@ export function EmptyState({ title, body }: { title: string; body?: string }) {
     <div className="flex h-full min-h-32 flex-col items-center justify-center px-4 text-center">
       <div className="text-sm font-medium text-white/45">{title}</div>
       {body ? <div className="mt-1 max-w-sm text-xs leading-5 text-white/30">{body}</div> : null}
+    </div>
+  );
+}
+
+export function SkeletonLine({ className = "h-4 w-full" }: { className?: string }) {
+  return <div aria-hidden="true" className={`skeleton rounded ${className}`} />;
+}
+
+export function SkeletonRows({
+  rows = 4,
+  className = "",
+}: {
+  rows?: number;
+  className?: string;
+}) {
+  return (
+    <div className={`space-y-2 ${className}`} aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+          <SkeletonLine className={`h-3 ${i % 3 === 0 ? "w-4/5" : i % 3 === 1 ? "w-2/3" : "w-11/12"}`} />
+          <SkeletonLine className="mt-2 h-2 w-1/2 opacity-70" />
+        </div>
+      ))}
     </div>
   );
 }

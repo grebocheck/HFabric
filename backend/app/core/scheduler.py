@@ -296,6 +296,7 @@ class Worker:
                     seed=rec.get("seed"),
                     width=rec.get("width"),
                     height=rec.get("height"),
+                    family=rec.get("family"),
                     params=rec.get("params", {}),
                 )
                 s.add(img)

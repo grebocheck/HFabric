@@ -22,6 +22,13 @@ const SIZE_FILTERS = [
   { value: "small", label: "Under 1024" },
 ];
 
+const FAMILY_LABELS: Record<string, string> = {
+  flux: "FLUX",
+  flux2: "FLUX.2",
+  sdxl: "SDXL",
+  unknown: "Unknown",
+};
+
 function rangeStart(id: string): string | undefined {
   const now = Date.now();
   if (id === "today") {
@@ -45,7 +52,7 @@ export function Gallery({
 }) {
   // `applied` is what actually drives fetching; `query` is the live input box.
   const [query, setQuery] = useState("");
-  const [applied, setApplied] = useState({ q: "", model: "", size: "", lora: "", favorite: false, tag: "", range: "all" });
+  const [applied, setApplied] = useState({ q: "", model: "", family: "", size: "", lora: "", favorite: false, tag: "", range: "all" });
   const [items, setItems] = useState<ImageItem[]>([]);
   const [stats, setStats] = useState<ImageStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,6 +71,7 @@ export function Gallery({
       api.queryImages({
         q: applied.q || undefined,
         model: applied.model || undefined,
+        family: applied.family || undefined,
         size: applied.size || undefined,
         lora: applied.lora || undefined,
         favorite: applied.favorite ? true : undefined,
@@ -174,6 +182,11 @@ export function Gallery({
     { value: "", label: stats ? `All models (${stats.total})` : "All models" },
     ...(stats?.by_model ?? []).map((m) => ({ value: m.model, label: m.model, hint: String(m.count) })),
   ];
+  const familyOptions: SelectOption[] = [
+    { value: "", label: "All families" },
+    ...(stats?.by_family ?? []).map((row) => ({ value: row.family, label: familyLabel(row.family), hint: String(row.count) })),
+  ];
+  const selectedFamilyName = familyOptions.find((option) => option.value === applied.family)?.label ?? familyLabel(applied.family);
   const loraOptions: SelectOption[] = [
     { value: "", label: "All LoRAs" },
     ...(stats?.by_lora ?? []).map((lora) => ({ value: lora.id, label: lora.name, hint: String(lora.count) })),
@@ -215,7 +228,7 @@ export function Gallery({
                 if (e.key === "Enter") submitSearch();
               }}
               placeholder="search prompt / seed"
-              className="w-44 rounded-l-md border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-violet-500"
+              className="w-44 rounded-l-md border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-accent"
             />
             <button
               onClick={submitSearch}
@@ -226,6 +239,9 @@ export function Gallery({
           </div>
           <div className="w-40">
             <Select value={applied.model} options={modelOptions} onChange={(v) => setApplied((a) => ({ ...a, model: v }))} />
+          </div>
+          <div className="w-32">
+            <Select value={applied.family} options={familyOptions} onChange={(v) => setApplied((a) => ({ ...a, family: v }))} />
           </div>
           <div className="w-32">
             <Select value={applied.size} options={SIZE_FILTERS} onChange={(v) => setApplied((a) => ({ ...a, size: v }))} />
@@ -253,7 +269,7 @@ export function Gallery({
               setSelected(new Set());
             }}
             className={`rounded-md border px-2.5 py-1 text-xs transition ${
-              selectMode ? "border-violet-400/70 bg-violet-500/20 text-white" : "border-white/15 text-white/60 hover:bg-white/10"
+              selectMode ? "border-accent/70 bg-accent/20 text-white" : "border-white/15 text-white/60 hover:bg-white/10"
             }`}
           >
             {selectMode ? "Done" : "Select"}
@@ -261,10 +277,11 @@ export function Gallery({
         </div>
       </div>
 
-      {(applied.q || applied.model || applied.size || applied.lora || applied.favorite || applied.tag || applied.range !== "all") && (
+      {(applied.q || applied.model || applied.family || applied.size || applied.lora || applied.favorite || applied.tag || applied.range !== "all") && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {applied.q && <Chip onClear={() => { setQuery(""); setApplied((a) => ({ ...a, q: "" })); }}>“{applied.q}”</Chip>}
           {applied.model && <Chip onClear={() => setApplied((a) => ({ ...a, model: "" }))}>{applied.model}</Chip>}
+          {applied.family && <Chip onClear={() => setApplied((a) => ({ ...a, family: "" }))}>Family: {selectedFamilyName}</Chip>}
           {applied.size && (
             <Chip onClear={() => setApplied((a) => ({ ...a, size: "" }))}>
               {SIZE_FILTERS.find((r) => r.value === applied.size)?.label}
@@ -322,7 +339,7 @@ export function Gallery({
                     onClick={() => (selectMode ? toggleSelected(img.id) : setOpenId(img.id))}
                     title={String(img.params?.prompt ?? "")}
                     className={`group relative aspect-square animate-fade-in overflow-hidden rounded-md border transition ${
-                      isSel ? "border-violet-400 ring-2 ring-violet-400/40" : "border-white/10 hover:border-white/30"
+                      isSel ? "border-accent ring-2 ring-accent/40" : "border-white/10 hover:border-white/30"
                     }`}
                   >
                     <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />
@@ -333,7 +350,7 @@ export function Gallery({
                     )}
                     {selectMode && (
                       <span className={`absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded border text-[11px] ${
-                        isSel ? "border-violet-300 bg-violet-500 text-white" : "border-white/40 bg-black/40 text-transparent"
+                        isSel ? "border-accent/80 bg-accent text-white" : "border-white/40 bg-black/40 text-transparent"
                       }`}>
                         ✓
                       </span>
@@ -492,6 +509,7 @@ function DetailModal({
 
           <dl className="mt-3 space-y-2">
             <Meta label="Model" value={modelName} />
+            <Meta label="Family" value={familyLabel(image.family)} />
             <Meta label="Seed" value={text(image.seed)} />
             <Meta label="Size" value={image.width && image.height ? `${image.width}x${image.height}` : ""} />
             <Meta label="Steps" value={text(params.steps)} />
@@ -521,7 +539,7 @@ function DetailModal({
                   if (e.key === "Enter") void saveTags();
                 }}
                 placeholder="tag, another tag"
-                className="min-w-0 flex-1 rounded border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-violet-500"
+                className="min-w-0 flex-1 rounded border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-accent"
               />
               <button onClick={saveTags} disabled={savingMeta} className={`${actionBtn} disabled:opacity-40`}>
                 Save
@@ -564,7 +582,7 @@ function DetailModal({
 }
 
 const actionBtn = "rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10";
-const primaryBtn = "rounded bg-violet-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-violet-500";
+const primaryBtn = "rounded bg-accent px-2.5 py-1 text-xs font-medium text-white transition hover:bg-accent-hover";
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
@@ -578,6 +596,11 @@ function Meta({ label, value }: { label: string; value: string }) {
 function text(value: unknown): string {
   if (value == null) return "";
   return String(value);
+}
+
+function familyLabel(value: unknown): string {
+  const key = text(value);
+  return FAMILY_LABELS[key] ?? key;
 }
 
 function parseTags(value: string): string[] {

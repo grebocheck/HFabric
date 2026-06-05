@@ -1,6 +1,7 @@
 export type JobType = "llm" | "image";
 export type JobStatus = "queued" | "running" | "done" | "error" | "cancelled";
 export type ModelFamily = "flux" | "flux2" | "sdxl" | "gguf" | "unknown";
+export type AppTheme = "dark" | "dim" | "light";
 
 export interface Model {
   id: string;
@@ -124,6 +125,7 @@ export interface ImageItem {
   seed: number | null;
   width: number | null;
   height: number | null;
+  family: ModelFamily | "unknown";
   favorite: boolean;
   tags: string[];
   params: Record<string, unknown>;
@@ -136,6 +138,7 @@ export interface ImageStats {
   total: number;
   today: number;
   by_model: { model: string; count: number }[];
+  by_family?: { family: ModelFamily | "unknown"; count: number }[];
   by_lora?: { id: string; name: string; count: number }[];
   by_tag?: { tag: string; count: number }[];
 }

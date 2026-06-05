@@ -12,12 +12,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Image
 
-# JSON path into the persisted param snapshot. The diffusers backend stores the
-# model *name* under params["model"] (see image_diffusers._persist).
+# JSON path into the persisted param snapshot. Older rows may not have dedicated
+# columns for these values, so the service keeps fallbacks for compatibility.
 _MODEL_EXPR = Image.params["model"].as_string()
+_FAMILY_EXPR = Image.params["family"].as_string()
 
 
-def _apply_filters(stmt, *, q, model, size, lora, favorite, tag, date_from, date_to):
+def _family_expr():
+    return func.coalesce(Image.family, _FAMILY_EXPR, "unknown")
+
+
+def _apply_filters(stmt, *, q, model, family, size, lora, favorite, tag, date_from, date_to):
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(or_(
@@ -29,6 +34,8 @@ def _apply_filters(stmt, *, q, model, size, lora, favorite, tag, date_from, date
         ))
     if model:
         stmt = stmt.where(_MODEL_EXPR == model)
+    if family:
+        stmt = stmt.where(_family_expr() == family)
     if size == "square":
         stmt = stmt.where(Image.width == Image.height)
     elif size == "landscape":
@@ -73,6 +80,7 @@ async def list_images(
     offset: int = 0,
     q: str | None = None,
     model: str | None = None,
+    family: str | None = None,
     size: str | None = None,
     lora: str | None = None,
     favorite: bool | None = None,
@@ -84,6 +92,7 @@ async def list_images(
         select(Image),
         q=q,
         model=model,
+        family=family,
         size=size,
         lora=lora,
         favorite=favorite,
@@ -158,6 +167,14 @@ async def stats(session: AsyncSession) -> dict:
     )).all()
     by_model = [{"model": name or "unknown", "count": count} for name, count in rows]
 
+    family_expr = _family_expr()
+    family_rows = (await session.execute(
+        select(family_expr.label("family"), func.count(Image.id))
+        .group_by(family_expr)
+        .order_by(func.count(Image.id).desc())
+    )).all()
+    by_family = [{"family": name or "unknown", "count": count} for name, count in family_rows]
+
     lora_counts: Counter[tuple[str, str]] = Counter()
     for (params,) in (await session.execute(select(Image.params))).all():
         for item in _lora_entries(params):
@@ -173,7 +190,14 @@ async def stats(session: AsyncSession) -> dict:
             tag_counts[tag] += 1
     by_tag = [{"tag": tag, "count": count} for tag, count in tag_counts.most_common()]
 
-    return {"total": total, "today": today, "by_model": by_model, "by_lora": by_lora, "by_tag": by_tag}
+    return {
+        "total": total,
+        "today": today,
+        "by_model": by_model,
+        "by_family": by_family,
+        "by_lora": by_lora,
+        "by_tag": by_tag,
+    }
 
 
 def _lora_entries(params: Any) -> list[dict[str, str]]:
@@ -224,6 +248,7 @@ def to_out_dict(img: Image) -> dict:
         "seed": img.seed,
         "width": img.width,
         "height": img.height,
+        "family": img.family or (img.params or {}).get("family") or "unknown",
         "favorite": bool(img.favorite),
         "tags": _tag_entries(img.tags),
         "params": img.params,

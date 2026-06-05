@@ -43,7 +43,7 @@ function ThinkingPending({ active }: { active: boolean }) {
       <span className="relative h-8 w-8 shrink-0">
         <span className="absolute inset-0 rounded-full border border-accent/20" />
         <span className="absolute inset-1 rounded-full border-2 border-white/10 border-t-accent animate-spin" />
-        <span className="absolute inset-[11px] rounded-full bg-accent/80 shadow-[0_0_14px_rgba(124,58,237,0.55)] animate-pulse" />
+        <span className="absolute inset-[11px] rounded-full bg-accent/80 shadow-[0_0_14px_var(--color-accent-glow)] animate-pulse" />
       </span>
       <span className="min-w-0">
         <span className="block text-xs font-medium text-white/70">{active ? "Thinking" : "Preparing reply"}</span>

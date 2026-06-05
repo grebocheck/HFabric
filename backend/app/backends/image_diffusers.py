@@ -744,7 +744,7 @@ class DiffusersImageBackend(ImageBackend):
             frac = (i + (s + 1) / steps) / batch
             await progress(frac, f"step {s + 1}/{steps} (img {i + 1}/{batch})")
         meta = {**self._public_params(params), "seed": seed, "width": width, "height": height,
-                "model": self.descriptor.name, "stub": True,
+                "model": self.descriptor.name, "family": self.descriptor.family.value, "stub": True,
                 "acceleration": self._active_features}
         img = imaging.make_placeholder(width, height, [
             f"[STUB] {self.descriptor.name}",
@@ -803,7 +803,8 @@ class DiffusersImageBackend(ImageBackend):
         img = await asyncio.to_thread(_run)
         meta = {**self._public_params(params), "seed": seed, "width": width, "height": height,
                 "steps": steps, "guidance": self._guidance(params),
-                "model": self.descriptor.name, "acceleration": self._active_features}
+                "model": self.descriptor.name, "family": self.descriptor.family.value,
+                "acceleration": self._active_features}
         return self._persist(img, meta, seed, width, height)
 
     def _dimension(self, params: dict[str, Any], key: str, default: int, flux2_default: int) -> int:
@@ -998,5 +999,6 @@ class DiffusersImageBackend(ImageBackend):
             "seed": seed,
             "width": width,
             "height": height,
+            "family": meta.get("family"),
             "params": meta,
         }

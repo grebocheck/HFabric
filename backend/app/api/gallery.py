@@ -28,6 +28,7 @@ async def list_images(
     offset: int = 0,
     q: str | None = Query(None, max_length=200),
     model: str | None = Query(None, max_length=200),
+    family: str | None = Query(None, pattern="^(flux|flux2|sdxl|unknown)$"),
     size: str | None = Query(None, pattern="^(square|landscape|portrait|large|small)$"),
     lora: str | None = Query(None, max_length=200),
     favorite: bool | None = None,
@@ -38,7 +39,7 @@ async def list_images(
 ) -> list[ImageOut]:
     images = await gallery_service.list_images(
         session, limit=limit, offset=offset, q=q,
-        model=model, size=size, lora=lora, favorite=favorite, tag=tag,
+        model=model, family=family, size=size, lora=lora, favorite=favorite, tag=tag,
         date_from=date_from, date_to=date_to,
     )
     return [ImageOut.model_validate(gallery_service.to_out_dict(i)) for i in images]

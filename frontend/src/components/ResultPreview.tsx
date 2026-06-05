@@ -130,7 +130,7 @@ export function ResultPreview({ images, onOpenHistory, generating = false }: { i
                 onClick={() => setSelectedId(img.id)}
                 title={text(img.params?.prompt)}
                 className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-md border transition ${
-                  selected?.id === img.id ? "border-violet-400/90" : "border-white/10 hover:border-white/35"
+                  selected?.id === img.id ? "border-accent/90" : "border-white/10 hover:border-white/35"
                 }`}
               >
                 <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />

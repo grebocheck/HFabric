@@ -30,6 +30,8 @@ async def _ensure_image_columns(conn) -> None:
     """Tiny SQLite migration for columns added after the original create_all."""
     rows = (await conn.execute(text("PRAGMA table_info(images)"))).all()
     columns = {row[1] for row in rows}
+    if "family" not in columns:
+        await conn.execute(text("ALTER TABLE images ADD COLUMN family TEXT"))
     if "favorite" not in columns:
         await conn.execute(text("ALTER TABLE images ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"))
     if "tags" not in columns:

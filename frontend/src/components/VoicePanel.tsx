@@ -6,7 +6,7 @@ import { Slider } from "./Slider";
 import { Toggle } from "./Toggle";
 import type { VoiceSettingsUpdate, VoiceStatus } from "../types";
 
-const field = "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm outline-none focus:border-violet-500";
+const field = "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm outline-none focus:border-accent";
 const f0Options = [
   { value: "rmvpe_onnx", label: "RMVPE ONNX" },
   { value: "rmvpe", label: "RMVPE" },
@@ -609,7 +609,7 @@ export function VoicePanel() {
                 key={m.id}
                 onClick={() => setModelId(m.id)}
                 className={`flex cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2 transition ${
-                  m.id === modelId ? "border-violet-400/40 bg-violet-500/10" : "border-white/10 bg-black/20 hover:bg-white/5"
+                  m.id === modelId ? "border-accent/40 bg-accent/10" : "border-white/10 bg-black/20 hover:bg-white/5"
                 }`}
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -617,7 +617,7 @@ export function VoicePanel() {
                   <span className="min-w-0 truncate text-sm text-white/80" title={m.name}>{m.name}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5">
-                  <Badge color="bg-violet-700/50 text-violet-100">{m.type}{m.version ? ` ${m.version}` : ""}</Badge>
+                  <Badge color="bg-accent/50 text-accent-fg">{m.type}{m.version ? ` ${m.version}` : ""}</Badge>
                   {m.f0 ? <Badge color="bg-sky-700/50 text-sky-100">f0</Badge> : null}
                   {m.has_index ? <Badge color="bg-emerald-700/55 text-emerald-100">index</Badge> : <Badge>no index</Badge>}
                   <span className="font-mono text-xs text-white/35">{size(m.size_bytes)}</span>
@@ -697,7 +697,7 @@ function PerformanceBreakdown({ metrics }: { metrics?: VoiceStatus["metrics"] })
               </div>
               <div className="mt-1 h-1 rounded-full bg-white/10">
                 <div
-                  className="h-full rounded-full bg-violet-400/75"
+                  className="h-full rounded-full bg-accent/75"
                   style={{ width: `${Math.min(100, Math.max(4, (value / max) * 100))}%` }}
                 />
               </div>

@@ -107,12 +107,11 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 - [x] **P9.1 — Grid gallery + paging.** `Gallery.tsx` is now a responsive
   thumbnail grid (lazy `thumb_url`) that self-fetches `/api/images` with
   `limit`/`offset` and a **Load more** button; tiles open a detail modal.
-- [~] **P9.2 — Filters.** Model filter (from `/api/images/stats` counts), date
-  range (today/7d/30d), size/orientation, LoRA, and free-text prompt/seed search
-  are shown as removable chips and combinable. Backend: `model`/`size`/`lora`/
-  `date_from`/`date_to` query params on `/api/images`; `/api/images/stats` also
-  returns LoRA counts for the dropdown. *Remaining:* a true `family` column
-  (today the snapshot only stores the model *name*).
+- [x] **P9.2 — Filters.** Model, true family, date range (today/7d/30d),
+  size/orientation, LoRA, favorites, tags, and free-text prompt/seed search are
+  shown as removable chips and combinable. Backend: `model`/`family`/`size`/
+  `lora`/`favorite`/`tag`/`date_from`/`date_to` query params on `/api/images`;
+  `/api/images/stats` feeds the model, family, LoRA, and tag dropdown counts.
 - [x] **P9.3 — Favorites, tags, delete.** Single delete (row + files) ships via
   `DELETE /api/images/{id}`; images now have `favorite` + free-text `tags`
   columns with a tiny SQLite migration, `PATCH /api/images/{id}` metadata
@@ -156,15 +155,15 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ### P5 — UX polish, remaining tails
 
-Most of P5 shipped (see Shipped). Still open:
+P5 is now complete:
 
-- [ ] **P5.A3 — Theme toggle (optional).** Light/dim/dark variants from the shared
+- [x] **P5.A3 — Theme toggle (optional).** Light/dim/dark variants from the shared
   tokens, persisted to `localStorage` next to `hfabric.view`.
-- [ ] **P5.A2 tail — token migration.** Migrate scattered `violet-*` utilities to
+- [x] **P5.A2 tail — token migration.** Migrate scattered `violet-*` utilities to
   the `accent` token (one-knob theming) and add radii/elevation + success/warn/
   error color tokens.
-- [ ] **P5.A1 tail — packaged window icon** for the VS Code-extension shell.
-- [ ] **P5.B3 tail — list skeletons** while conversation/model lists fetch (needs
+- [x] **P5.A1 tail — packaged window icon** for the VS Code-extension shell.
+- [x] **P5.B3 tail — list skeletons** while conversation/model lists fetch (with
   per-list loading flags).
 
 P5 design constraints (still binding): pure presentation — no resident model, no

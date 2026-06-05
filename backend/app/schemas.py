@@ -80,6 +80,7 @@ class ImageOut(BaseModel):
     seed: int | None = None
     width: int | None = None
     height: int | None = None
+    family: str | None = None
     favorite: bool = False
     tags: list[str] = Field(default_factory=list)
     params: dict[str, Any]

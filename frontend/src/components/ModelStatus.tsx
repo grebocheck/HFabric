@@ -1,13 +1,19 @@
 import { Logo } from "./Logo";
-import type { GpuStatus, MemSnapshot } from "../types";
+import type { AppTheme, GpuStatus, MemSnapshot } from "../types";
 
 export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "voice" | "system";
 
 const familyColor: Record<string, string> = {
-  flux: "bg-violet-600",
+  flux: "bg-accent",
   flux2: "bg-sky-600",
   sdxl: "bg-pink-600",
   gguf: "bg-emerald-600",
+};
+
+const themeLabel: Record<AppTheme, string> = {
+  dark: "Dark",
+  dim: "Dim",
+  light: "Light",
 };
 
 export function ModelStatus({
@@ -16,9 +22,11 @@ export function ModelStatus({
   busy,
   mem,
   view,
+  theme,
   tabs,
   onView,
   onFree,
+  onTheme,
   onSettings,
   onPalette,
 }: {
@@ -27,14 +35,16 @@ export function ModelStatus({
   busy: boolean;
   mem: MemSnapshot | null;
   view: View;
+  theme: AppTheme;
   tabs: { id: View; label: string }[];
   onView: (v: View) => void;
   onFree: () => void;
+  onTheme: () => void;
   onSettings: () => void;
   onPalette: () => void;
 }) {
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-3">
+    <header className="flex items-center justify-between gap-4 border-b border-line px-5 py-3">
       <div className="flex min-w-0 items-center gap-5">
         <div className="flex shrink-0 items-center gap-2">
           <Logo className="h-7 w-7" />
@@ -119,6 +129,13 @@ export function ModelStatus({
           className="rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
         >
           Free GPU
+        </button>
+        <button
+          onClick={onTheme}
+          title="Cycle theme"
+          className="rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10"
+        >
+          {themeLabel[theme]}
         </button>
         <button
           onClick={onSettings}

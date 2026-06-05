@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
-import { EmptyState, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
+import { EmptyState, Panel, SectionTitle, SkeletonLine, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { CodeFile, CodeFileContent, Model } from "../types";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
@@ -22,9 +22,11 @@ function buildPrompt(prompt: string, files: CodeFileContent[]): string {
 
 export function CodePanel({
   models,
+  modelsLoading = false,
   onOpenChat,
 }: {
   models: Model[];
+  modelsLoading?: boolean;
   onOpenChat: (conversationId: string, jobId: string) => void;
 }) {
   const llmModels = useMemo(() => models.filter((m) => m.job_type === "llm"), [models]);
@@ -108,7 +110,7 @@ export function CodePanel({
       >
         <StatusPill label={`${files.length} files`} tone={files.length ? "info" : "neutral"} />
         <StatusPill label={`${selected.length}/8 selected`} tone={selected.length ? "good" : "neutral"} />
-        <StatusPill label={llmModels.find((m) => m.id === modelId)?.name ?? "no LLM"} tone={modelId ? "info" : "warn"} />
+        <StatusPill label={modelsLoading && !llmModels.length ? "models loading" : llmModels.find((m) => m.id === modelId)?.name ?? "no LLM"} tone={modelId ? "info" : modelsLoading ? "neutral" : "warn"} />
       </WorkspaceHeader>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3">
@@ -163,13 +165,17 @@ export function CodePanel({
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
-          <Select
-            value={modelId}
-            onChange={setModelId}
-            placeholder="no LLM models"
-            className="mt-1"
-            options={llmModels.map((m) => ({ value: m.id, label: m.name }))}
-          />
+          {modelsLoading && llmModels.length === 0 ? (
+            <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
+          ) : (
+            <Select
+              value={modelId}
+              onChange={setModelId}
+              placeholder="no LLM models"
+              className="mt-1"
+              options={llmModels.map((m) => ({ value: m.id, label: m.name }))}
+            />
+          )}
         </label>
 
         <div>

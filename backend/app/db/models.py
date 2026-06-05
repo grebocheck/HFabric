@@ -62,6 +62,7 @@ class Image(Base):
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    family: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     # Full param snapshot for reproducibility (prompt, sampler, cfg, model, ...).

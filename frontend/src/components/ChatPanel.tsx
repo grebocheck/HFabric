@@ -5,6 +5,7 @@ import type { BusEvent, ChatConversation, ChatConversationImport, ChatImportMess
 import { Select } from "./Select";
 import { AssistantContent } from "./Thinking";
 import { Toggle } from "./Toggle";
+import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
 const numField = "w-full rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs outline-none focus:border-emerald-500";
@@ -151,11 +152,12 @@ function downloadJson(filename: string, payload: unknown) {
 
 export type ChatJump = { conversationId: string; jobId?: string; nonce: number };
 
-export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump | null }) {
+export function ChatPanel({ models, modelsLoading = false, jump }: { models: Model[]; modelsLoading?: boolean; jump?: ChatJump | null }) {
   const llmModels = models.filter((m) => m.job_type === "llm");
   const saved = loadDefaults();
 
   const [convs, setConvs] = useState<ChatConversation[]>([]);
+  const [convsLoading, setConvsLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
@@ -185,6 +187,7 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
 
   // personas (stored as llm presets)
   const [personas, setPersonas] = useState<Preset[]>([]);
+  const [personasLoading, setPersonasLoading] = useState(true);
   const [personaId, setPersonaId] = useState("");
   const [personaName, setPersonaName] = useState("");
 
@@ -203,11 +206,27 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
   const firstAt = useRef<number | null>(null);
   const tokCount = useRef(0);
 
-  const refreshConvs = useCallback(() => api.listConversations().then(setConvs).catch(() => {}), []);
-  const refreshPersonas = useCallback(
-    () => api.listPresets().then((p) => setPersonas(p.filter((x) => x.type === "llm"))).catch(() => {}),
-    [],
-  );
+  const refreshConvs = useCallback(async () => {
+    setConvsLoading(true);
+    try {
+      setConvs(await api.listConversations());
+    } catch {
+      // Keep stale conversations visible if refresh fails.
+    } finally {
+      setConvsLoading(false);
+    }
+  }, []);
+  const refreshPersonas = useCallback(async () => {
+    setPersonasLoading(true);
+    try {
+      const p = await api.listPresets();
+      setPersonas(p.filter((x) => x.type === "llm"));
+    } catch {
+      // Persona presets are optional; failed refresh should not disturb chat.
+    } finally {
+      setPersonasLoading(false);
+    }
+  }, []);
   const selectedModel = useMemo(() => llmModels.find((m) => m.id === modelId), [llmModels, modelId]);
   const quickModels = useMemo(() => {
     const current = llmModels.find((m) => m.id === modelId);
@@ -645,25 +664,31 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
           className="mx-2 my-2 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-emerald-500"
         />
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {filteredConvs.length === 0 && <div className="px-1 text-xs text-white/30">no conversations</div>}
-          {filteredConvs.map((c) => (
-            <div
-              key={c.id}
-              onClick={() => void selectConversation(c.id)}
-              className={`group mb-1 flex cursor-pointer items-center justify-between gap-1 rounded-md px-2 py-1.5 text-sm ${
-                activeId === c.id ? "bg-white/15" : "hover:bg-white/5"
-              }`}
-            >
-              <span className="min-w-0 flex-1 truncate text-white/80">{c.title}</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); void deleteConversation(c.id); }}
-                className="shrink-0 text-white/30 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
-                title="delete"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+          {convsLoading && convs.length === 0 ? (
+            <SkeletonRows rows={7} />
+          ) : (
+            <>
+              {filteredConvs.length === 0 && <div className="px-1 text-xs text-white/30">no conversations</div>}
+              {filteredConvs.map((c) => (
+                <div
+                  key={c.id}
+                  onClick={() => void selectConversation(c.id)}
+                  className={`group mb-1 flex cursor-pointer items-center justify-between gap-1 rounded-md px-2 py-1.5 text-sm ${
+                    activeId === c.id ? "bg-white/15" : "hover:bg-white/5"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate text-white/80">{c.title}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void deleteConversation(c.id); }}
+                    className="shrink-0 text-white/30 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
+                    title="delete"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </aside>
 
@@ -693,7 +718,11 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
 
         <div className="border-t border-white/10 p-3">
           <div className="mb-2 flex flex-col gap-2">
-            {quickModels.length > 0 ? (
+            {modelsLoading && quickModels.length === 0 ? (
+              <QuickRail label="Model">
+                <SkeletonChips count={3} />
+              </QuickRail>
+            ) : quickModels.length > 0 ? (
               <QuickRail label="Model">
                 {quickModels.map((model) => (
                   <QuickChip
@@ -713,7 +742,11 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
               </QuickRail>
             ) : null}
 
-            {(personas.length > 0 || personaId) ? (
+            {personasLoading && personas.length === 0 ? (
+              <QuickRail label="Persona">
+                <SkeletonChips count={2} />
+              </QuickRail>
+            ) : (personas.length > 0 || personaId) ? (
               <QuickRail label="Persona">
                 <QuickChip active={!personaId} onClick={() => applyPersona("")}>None</QuickChip>
                 {quickPersonas.map((persona) => (
@@ -823,13 +856,17 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
 
         <label>
           <div className={label}>Model</div>
-          <Select
-            value={modelId}
-            onChange={setModelId}
-            placeholder="no LLM models"
-            className="mt-1"
-            options={llmModels.map((m) => ({ value: m.id, label: m.name }))}
-          />
+          {modelsLoading && llmModels.length === 0 ? (
+            <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
+          ) : (
+            <Select
+              value={modelId}
+              onChange={setModelId}
+              placeholder="no LLM models"
+              className="mt-1"
+              options={llmModels.map((m) => ({ value: m.id, label: m.name }))}
+            />
+          )}
         </label>
 
         <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
@@ -914,12 +951,16 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
         <div>
           <div className={label}>Persona</div>
           <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
-            <Select
-              value={personaId}
-              onChange={applyPersona}
-              placeholder="— none —"
-              options={[{ value: "", label: "— none —" }, ...personas.map((p) => ({ value: p.id, label: p.name }))]}
-            />
+            {personasLoading && personas.length === 0 ? (
+              <SkeletonLine className="h-8 w-full rounded-md" />
+            ) : (
+              <Select
+                value={personaId}
+                onChange={applyPersona}
+                placeholder="— none —"
+                options={[{ value: "", label: "— none —" }, ...personas.map((p) => ({ value: p.id, label: p.name }))]}
+              />
+            )}
             <button onClick={() => void deletePersona()} disabled={!personaId}
               className="rounded-md border border-red-400/25 px-2 py-1 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-30">
               Del
@@ -954,6 +995,16 @@ function QuickRail({ label: railLabel, children }: { label: string; children: Re
       <span className="w-12 shrink-0 text-[10px] uppercase tracking-wide text-white/30">{railLabel}</span>
       <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">{children}</div>
     </div>
+  );
+}
+
+function SkeletonChips({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <SkeletonLine key={i} className={`h-7 rounded-md ${i === 0 ? "w-28" : i === 1 ? "w-36" : "w-24"}`} />
+      ))}
+    </>
   );
 }
 
@@ -1037,7 +1088,7 @@ function Bubble({
   return (
     <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[80%] rounded-lg px-3 py-2 ${
-        isUser ? "bg-violet-600/30 text-white"
+        isUser ? "bg-accent/30 text-white"
           : msg.error ? "border border-red-400/30 bg-red-400/10 text-red-200"
           : "border border-white/10 bg-white/[0.04]"
       }`}>
