@@ -266,6 +266,7 @@ export default function App() {
         gpu={gpu}
         connected={connected}
         busy={busy}
+        mem={mem}
         view={view}
         tabs={workspaces.map(({ id, label }) => ({ id, label }))}
         onView={setView}

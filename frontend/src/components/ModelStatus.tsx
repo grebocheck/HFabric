@@ -1,5 +1,5 @@
 import { Logo } from "./Logo";
-import type { GpuStatus } from "../types";
+import type { GpuStatus, MemSnapshot } from "../types";
 
 export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "system";
 
@@ -14,6 +14,7 @@ export function ModelStatus({
   gpu,
   connected,
   busy,
+  mem,
   view,
   tabs,
   onView,
@@ -24,6 +25,7 @@ export function ModelStatus({
   gpu: GpuStatus;
   connected: boolean;
   busy: boolean;
+  mem: MemSnapshot | null;
   view: View;
   tabs: { id: View; label: string }[];
   onView: (v: View) => void;
@@ -68,6 +70,20 @@ export function ModelStatus({
       </div>
 
       <div className="flex shrink-0 items-center gap-3 text-sm">
+        {mem?.vram ? (
+          <div
+            className="flex items-center gap-1.5"
+            title={`VRAM ${mem.vram.used_gb.toFixed(1)} / ${mem.vram.total_gb.toFixed(1)} GB`}
+          >
+            <span className="text-xs text-white/35">VRAM</span>
+            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full bg-accent transition-all"
+                style={{ width: `${Math.min(100, (mem.vram.used_gb / Math.max(1, mem.vram.total_gb)) * 100)}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
         <span className="text-white/50">Active model:</span>
         {gpu.model ? (
           <span className="flex min-w-0 items-center gap-2">

@@ -367,11 +367,11 @@ P3/UX notes:
   same tokens, persisted to `localStorage` next to `hfabric.view`.
 
 **P5.B — "Work is happening" feedback (execution animation)**
-- [x] **P5.B1 — Global activity indicator.** Shipped 2026-06-04: the header dot in
-  [ModelStatus.tsx](frontend/src/components/ModelStatus.tsx) swaps to an
-  `animate-spin` accent ring whenever any job is running (chat streams included,
-  since they are LLM jobs). Active model is already shown. *Remaining:* a subtle
-  inline VRAM bar.
+- [x] **P5.B1 — Global activity indicator.** Shipped 2026-06-04/05: the header dot
+  in [ModelStatus.tsx](frontend/src/components/ModelStatus.tsx) swaps to an
+  `animate-spin` accent ring whenever any job is running (chat streams included),
+  the active model is shown, and a subtle inline **VRAM bar** (used/total from
+  `mem.status`) sits in the header.
 - [x] **P5.B2 — Animated denoise preview.** Shipped 2026-06-04: the queue keeps
   its per-step progress bar + denoise grid, and `ResultPreview` now shows a
   shimmering skeleton tile while an image job runs (plus a thin shimmer bar over
