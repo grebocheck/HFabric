@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
+import { EmptyState, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { CodeFile, CodeFileContent, Model } from "../types";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
@@ -100,10 +101,20 @@ export function CodePanel({
   const active = activePath ? contents[activePath] : null;
 
   return (
-    <div className="grid h-full grid-cols-[320px_1fr_360px] gap-3">
-      <aside className="flex min-h-0 flex-col rounded-lg border border-white/10">
+    <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
+      <WorkspaceHeader
+        title="Code context"
+        subtitle="Collect repository files into a focused local LLM conversation."
+      >
+        <StatusPill label={`${files.length} files`} tone={files.length ? "info" : "neutral"} />
+        <StatusPill label={`${selected.length}/8 selected`} tone={selected.length ? "good" : "neutral"} />
+        <StatusPill label={llmModels.find((m) => m.id === modelId)?.name ?? "no LLM"} tone={modelId ? "info" : "warn"} />
+      </WorkspaceHeader>
+
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3">
+      <Panel className="flex min-h-0 flex-col overflow-hidden">
+        <SectionTitle title="Repository files" subtitle="Search and select up to 8 files" />
         <div className="border-b border-white/10 p-3">
-          <div className="mb-2 text-sm font-semibold text-white/75">Repository files</div>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -112,6 +123,7 @@ export function CodePanel({
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {files.length === 0 ? <EmptyState title="No files found" body="Try a different path or keyword." /> : null}
           {files.map((f) => {
             const isSelected = selected.includes(f.path);
             return (
@@ -129,21 +141,26 @@ export function CodePanel({
             );
           })}
         </div>
-      </aside>
+      </Panel>
 
-      <section className="flex min-h-0 flex-col rounded-lg border border-white/10">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <span className="min-w-0 truncate font-mono text-sm text-white/60">
-            {active?.path || selected[0] || "No file selected"}
-          </span>
-          {active?.truncated && <span className="text-xs text-amber-300/80">truncated</span>}
-        </div>
-        <pre className="min-h-0 flex-1 overflow-auto p-4 text-xs leading-5 text-white/70">
-          {active?.content || ""}
-        </pre>
-      </section>
+      <Panel className="flex min-h-0 flex-col overflow-hidden">
+        <SectionTitle
+          title="File preview"
+          subtitle={active?.path || selected[0] || "No file selected"}
+          actions={active?.truncated ? <StatusPill label="truncated" tone="warn" /> : null}
+        />
+        {active ? (
+          <pre className="min-h-0 flex-1 overflow-auto p-4 text-xs leading-5 text-white/70">
+            {active.content}
+          </pre>
+        ) : (
+          <EmptyState title="No file preview" body="Select a file from the repository list to inspect it here." />
+        )}
+      </Panel>
 
-      <aside className="flex min-h-0 flex-col gap-3 rounded-lg border border-white/10 p-4">
+      <Panel className="flex min-h-0 flex-col overflow-hidden">
+        <SectionTitle title="Ask LLM" subtitle={selected.length ? `${selected.length} files in context` : "No files selected"} />
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
           <Select
@@ -159,7 +176,7 @@ export function CodePanel({
           <div className="mb-1 text-xs uppercase tracking-wide text-white/40">Selected</div>
           <div className="max-h-32 overflow-y-auto rounded-md border border-white/10 bg-black/20 p-2">
             {selected.length === 0 ? (
-              <div className="text-xs text-white/30">none</div>
+              <div className="text-xs text-white/30">No selected files</div>
             ) : selected.map((path) => (
               <button
                 key={path}
@@ -193,7 +210,9 @@ export function CodePanel({
             {busy ? "Sending..." : "Send to LLM"}
           </button>
         </div>
-      </aside>
+        </div>
+      </Panel>
+      </div>
     </div>
   );
 }

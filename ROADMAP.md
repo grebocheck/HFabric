@@ -420,6 +420,11 @@ P3/UX notes:
   native `<select>`s gone; chat tool checkboxes → `Toggle`; queue type chip →
   `Badge`; LoRA weight → `Slider`). Other tabs can now pull from the same kit;
   migrating the remaining ad-hoc number inputs onto `Slider` is incremental.
+  A shared workspace chrome (`WorkspaceHeader`, `Panel`, `SectionTitle`,
+  status pills, info rows, empty states) was added on 2026-06-05 and applied to
+  Notes / TTS / Transcribe / Vision / Code / RAG / System; these tabs now use
+  full-width layouts instead of centered narrow pages. Image and LLM were left
+  untouched.
 
 P5 design constraints:
 - Pure presentation: must not add a resident model, change swap behavior, or

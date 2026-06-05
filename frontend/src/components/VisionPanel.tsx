@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
+import { EmptyState, InfoRows, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { VisionResult, VisionStatus } from "../types";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
@@ -55,21 +56,28 @@ export function VisionPanel() {
   }
 
   return (
-    <div className="grid h-full grid-cols-[320px_1fr] gap-3">
-      <aside className="flex min-h-0 flex-col gap-3 rounded-lg border border-white/10 p-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white/75">Vision</h2>
-          <div className="mt-1 text-xs text-white/35">
-            {status?.ready ? "local multimodal ready" : "waiting for local model"}
-          </div>
-        </div>
+    <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
+      <WorkspaceHeader
+        title="Vision"
+        subtitle="Analyze an uploaded image with a local multimodal model and projector pair."
+      >
+        <StatusPill label={status?.binary_exists ? "binary found" : "binary missing"} tone={status?.binary_exists ? "good" : "warn"} />
+        <StatusPill label={ready ? "ready" : "waiting"} tone={ready ? "good" : "neutral"} />
+        <StatusPill label={file ? file.name : "no image"} tone={file ? "info" : "neutral"} />
+      </WorkspaceHeader>
 
-        <div className="space-y-1.5 rounded-md border border-white/10 bg-black/20 p-3 text-xs">
-          <Row label="Binary" value={status?.binary_exists ? "found" : "missing"} />
-          <Row label="Models" value={status?.models_dir ?? "..."} mono />
-          <Row label="GPU" value={status ? `${status.gpu_layers} layers` : "..."} />
-          <Row label="Limit" value={status ? `${status.max_upload_mb} MB` : "..."} />
-        </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3">
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <SectionTitle title="Vision setup" subtitle={status?.ready ? "local multimodal ready" : "waiting for local model"} />
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+        <InfoRows
+          rows={[
+            { label: "Binary", value: status?.binary_exists ? "found" : "missing", tone: status?.binary_exists ? "good" : "warn" },
+            { label: "Models", value: status?.models_dir ?? "...", mono: true },
+            { label: "GPU", value: status ? `${status.gpu_layers} layers` : "..." },
+            { label: "Limit", value: status ? `${status.max_upload_mb} MB` : "..." },
+          ]}
+        />
 
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
@@ -124,50 +132,43 @@ export function VisionPanel() {
             {loading ? "Analyzing..." : "Analyze"}
           </button>
         </div>
-      </aside>
+          </div>
+        </Panel>
 
       <section className="grid min-h-0 grid-cols-[minmax(280px,0.9fr)_1fr] gap-3">
-        <div className="flex min-h-0 flex-col rounded-lg border border-white/10">
-          <div className="border-b border-white/10 px-4 py-3 text-sm font-semibold text-white/75">Image</div>
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <SectionTitle title="Image" subtitle={file?.name || "No image selected"} />
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/20 p-3">
             {preview ? (
               <img src={preview} alt="" className="max-h-full max-w-full object-contain" />
             ) : (
-              <div className="text-sm text-white/25">No image selected</div>
+              <EmptyState title="No image selected" body="Choose a local PNG or JPG from the setup panel." />
             )}
           </div>
-        </div>
+        </Panel>
 
-        <div className="flex min-h-0 flex-col rounded-lg border border-white/10">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <span className="text-sm font-semibold text-white/75">Result</span>
-            {result && (
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <SectionTitle
+            title="Result"
+            subtitle={result ? `${result.duration_seconds.toFixed(1)}s` : "Waiting for analysis"}
+            actions={result ? (
               <a href={result.metadata_url} download className="text-xs text-emerald-300 hover:text-emerald-200">
                 Download JSON
               </a>
-            )}
-          </div>
-          <textarea
-            readOnly
-            value={result?.text ?? ""}
-            className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-white/80 outline-none"
+            ) : null}
           />
-          {result && (
-            <div className="border-t border-white/10 px-4 py-2 text-xs text-white/35">
-              {result.duration_seconds.toFixed(1)}s
-            </div>
+          {result ? (
+            <textarea
+              readOnly
+              value={result.text}
+              className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-white/80 outline-none"
+            />
+          ) : (
+            <EmptyState title="No result yet" body="Run analysis and the model response will appear here." />
           )}
-        </div>
+        </Panel>
       </section>
-    </div>
-  );
-}
-
-function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[70px_1fr] gap-2">
-      <span className="text-white/35">{label}</span>
-      <span className={`truncate text-white/65 ${mono ? "font-mono" : ""}`} title={value}>{value}</span>
+      </div>
     </div>
   );
 }

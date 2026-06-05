@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
+import { EmptyState, InfoRows, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { Model, RagDocument, RagSearchResponse, RagStatus } from "../types";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
@@ -152,16 +153,20 @@ export function RagPanel({
   }
 
   return (
-    <div className="grid h-full grid-cols-[320px_1fr_360px] gap-3">
-      <aside className="flex min-h-0 flex-col rounded-lg border border-white/10">
+    <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
+      <WorkspaceHeader
+        title="RAG library"
+        subtitle="Index local text, search it, then send retrieved context into the LLM tab."
+      >
+        <StatusPill label={ready ? "embed ready" : "embed waiting"} tone={ready ? "good" : "neutral"} />
+        <StatusPill label={`${docs.length} documents`} tone={docs.length ? "info" : "neutral"} />
+        <StatusPill label={search ? `${search.results.length} matches` : "no search"} tone={search ? "info" : "neutral"} />
+      </WorkspaceHeader>
+
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3">
+      <Panel className="flex min-h-0 flex-col overflow-hidden">
+        <SectionTitle title="Documents" subtitle={ready ? "embed ready" : "waiting for embed model"} actions={<StatusPill label={String(docs.length)} />} />
         <div className="border-b border-white/10 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-semibold text-white/75">Documents</div>
-              <div className="text-xs text-white/35">{ready ? "embed ready" : "waiting for embed model"}</div>
-            </div>
-            <span className="rounded bg-white/10 px-1.5 py-0.5 text-xs text-white/45">{docs.length}</span>
-          </div>
           <input
             value={docQuery}
             onChange={(e) => setDocQuery(e.target.value)}
@@ -170,7 +175,7 @@ export function RagPanel({
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {docs.length === 0 && <div className="px-1 py-2 text-xs text-white/30">no documents</div>}
+          {docs.length === 0 && <EmptyState title="No documents" body="Paste text or upload a file from the indexing panel." />}
           {docs.map((doc) => (
             <div key={doc.id} className="mb-1 rounded-md px-2 py-2 hover:bg-white/5">
               <div className="flex items-start justify-between gap-2">
@@ -190,9 +195,10 @@ export function RagPanel({
             </div>
           ))}
         </div>
-      </aside>
+      </Panel>
 
-      <section className="flex min-h-0 flex-col rounded-lg border border-white/10">
+      <Panel className="flex min-h-0 flex-col overflow-hidden">
+        <SectionTitle title="Search" subtitle={search ? `${search.results.length} retrieved chunks` : "Ask against indexed documents"} />
         <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-white/10 p-3">
           <input
             value={query}
@@ -222,17 +228,25 @@ export function RagPanel({
               <div className="text-sm leading-6 text-white/70">{excerpt(item.text)}</div>
             </div>
           )) : (
-            <div className="text-sm text-white/30">{search ? "no matches" : ""}</div>
+            <EmptyState
+              title={search ? "No matches" : "No search yet"}
+              body={search ? "Try a broader query or index more context." : "Enter a question above to search the local document index."}
+            />
           )}
         </div>
-      </section>
+      </Panel>
 
-      <aside className="flex min-h-0 flex-col gap-3 rounded-lg border border-white/10 p-4">
-        <div className="space-y-1.5 rounded-md border border-white/10 bg-black/20 p-3 text-xs">
-          <Row label="Binary" value={status?.binary_exists ? "found" : "missing"} />
-          <Row label="Models" value={status?.models_dir ?? "..."} mono />
-          <Row label="Port" value={status ? String(status.port) : "..."} />
-        </div>
+      <Panel className="flex min-h-0 flex-col overflow-hidden">
+        <SectionTitle title="Indexing" subtitle={note || "Embedding and LLM handoff"} />
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+        <InfoRows
+          rows={[
+            { label: "Binary", value: status?.binary_exists ? "found" : "missing", tone: status?.binary_exists ? "good" : "warn" },
+            { label: "Models", value: status?.models_dir ?? "...", mono: true },
+            { label: "Port", value: status ? String(status.port) : "..." },
+          ]}
+          labelWidth={62}
+        />
 
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">Embedding</div>
@@ -319,16 +333,9 @@ export function RagPanel({
         </div>
 
         <span className="min-h-4 truncate text-xs text-white/35" title={note}>{note}</span>
-      </aside>
-    </div>
-  );
-}
-
-function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[62px_1fr] gap-2">
-      <span className="text-white/35">{label}</span>
-      <span className={`truncate text-white/65 ${mono ? "font-mono" : ""}`} title={value}>{value}</span>
+        </div>
+      </Panel>
+      </div>
     </div>
   );
 }

@@ -280,7 +280,7 @@ export function VoicePanel() {
   }, [canReach, ptt]);
 
   return (
-    <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 overflow-y-auto p-1">
+    <div className="flex h-full w-full flex-col gap-4 overflow-y-auto p-1">
       <header className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white/85">Voice changer</h2>

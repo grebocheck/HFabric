@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
+import { Toggle } from "./Toggle";
+import { InfoRows, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { TtsGenerateResult, TtsStatus } from "../types";
 
 function size(bytes: number): string {
@@ -50,20 +52,28 @@ export function TtsPanel() {
   }
 
   return (
-    <div className="flex h-full gap-3">
-      <aside className="flex w-80 shrink-0 flex-col gap-3 rounded-lg border border-white/10 p-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white/75">TTS</h2>
-          <div className="mt-1 text-xs text-white/35">
-            {status?.binary_exists ? "llama-tts found" : "llama-tts missing"}
-          </div>
-        </div>
+    <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
+      <WorkspaceHeader
+        title="Text to speech"
+        subtitle="Generate local WAV narration from the installed llama-tts models."
+      >
+        <StatusPill label={status?.binary_exists ? "binary found" : "binary missing"} tone={status?.binary_exists ? "good" : "warn"} />
+        <StatusPill label={`${models.length} models`} tone={models.length ? "info" : "neutral"} />
+        <StatusPill label={ready ? "ready" : "waiting"} tone={ready ? "good" : "neutral"} />
+      </WorkspaceHeader>
 
-        <div className="space-y-1.5 rounded-md border border-white/10 bg-black/20 p-3 text-xs">
-          <Row label="Binary" value={status?.binary ?? "..."} mono />
-          <Row label="Models" value={status?.models_dir ?? "..."} mono />
-          <Row label="Ready" value={ready ? "yes" : "waiting for model"} />
-        </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3">
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <SectionTitle title="Voice model" subtitle={status?.binary_exists ? "llama-tts executable available" : "waiting for binary"} />
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+
+        <InfoRows
+          rows={[
+            { label: "Binary", value: status?.binary ?? "...", mono: true, tone: status?.binary_exists ? "good" : "warn" },
+            { label: "Models", value: status?.models_dir ?? "...", mono: true },
+            { label: "Ready", value: ready ? "yes" : "waiting for model", tone: ready ? "good" : "neutral" },
+          ]}
+        />
 
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
@@ -87,21 +97,18 @@ export function TtsPanel() {
           />
         </label>
 
-        <label className="flex items-center gap-2 text-xs text-white/55">
-          <input
-            type="checkbox"
-            checked={useGuideTokens}
-            onChange={(e) => setUseGuideTokens(e.target.checked)}
-            className="h-4 w-4 accent-emerald-500"
-          />
-          Guide tokens
+        <label className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/55">
+          <span>
+            <span className="block text-sm font-medium text-white/70">Guide tokens</span>
+            <span className="block text-xs text-white/35">Use model guidance markers when available</span>
+          </span>
+          <Toggle checked={useGuideTokens} onChange={setUseGuideTokens} />
         </label>
-      </aside>
+          </div>
+      </Panel>
 
-      <section className="flex min-w-0 flex-1 flex-col rounded-lg border border-white/10">
-        <div className="border-b border-white/10 px-4 py-3">
-          <div className="text-sm font-semibold text-white/75">Scratch text</div>
-        </div>
+      <Panel className="flex min-w-0 flex-col overflow-hidden">
+        <SectionTitle title="Scratch text" subtitle={`${text.trim().length} chars`} />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -134,16 +141,8 @@ export function TtsPanel() {
             {loading ? "Generating..." : "Generate"}
           </button>
         </div>
-      </section>
-    </div>
-  );
-}
-
-function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[70px_1fr] gap-2">
-      <span className="text-white/35">{label}</span>
-      <span className={`truncate text-white/65 ${mono ? "font-mono" : ""}`} title={value}>{value}</span>
+      </Panel>
+      </div>
     </div>
   );
 }

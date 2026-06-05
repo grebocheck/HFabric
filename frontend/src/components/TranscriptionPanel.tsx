@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
+import { EmptyState, InfoRows, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { TranscriptionResult, TranscriptionStatus } from "../types";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
@@ -65,21 +66,28 @@ export function TranscriptionPanel() {
     || (ready ? "ready" : selected && !engineReady ? `${selected.engine} missing` : "waiting for local model");
 
   return (
-    <div className="flex h-full gap-3">
-      <aside className="flex w-80 shrink-0 flex-col gap-3 rounded-lg border border-white/10 p-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white/75">Transcribe</h2>
-          <div className="mt-1 text-xs text-white/35">
-            {status?.ready ? "local Whisper ready" : "local Whisper waiting"}
-          </div>
-        </div>
+    <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
+      <WorkspaceHeader
+        title="Transcribe"
+        subtitle="Turn local audio or short video files into timestamped text using local Whisper engines."
+      >
+        <StatusPill label={status?.ready ? "engine ready" : "engine waiting"} tone={status?.ready ? "good" : "neutral"} />
+        <StatusPill label={selected?.engine ?? "no model"} tone={engineReady ? "info" : selected ? "warn" : "neutral"} />
+        <StatusPill label={file ? file.name : "no file"} tone={file ? "info" : "neutral"} />
+      </WorkspaceHeader>
 
-        <div className="space-y-1.5 rounded-md border border-white/10 bg-black/20 p-3 text-xs">
-          <Row label="Models" value={status?.models_dir ?? "..."} mono />
-          <Row label="Device" value={status ? `${status.device} / ${status.compute_type}` : "..."} />
-          <Row label="Engines" value={engineSummary(status)} />
-          <Row label="Limit" value={status ? `${status.max_upload_mb} MB` : "..."} />
-        </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3">
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <SectionTitle title="Audio setup" subtitle={ready ? "ready to transcribe" : statusText} />
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+        <InfoRows
+          rows={[
+            { label: "Models", value: status?.models_dir ?? "...", mono: true },
+            { label: "Device", value: status ? `${status.device} / ${status.compute_type}` : "..." },
+            { label: "Engines", value: engineSummary(status), tone: engineReady ? "good" : "neutral" },
+            { label: "Limit", value: status ? `${status.max_upload_mb} MB` : "..." },
+          ]}
+        />
 
         <label>
           <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
@@ -134,28 +142,29 @@ export function TranscriptionPanel() {
             className={`${field} mt-1 min-h-0 flex-1 resize-none`}
           />
         </label>
-      </aside>
-
-      <section className="flex min-w-0 flex-1 flex-col rounded-lg border border-white/10">
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-white/75">Transcript</div>
-            <div className="truncate text-xs text-white/35" title={file?.name}>
-              {file?.name || "No audio selected"}
-            </div>
           </div>
-          {result && (
-            <a href={result.metadata_url} download className="shrink-0 text-xs text-emerald-300 hover:text-emerald-200">
+        </Panel>
+
+      <Panel className="flex min-w-0 flex-col overflow-hidden">
+        <SectionTitle
+          title="Transcript"
+          subtitle={file?.name || "No audio selected"}
+          actions={result ? (
+            <a href={result.metadata_url} download className="text-xs text-emerald-300 hover:text-emerald-200">
               Download JSON
             </a>
-          )}
-        </div>
-
-        <textarea
-          readOnly
-          value={result?.text ?? ""}
-          className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-white/80 outline-none"
+          ) : null}
         />
+
+        {result ? (
+          <textarea
+            readOnly
+            value={result.text}
+            className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-white/80 outline-none"
+          />
+        ) : (
+          <EmptyState title="No transcript yet" body="Choose a file and run transcription to fill this panel." />
+        )}
 
         {result && (
           <div className="max-h-52 overflow-y-auto border-t border-white/10 p-3">
@@ -192,7 +201,8 @@ export function TranscriptionPanel() {
             {loading ? "Transcribing..." : "Transcribe"}
           </button>
         </div>
-      </section>
+      </Panel>
+      </div>
     </div>
   );
 }
@@ -202,13 +212,4 @@ function engineSummary(status: TranscriptionStatus | null): string {
   return Object.entries(status.engines)
     .map(([name, ok]) => `${name}:${ok ? "yes" : "no"}`)
     .join(", ");
-}
-
-function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[70px_1fr] gap-2">
-      <span className="text-white/35">{label}</span>
-      <span className={`truncate text-white/65 ${mono ? "font-mono" : ""}`} title={value}>{value}</span>
-    </div>
-  );
 }
