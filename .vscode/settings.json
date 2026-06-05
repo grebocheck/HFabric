@@ -1,0 +1,21 @@
+{
+  "editor.detectIndentation": false,
+  "editor.insertSpaces": true,
+  "editor.tabSize": 2,
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "[python]": {
+    "editor.tabSize": 4
+  },
+  "[powershell]": {
+    "editor.tabSize": 4,
+    "files.eol": "\r\n"
+  },
+  "[bat]": {
+    "files.eol": "\r\n"
+  },
+  "[markdown]": {
+    "files.trimTrailingWhitespace": false
+  }
+}

@@ -16,6 +16,16 @@ WebSocket → gallery with reproducible metadata) runs today **without** torch o
 llama.cpp. Real model loading is wired but lazy, and is turned on in milestone M0
 by flipping `HFAB_STUB_MODE=false` after the GPU stack is installed.
 
+## License And Models
+
+HFabric application code is free and open-source software under the [MIT License](LICENSE).
+
+AI model weights, LoRA adapters, GGUF files, checkpoints, tokenizers, datasets,
+and voices are **not included** in this repository and are not licensed by the
+HFabric MIT License. They are user-supplied runtime inputs with their own
+provider licenses and terms. See [MODEL_NOTICE.md](MODEL_NOTICE.md) for the
+full model notice.
+
 ## Installation
 
 ### System Requirements

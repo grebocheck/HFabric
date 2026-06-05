@@ -3,6 +3,8 @@
 
 # Windows scripts stay CRLF.
 *.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
 
 # Binary assets — never diff/normalize.
 *.png binary

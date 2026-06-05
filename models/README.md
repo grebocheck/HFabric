@@ -4,6 +4,10 @@ Model weights are **not** tracked in git because they are huge. By default, keep
 every local model file, model repo, and LoRA under this `models/` folder so the
 app has one predictable place to scan and validate.
 
+These model files are not part of HFabric's MIT-licensed application code.
+Every model, LoRA, tokenizer, dataset, voice, and checkpoint keeps its own
+license and provider terms. See [`../MODEL_NOTICE.md`](../MODEL_NOTICE.md).
+
 ```text
 models/
 |- image/   *.safetensors or model folders (FLUX, FLUX.2 klein, SDXL, ...)
