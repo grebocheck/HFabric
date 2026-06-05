@@ -56,6 +56,25 @@ export interface MemSnapshot {
   vram: VramStats | null;
 }
 
+// One point in the rolling memory-pressure timeline (System tab).
+export interface MemPoint {
+  ts: number;
+  ram: RamStats | null;
+  vram: VramStats | null;
+  resident: string | null;
+}
+
+// A structured reason the arbiter held / swapped / refused a load (P7.1).
+export interface ArbiterNote {
+  reason: string;
+  message: string;
+  model?: string;
+  family?: string;
+  predicted_gb?: number;
+  available_gb?: number;
+  ts: number;
+}
+
 export interface RuntimeSettings {
   stub_mode: boolean;
   paths: Record<string, string>;

@@ -121,18 +121,34 @@ def estimate_vram_need_gb(family: ModelFamily, size_bytes: int, quant: str | Non
     return None
 
 
+def ram_budget(family: ModelFamily, size_bytes: int, quant: str | None) -> dict:
+    """Predicted-vs-available RAM decision for a load. Used both to refuse a load
+    and to *explain* the refusal in the UI (arbiter transparency, ROADMAP P7.1)."""
+    need = estimate_ram_need_gb(family, size_bytes, quant)
+    available = ram_stats()["available_gb"]
+    headroom = settings.min_free_ram_gb
+    return {
+        "ok": available >= need + headroom,
+        "need_gb": round(need, 1),
+        "available_gb": available,
+        "headroom_gb": round(headroom, 1),
+    }
+
+
+def ram_budget_message(decision: dict) -> str:
+    return (
+        f"Not enough RAM to load this model safely: needs ~{decision['need_gb']:.1f} GB + "
+        f"{decision['headroom_gb']:.0f} GB headroom, but only {decision['available_gb']:.1f} GB "
+        f"is available. Free some memory or pick a lighter model — refusing to "
+        f"load rather than risk pagefile thrashing."
+    )
+
+
 def check_ram_budget(family: ModelFamily, size_bytes: int, quant: str | None) -> None:
     """Raise a clear MemoryError if loading would risk the pagefile."""
-    need = estimate_ram_need_gb(family, size_bytes, quant)
-    ram = ram_stats()
-    available = ram["available_gb"]
-    if available < need + settings.min_free_ram_gb:
-        raise MemoryError(
-            f"Not enough RAM to load this model safely: needs ~{need:.1f} GB + "
-            f"{settings.min_free_ram_gb:.0f} GB headroom, but only {available:.1f} GB "
-            f"is available. Free some memory or pick a lighter model — refusing to "
-            f"load rather than risk pagefile thrashing."
-        )
+    decision = ram_budget(family, size_bytes, quant)
+    if not decision["ok"]:
+        raise MemoryError(ram_budget_message(decision))
 
 
 def can_keep_warm(family: ModelFamily, size_bytes: int, quant: str | None) -> tuple[bool, str]:

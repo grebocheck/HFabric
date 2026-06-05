@@ -19,7 +19,9 @@ import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VisionPanel } from "./components/VisionPanel";
 import { VoicePanel } from "./components/VoicePanel";
-import type { BusEvent, ComposerApply, GpuStatus, ImageItem, Job, Lora, MemSnapshot, Model, Preset } from "./types";
+import type { ArbiterNote, BusEvent, ComposerApply, GpuStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
+
+const MEM_HISTORY_MAX = 90; // rolling timeline points (~a few minutes at the poll rate)
 
 // A workspace is one top-level tab. Adding a tab = one entry here (label drives
 // the header tab + command palette; render() owns the whole main area).
@@ -33,6 +35,12 @@ export default function App() {
   const [loras, setLoras] = useState<Lora[]>([]);
   const [gpu, setGpu] = useState<GpuStatus>({ resident: null, model_id: null, model: null, family: null, warm: [] });
   const [mem, setMem] = useState<MemSnapshot | null>(null);
+  const [memHistory, setMemHistory] = useState<MemPoint[]>([]);
+  const [arbiterNote, setArbiterNote] = useState<ArbiterNote | null>(null);
+  // latest resident model name, read inside the mem.status handler without
+  // making it depend on (and re-subscribe to) gpu state.
+  const gpuRef = useRef<GpuStatus>(gpu);
+  useEffect(() => { gpuRef.current = gpu; }, [gpu]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<View>(() => (localStorage.getItem("hfabric.view") as View) || "images");
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -103,11 +111,29 @@ export default function App() {
           refreshImages();
           setImageEpoch((n) => n + 1);
           break;
-        case "mem.status":
-          setMem({
+        case "mem.status": {
+          const snap: MemSnapshot = {
             ram: (e.ram as MemSnapshot["ram"]) ?? null,
             vram: (e.vram as MemSnapshot["vram"]) ?? null,
+          };
+          setMem(snap);
+          setMemHistory((prev) => [
+            ...prev,
+            { ts: e.ts, ram: snap.ram, vram: snap.vram, resident: gpuRef.current.model },
+          ].slice(-MEM_HISTORY_MAX));
+          break;
+        }
+        case "arbiter.note":
+          setArbiterNote({
+            reason: String(e.reason ?? ""),
+            message: String(e.message ?? ""),
+            model: typeof e.model === "string" ? e.model : undefined,
+            family: typeof e.family === "string" ? e.family : undefined,
+            predicted_gb: typeof e.predicted_gb === "number" ? e.predicted_gb : undefined,
+            available_gb: typeof e.available_gb === "number" ? e.available_gb : undefined,
+            ts: e.ts,
           });
+          if (e.reason === "ram_budget") toast.error(String(e.message ?? "Load refused by RAM guard"));
           break;
       }
     },
@@ -174,7 +200,7 @@ export default function App() {
             onOpenHistory={() => setView("history")}
             generating={imageJobs.some((j) => j.status === "running")}
           />
-          <QueuePanel jobs={imageJobs} onChanged={refreshJobs} />
+          <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />
         </main>
       ),
     },
@@ -276,7 +302,7 @@ export default function App() {
       label: "System",
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
-          <SystemPanel gpu={gpu} mem={mem} />
+          <SystemPanel gpu={gpu} mem={mem} history={memHistory} note={arbiterNote} />
         </main>
       ),
     },

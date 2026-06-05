@@ -33,9 +33,19 @@ class GpuArbiter:
             if self._current is backend and backend.loaded:
                 return
             if self._current is not None and self._current is not backend:
+                await self._bus.publish(Event(
+                    EventType.ARBITER_NOTE,
+                    reason="swap",
+                    message=(
+                        f"Swapping models: unloading {self._current.descriptor.name} "
+                        f"to free VRAM for {backend.descriptor.name}."
+                    ),
+                    model=backend.descriptor.name,
+                    family=backend.descriptor.family.value,
+                ))
                 await self._unload_current(allow_keep_warm=True)
             if not backend.loaded:
-                self._check_budget(backend)
+                await self._guard_budget(backend)
                 warm_resume = backend.warm
                 await self._bus.publish(Event(
                     EventType.MODEL_LOADING,
@@ -143,16 +153,33 @@ class GpuArbiter:
         d = backend.descriptor
         return sysmon.can_keep_warm(d.family, d.size_bytes, d.quant)
 
-    def _check_budget(self, backend: GpuBackend) -> None:
+    async def _guard_budget(self, backend: GpuBackend) -> None:
         """Refuse a load that would risk the pagefile (raises MemoryError, which
-        the worker turns into a clear job error instead of an OOM hang)."""
+        the worker turns into a clear job error instead of an OOM hang). Before
+        raising, publish a structured note so the UI can show *why* it refused."""
         from ..config import settings  # noqa: PLC0415
         from ..util import sysmon  # noqa: PLC0415
 
         if settings.stub_mode:
             return
         d = backend.descriptor
-        sysmon.check_ram_budget(d.family, d.size_bytes, d.quant)
+        decision = sysmon.ram_budget(d.family, d.size_bytes, d.quant)
+        if decision["ok"]:
+            return
+        await self._bus.publish(Event(
+            EventType.ARBITER_NOTE,
+            reason="ram_budget",
+            message=(
+                f"Refused {d.name}: needs ~{decision['need_gb']:.1f} GB + "
+                f"{decision['headroom_gb']:.0f} GB headroom, only "
+                f"{decision['available_gb']:.1f} GB RAM free."
+            ),
+            model=d.name,
+            family=d.family.value,
+            predicted_gb=decision["need_gb"],
+            available_gb=decision["available_gb"],
+        ))
+        raise MemoryError(sysmon.ram_budget_message(decision))
 
     def status(self) -> dict:
         cur = self._current

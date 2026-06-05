@@ -40,19 +40,22 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > The arbiter works, but it is mostly *invisible* and uses *static* estimates.
 > This phase makes it observable and self-correcting — our edge over ComfyUI et al.
 
-- [ ] **P7.1 — Arbiter decision transparency.** When a job sits queued, surface
-  *why* in the UI: swap in progress, RAM-budget deferral (predicted-vs-available
-  GB), voice lane active, or keep-warm eviction. Emit a structured `arbiter.note`
-  reason on each `ensure()`/budget refusal and show it on the queued job card +
-  System tab.
+- [x] **P7.1 — Arbiter decision transparency.** The arbiter/worker now emit a
+  structured `arbiter.note` event (`backend/app/core/enums.py` → `ARBITER_NOTE`)
+  with the reason: `swap` (unloading X for Y), `ram_budget` (predicted-vs-available
+  GB, still raises a clear `MemoryError`), and `voice_lane`/`idle` (queue parked /
+  resumed). The Queue header shows blocking reasons (`ram_budget`/`voice_lane`);
+  the System tab shows an Arbiter status panel. *Remaining:* per-job attribution on
+  the exact queued card, and a keep-warm-eviction reason.
 - [ ] **P7.2 — Learned memory estimates.** Record actual peak RSS/VRAM per model
   from `load_report` after each load and persist it (SQLite). Feed measured peaks
   back into the `sysmon` budget check so the guard stops relying on the static
   `size_bytes × factor` heuristic (the source of the FLUX.2 false-refusal bug).
   Fall back to the static estimate only for never-loaded models.
-- [ ] **P7.3 — Memory-pressure timeline.** A rolling chart in the System tab from
-  `mem.status` (VRAM used/free, process RSS, available RAM) with swap markers, so
-  pressure and swap cost are visible over a session, not a single instant.
+- [x] **P7.3 — Memory-pressure timeline.** The System tab now keeps a rolling
+  buffer of `mem.status` samples (last ~90) and draws a sparkline of VRAM-used and
+  RAM-% with dashed **swap markers** where the resident model changed. *Remaining:*
+  optional process-RSS series and hover tooltips.
 - [ ] **P7.4 — Swap-plan preview.** Expose the worker's phase-batching plan: show
   the predicted LLM↔image swap count for the current queue and let the user see
   (and trust) that a mixed batch will swap once, not N times.

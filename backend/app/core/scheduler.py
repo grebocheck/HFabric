@@ -54,6 +54,7 @@ class Worker:
         self._running = False
         self._current_job_id: str | None = None
         self._cancel_current = False
+        self._voice_parked = False
 
     # ----------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -115,7 +116,21 @@ class Worker:
         from ..api import voice  # noqa: PLC0415
 
         if await voice.voice_lane_active():
+            if not self._voice_parked:
+                self._voice_parked = True
+                await self._bus.publish(Event(
+                    EventType.ARBITER_NOTE,
+                    reason="voice_lane",
+                    message="Live voice session holds the GPU — image/LLM jobs are parked.",
+                ))
             return None
+        if self._voice_parked:
+            self._voice_parked = False
+            await self._bus.publish(Event(
+                EventType.ARBITER_NOTE,
+                reason="idle",
+                message="Voice session ended — resuming the queue.",
+            ))
 
         async with session_scope() as s:
             rows = (await s.execute(

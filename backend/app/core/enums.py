@@ -40,6 +40,8 @@ class EventType(str, Enum):
     MODEL_UNLOADED = "model.unloaded"
     GPU_STATUS = "gpu.status"
     MEM_STATUS = "mem.status"
+    # human-readable reason the arbiter held/swapped/refused (transparency)
+    ARBITER_NOTE = "arbiter.note"
 
     # job lifecycle
     JOB_CREATED = "job.created"

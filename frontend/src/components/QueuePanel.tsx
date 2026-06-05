@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Badge } from "./Badge";
-import type { Job } from "../types";
+import type { ArbiterNote, Job } from "../types";
 
 const statusColor: Record<string, string> = {
   queued: "text-white/55",
@@ -23,7 +23,14 @@ const order: Record<string, number> = { running: 0, queued: 1, error: 2, done: 3
 const previewCells = Array.from({ length: 16 });
 const cellColors = ["bg-white/45", "bg-violet-300/45", "bg-cyan-300/35", "bg-fuchsia-300/35"];
 
-export function QueuePanel({ jobs, onChanged }: { jobs: Job[]; onChanged: () => void }) {
+// Only the "why is the queue blocked" reasons belong in the queue banner;
+// transient swaps are shown on the System timeline instead.
+const BLOCKING_NOTE_TONES: Record<string, string> = {
+  ram_budget: "border-red-400/30 bg-red-500/10 text-red-200",
+  voice_lane: "border-sky-400/30 bg-sky-500/10 text-sky-200",
+};
+
+export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: () => void; note?: ArbiterNote | null }) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const sorted = useMemo(
     () => [...jobs].sort(
@@ -73,6 +80,11 @@ export function QueuePanel({ jobs, onChanged }: { jobs: Job[]; onChanged: () => 
             Clear
           </button>
         </div>
+        {note && BLOCKING_NOTE_TONES[note.reason] ? (
+          <div className={`mt-2 rounded-md border px-2.5 py-1.5 text-[11px] leading-4 ${BLOCKING_NOTE_TONES[note.reason]}`}>
+            {note.message}
+          </div>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
