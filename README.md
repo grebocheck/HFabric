@@ -16,6 +16,238 @@ WebSocket → gallery with reproducible metadata) runs today **without** torch o
 llama.cpp. Real model loading is wired but lazy, and is turned on in milestone M0
 by flipping `HFAB_STUB_MODE=false` after the GPU stack is installed.
 
+## Installation
+
+### System Requirements
+
+| Requirement | Specification |
+|---|---|
+| **GPU** | NVIDIA RTX 5070 Ti (Blackwell, sm_120) with 16 GB VRAM; or any CUDA 12.x-compatible GPU (with memory adjustments). |
+| **RAM** | 32 GB minimum (16 GB for models, 16 GB for OS + processes). |
+| **OS** | Windows 11 recommended; Windows 10 may work with CUDA driver support. |
+| **Disk** | 150 GB free: ~80 GB for model files (FLUX/SDXL/LLMs), ~50 GB working space. |
+
+### Prerequisites
+
+1. **Python 3.12+** ([download](https://www.python.org/downloads/))
+   - Ensure `python` and `pip` are in your PATH
+   - Verify: `python --version`
+
+2. **Node.js 18+** ([download](https://nodejs.org/))
+   - Includes npm
+   - Verify: `node --version` and `npm --version`
+
+3. **NVIDIA GPU drivers** (for REAL mode)
+   - Update to latest from [nvidia.com](https://www.nvidia.com/Download/driverDetails.aspx)
+   - Verify: Run `nvidia-smi` in a terminal; you should see GPU info and CUDA version ≥ 12.1
+
+4. **Git** (optional, for model downloads)
+   - Used by `huggingface-cli` to pull models
+   - Verify: `git --version`
+
+### Automated Setup (Recommended)
+
+**Double-click `setup.bat`** to run an interactive guided setup that handles everything automatically:
+
+```bat
+setup.bat          # Interactive: choose STUB, REAL, or REAL+models
+setup.bat stub     # STUB mode (no GPU, ~1 min)
+setup.bat real     # REAL mode + GPU stack (10–15 min)
+setup.bat all      # REAL mode + GPU stack + download ALL models (30–60 min + 80 GB)
+```
+
+Or from PowerShell:
+```powershell
+.\setup.ps1        # Guided setup
+.\setup.ps1 -Stub  # STUB mode
+.\setup.ps1 -Real  # REAL mode only
+.\setup.ps1 -DownloadAll  # REAL mode + models
+```
+
+**What the setup script does:**
+1. ✓ Checks Python 3.12+, Node.js 18+, NVIDIA drivers (if needed)
+2. ✓ Creates and activates Python venv
+3. ✓ Installs pip dependencies (`requirements.txt` + optionally `requirements-gpu.txt`)
+4. ✓ Installs npm packages (`frontend/package.json`)
+5. ✓ Optionally installs PyTorch + CUDA 12.8 (for RTX 5070 Ti)
+6. ✓ Optionally installs Nunchaku (FLUX acceleration)
+7. ✓ Optionally downloads curated models (FLUX, SDXL, LLMs, etc.)
+
+After setup finishes, run `run.bat` (or `run.ps1`) to start the app.
+
+---
+
+### Quick Start (STUB Mode — No GPU)
+
+**STUB mode runs the entire pipeline without GPU/ML libraries.** Perfect for UI testing, debugging, and verifying the foundation.
+
+#### Step 1: Clone & enter the repo
+```bash
+cd d:\VSCode\ImageFabric
+```
+
+#### Step 2: Run (one command)
+```bat
+run.bat stub
+```
+
+Or on PowerShell:
+```powershell
+.\scripts\run.ps1 -Stub
+```
+
+**What happens:**
+- First run: bootstraps Python virtual environment and npm dependencies (~1–2 min).
+- Backend starts at `http://localhost:8260`
+- Frontend dev server starts at `http://localhost:5173`
+- Browser opens automatically
+- **Ctrl+C** stops both servers
+
+#### Step 3: Verify
+1. Open <http://localhost:5173> in your browser
+2. Try the chat/image form — you'll see mock responses (no real GPU calls)
+3. Check the backend console for any errors
+
+---
+
+### GPU Setup (REAL Mode)
+
+**REAL mode loads actual LLMs and diffusion models onto your GPU.** This requires PyTorch, CUDA wheels, and model files.
+
+#### Step 1: Install CUDA 12.8 PyTorch
+
+For **RTX 5070 Ti (Blackwell, sm_120)**, you need CUDA 12.8 wheels:
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+```
+
+For other GPUs, adjust the index URL (e.g., `cu121` for CUDA 12.1):
+- [PyTorch Start Locally](https://pytorch.org/get-started/locally/) — select your CUDA version
+- Verify install: `python -c "import torch; print(torch.__version__, torch.cuda.get_device_capability())"`
+
+#### Step 2: Install GPU-accelerated backends
+
+```bash
+pip install -r backend/requirements-gpu.txt
+```
+
+This adds diffusers, transformers, accelerate, bitsandbytes, and related libraries.
+
+#### Step 3: (Optional) Install Nunchaku for FLUX
+
+For faster FLUX generation (~18 s/1024px on RTX 5070 Ti with SVDQuant fp4), install the Nunchaku wheel matching your torch/CUDA/Python:
+
+```bash
+pip install https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-win_amd64.whl
+```
+
+Then download the fp4 FLUX model:
+
+```bash
+huggingface-cli download nunchaku-tech/nunchaku-flux.1-dev svdq-fp4_r32-flux.1-dev.safetensors --local-dir models/image
+```
+
+#### Step 4: Download models
+
+Models live in `models/` and are **not copied** into the venv or elsewhere. HFabric reads them in place.
+
+**Image models** (FLUX/SDXL — goes in `models/image/`):
+
+```bash
+# FLUX ComfyUI checkpoint (fp8, baseline reference)
+huggingface-cli download black-forest-labs/FLUX.1-dev flux_dev.safetensors --local-dir models/image
+
+# SDXL Lightning (faster SDXL)
+huggingface-cli download ByteDance/SDXL-Lightning sdxl_lightning_4step_lora.safetensors --local-dir models/lora
+```
+
+**LLM models** (GGUF format — goes in `models/llm/`):
+
+```bash
+# Example: Gemma 3 12B quantized
+huggingface-cli download Gron1-ai/Gemma-3-12B-it-Heretic-v2-GGUF gemma-3-12b-it-heretic-v2-Q4_K_M.gguf --local-dir models/llm
+```
+
+See [models/README.md](models/README.md) for the full curated list and setup hints.
+
+#### Step 5: Run in REAL mode
+
+```bat
+run.bat
+```
+
+Or PowerShell:
+```powershell
+.\scripts\run.ps1
+```
+
+**Environment file (optional):**
+
+Create `.env` in the repo root to override defaults (e.g., CUDA device, step cache mode):
+
+```env
+HFAB_STUB_MODE=false
+HFAB_FLUX_STEP_CACHE=fb
+HFAB_TORCH_COMPILE=true
+HFAB_PORT=8260
+HFAB_LLAMA_NGL=999
+```
+
+See [Configuration](#configuration) section for all knobs.
+
+#### Step 6: Verify GPU usage
+
+1. Open another terminal and run: `nvidia-smi -l 1` (updates every 1 second)
+2. In the app, submit a generation job
+3. Watch your GPU memory fill up, then empty after completion
+4. Backend console shows timing, memory snapshots, and model load/unload events
+
+---
+
+### Troubleshooting
+
+#### **"WinError 10013: socket forbidden"**
+Ports 8260 or 5173 are already in use by a previous run:
+- Run `run.bat` or `run.ps1` again — they auto-kill stale processes
+- Or manually: `netstat -ano | findstr :8260` and `taskkill /PID <pid> /F`
+
+#### **"ModuleNotFoundError: No module named 'torch'"**
+PyTorch not installed or virtual environment not activated:
+- Delete `backend\.venv` and re-run `run.bat` to bootstrap from scratch
+- Or manually: `pip install -r backend/requirements-gpu.txt`
+
+#### **"CUDA out of memory"**
+Model is too large for your GPU, or swap settings need tuning:
+- Reduce `HFAB_LLAMA_NGL` (e.g., `HFAB_LLAMA_NGL=32` to offload only 32 layers to GPU)
+- Disable compile: `HFAB_TORCH_COMPILE=false`
+- Try smaller models or lower resolution requests
+- Check [Configuration](#configuration) for memory tuning knobs
+
+#### **Models not found / "No image models discovered"**
+Models are in the wrong folder or not yet downloaded:
+- Ensure files exist in `models/image/`, `models/llm/`, `models/lora/`, etc.
+- Verify paths in the Configuration table (`HFAB_*_MODELS_DIR`)
+- Re-run `huggingface-cli download` commands above
+
+#### **Vite dev server won't start**
+Port 5173 conflict or npm dependencies not installed:
+- Kill any process on 5173: `netstat -ano | findstr :5173`
+- Or let `run.bat` do it automatically (it frees ports before starting)
+- Check `npm install` in `frontend/` ran successfully
+
+#### **Backend crashes after first request**
+Usually STUB mode reaching a code path that requires ML libraries:
+- Ensure you ran `pip install -r backend/requirements-gpu.txt` for REAL mode
+- Or use STUB mode (`run.bat stub`) if you're not ready for GPU
+
+#### **Get help**
+- Check backend logs (printed to terminal where `run.bat` runs)
+- Check browser console (F12 in Firefox/Chrome)
+- Search existing issues or documentation in the repo
+
+---
+
 ## Architecture
 
 ```
