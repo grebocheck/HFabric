@@ -124,6 +124,8 @@ export interface ImageItem {
   seed: number | null;
   width: number | null;
   height: number | null;
+  favorite: boolean;
+  tags: string[];
   params: Record<string, unknown>;
   created_at: string;
   url: string;
@@ -135,6 +137,7 @@ export interface ImageStats {
   today: number;
   by_model: { model: string; count: number }[];
   by_lora?: { id: string; name: string; count: number }[];
+  by_tag?: { tag: string; count: number }[];
 }
 
 // A request to load params into the image composer (from History / a result).

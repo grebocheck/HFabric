@@ -45,7 +45,7 @@ export function Gallery({
 }) {
   // `applied` is what actually drives fetching; `query` is the live input box.
   const [query, setQuery] = useState("");
-  const [applied, setApplied] = useState({ q: "", model: "", size: "", lora: "", range: "all" });
+  const [applied, setApplied] = useState({ q: "", model: "", size: "", lora: "", favorite: false, tag: "", range: "all" });
   const [items, setItems] = useState<ImageItem[]>([]);
   const [stats, setStats] = useState<ImageStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -66,6 +66,8 @@ export function Gallery({
         model: applied.model || undefined,
         size: applied.size || undefined,
         lora: applied.lora || undefined,
+        favorite: applied.favorite ? true : undefined,
+        tag: applied.tag || undefined,
         date_from: rangeStart(applied.range),
         limit: PAGE,
         offset,
@@ -177,6 +179,20 @@ export function Gallery({
     ...(stats?.by_lora ?? []).map((lora) => ({ value: lora.id, label: lora.name, hint: String(lora.count) })),
   ];
   const selectedLoraName = loraOptions.find((option) => option.value === applied.lora)?.label ?? applied.lora;
+  const tagOptions: SelectOption[] = [
+    { value: "", label: "All tags" },
+    ...(stats?.by_tag ?? []).map((tag) => ({ value: tag.tag, label: tag.tag, hint: String(tag.count) })),
+  ];
+  const selectedTagName = tagOptions.find((option) => option.value === applied.tag)?.label ?? applied.tag;
+
+  const handleImageUpdate = useCallback(
+    (updated: ImageItem) => {
+      setItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      refreshStats();
+      void reload();
+    },
+    [refreshStats, reload],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -217,6 +233,17 @@ export function Gallery({
           <div className="w-40">
             <Select value={applied.lora} options={loraOptions} onChange={(v) => setApplied((a) => ({ ...a, lora: v }))} />
           </div>
+          <button
+            onClick={() => setApplied((a) => ({ ...a, favorite: !a.favorite }))}
+            className={`rounded-md border px-2.5 py-1 text-xs transition ${
+              applied.favorite ? "border-amber-300/60 bg-amber-400/15 text-amber-100" : "border-white/15 text-white/60 hover:bg-white/10"
+            }`}
+          >
+            Favorites
+          </button>
+          <div className="w-36">
+            <Select value={applied.tag} options={tagOptions} onChange={(v) => setApplied((a) => ({ ...a, tag: v }))} />
+          </div>
           <div className="w-36">
             <Select value={applied.range} options={DATE_RANGES} onChange={(v) => setApplied((a) => ({ ...a, range: v }))} />
           </div>
@@ -234,7 +261,7 @@ export function Gallery({
         </div>
       </div>
 
-      {(applied.q || applied.model || applied.size || applied.lora || applied.range !== "all") && (
+      {(applied.q || applied.model || applied.size || applied.lora || applied.favorite || applied.tag || applied.range !== "all") && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {applied.q && <Chip onClear={() => { setQuery(""); setApplied((a) => ({ ...a, q: "" })); }}>“{applied.q}”</Chip>}
           {applied.model && <Chip onClear={() => setApplied((a) => ({ ...a, model: "" }))}>{applied.model}</Chip>}
@@ -244,6 +271,8 @@ export function Gallery({
             </Chip>
           )}
           {applied.lora && <Chip onClear={() => setApplied((a) => ({ ...a, lora: "" }))}>LoRA: {selectedLoraName}</Chip>}
+          {applied.favorite && <Chip onClear={() => setApplied((a) => ({ ...a, favorite: false }))}>Favorites</Chip>}
+          {applied.tag && <Chip onClear={() => setApplied((a) => ({ ...a, tag: "" }))}>Tag: {selectedTagName}</Chip>}
           {applied.range !== "all" && (
             <Chip onClear={() => setApplied((a) => ({ ...a, range: "all" }))}>
               {DATE_RANGES.find((r) => r.value === applied.range)?.label}
@@ -297,6 +326,11 @@ export function Gallery({
                     }`}
                   >
                     <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                    {img.favorite && (
+                      <span className="absolute right-1.5 top-1.5 rounded border border-amber-200/30 bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-100">
+                        Fav
+                      </span>
+                    )}
                     {selectMode && (
                       <span className={`absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded border text-[11px] ${
                         isSel ? "border-violet-300 bg-violet-500 text-white" : "border-white/40 bg-black/40 text-transparent"
@@ -334,6 +368,7 @@ export function Gallery({
           models={models}
           onClose={() => setOpenId(null)}
           onReproduce={onReproduce}
+          onUpdate={handleImageUpdate}
           onDelete={() => void removeOne(open.id)}
         />
       )}
@@ -355,17 +390,49 @@ function DetailModal({
   models,
   onClose,
   onReproduce,
+  onUpdate,
   onDelete,
 }: {
   image: ImageItem;
   models: Model[];
   onClose: () => void;
   onReproduce: (image: ImageItem, opts: { keepSeed: boolean }) => void;
+  onUpdate: (image: ImageItem) => void;
   onDelete: () => void;
 }) {
   const params = image.params ?? {};
   const modelName = text(params.model);
   const knownModel = models.some((m) => m.job_type === "image" && m.name === modelName);
+  const [tagsDraft, setTagsDraft] = useState((image.tags ?? []).join(", "));
+  const [savingMeta, setSavingMeta] = useState(false);
+
+  useEffect(() => {
+    setTagsDraft((image.tags ?? []).join(", "));
+  }, [image.id, image.tags]);
+
+  const patchMeta = async (body: { favorite?: boolean; tags?: string[] }) => {
+    setSavingMeta(true);
+    try {
+      const updated = await api.updateImage(image.id, body);
+      onUpdate(updated);
+      return updated;
+    } catch {
+      toast.error("Could not update image metadata");
+      return null;
+    } finally {
+      setSavingMeta(false);
+    }
+  };
+
+  const toggleFavorite = async () => {
+    const updated = await patchMeta({ favorite: !image.favorite });
+    if (updated) toast.success(updated.favorite ? "Added to favorites" : "Removed from favorites");
+  };
+
+  const saveTags = async () => {
+    const updated = await patchMeta({ tags: parseTags(tagsDraft) });
+    if (updated) toast.success("Tags saved");
+  };
 
   const copyImage = async () => {
     try {
@@ -398,7 +465,20 @@ function DetailModal({
         <aside className="flex w-72 shrink-0 flex-col overflow-y-auto">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="font-semibold text-white/80">Details</h3>
-            <button onClick={onClose} className="text-white/40 hover:text-white">close</button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleFavorite}
+                disabled={savingMeta}
+                className={`rounded border px-2 py-0.5 text-[11px] transition disabled:opacity-40 ${
+                  image.favorite
+                    ? "border-amber-300/50 bg-amber-400/15 text-amber-100"
+                    : "border-white/15 text-white/45 hover:bg-white/10 hover:text-white/80"
+                }`}
+              >
+                {image.favorite ? "Favorited" : "Favorite"}
+              </button>
+              <button onClick={onClose} className="text-white/40 hover:text-white">close</button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -419,6 +499,35 @@ function DetailModal({
             <Meta label="LoRA" value={loraSummary(params.loras)} />
             <Meta label="Created" value={new Date(image.created_at).toLocaleString()} />
           </dl>
+
+          <div className="mt-3">
+            <div className="text-xs uppercase tracking-wide text-white/35">Tags</div>
+            <div className="mt-1 flex min-h-6 flex-wrap gap-1">
+              {(image.tags ?? []).length ? (
+                image.tags.map((tag) => (
+                  <span key={tag} className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] text-white/65">
+                    {tag}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-white/30">-</span>
+              )}
+            </div>
+            <div className="mt-2 flex gap-1.5">
+              <input
+                value={tagsDraft}
+                onChange={(e) => setTagsDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void saveTags();
+                }}
+                placeholder="tag, another tag"
+                className="min-w-0 flex-1 rounded border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-violet-500"
+              />
+              <button onClick={saveTags} disabled={savingMeta} className={`${actionBtn} disabled:opacity-40`}>
+                Save
+              </button>
+            </div>
+          </div>
 
           <div className="mt-3">
             <div className="flex items-center justify-between">
@@ -469,6 +578,20 @@ function Meta({ label, value }: { label: string; value: string }) {
 function text(value: unknown): string {
   if (value == null) return "";
   return String(value);
+}
+
+function parseTags(value: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.split(/[,\n]/)) {
+    const tag = raw.trim().replace(/\s+/g, " ").slice(0, 40);
+    const key = tag.toLocaleLowerCase();
+    if (!tag || seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+    if (out.length >= 32) break;
+  }
+  return out;
 }
 
 function loraSummary(value: unknown): string {

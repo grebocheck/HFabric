@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy import text
 
 from ..config import settings
 from .models import Base
@@ -22,6 +23,17 @@ async def init_db() -> None:
     settings.ensure_dirs()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _ensure_image_columns(conn)
+
+
+async def _ensure_image_columns(conn) -> None:
+    """Tiny SQLite migration for columns added after the original create_all."""
+    rows = (await conn.execute(text("PRAGMA table_info(images)"))).all()
+    columns = {row[1] for row in rows}
+    if "favorite" not in columns:
+        await conn.execute(text("ALTER TABLE images ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"))
+    if "tags" not in columns:
+        await conn.execute(text("ALTER TABLE images ADD COLUMN tags JSON NOT NULL DEFAULT '[]'"))
 
 
 @asynccontextmanager

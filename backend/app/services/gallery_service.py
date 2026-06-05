@@ -17,13 +17,14 @@ from ..db.models import Image
 _MODEL_EXPR = Image.params["model"].as_string()
 
 
-def _apply_filters(stmt, *, q, model, size, lora, date_from, date_to):
+def _apply_filters(stmt, *, q, model, size, lora, favorite, tag, date_from, date_to):
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(or_(
             Image.id.ilike(like),
             Image.job_id.ilike(like),
             cast(Image.seed, String).ilike(like),
+            cast(Image.tags, String).ilike(like),
             cast(Image.params, String).ilike(like),
         ))
     if model:
@@ -47,6 +48,17 @@ def _apply_filters(stmt, *, q, model, size, lora, date_from, date_to):
                 .where(func.json_extract(lora_item.c.value, "$.id") == lora.strip())
             )
         )
+    if favorite is not None:
+        stmt = stmt.where(Image.favorite.is_(favorite))
+    if tag:
+        tag_item = func.json_each(Image.tags).table_valued("value").alias("tag_item")
+        stmt = stmt.where(
+            exists(
+                select(1)
+                .select_from(tag_item)
+                .where(tag_item.c.value == tag.strip())
+            )
+        )
     if date_from is not None:
         stmt = stmt.where(Image.created_at >= date_from)
     if date_to is not None:
@@ -63,10 +75,22 @@ async def list_images(
     model: str | None = None,
     size: str | None = None,
     lora: str | None = None,
+    favorite: bool | None = None,
+    tag: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> list[Image]:
-    stmt = _apply_filters(select(Image), q=q, model=model, size=size, lora=lora, date_from=date_from, date_to=date_to)
+    stmt = _apply_filters(
+        select(Image),
+        q=q,
+        model=model,
+        size=size,
+        lora=lora,
+        favorite=favorite,
+        tag=tag,
+        date_from=date_from,
+        date_to=date_to,
+    )
     stmt = stmt.order_by(Image.created_at.desc()).limit(limit).offset(offset)
     return list((await session.execute(stmt)).scalars().all())
 
@@ -83,6 +107,23 @@ async def get_images(session: AsyncSession, image_ids: list[str]) -> list[Image]
     rows = list((await session.execute(select(Image).where(Image.id.in_(ids)))).scalars().all())
     by_id = {img.id: img for img in rows}
     return [by_id[image_id] for image_id in ids if image_id in by_id]
+
+
+async def update_image(
+    session: AsyncSession,
+    image_id: str,
+    *,
+    favorite: bool | None = None,
+    tags: list[str] | None = None,
+) -> Image | None:
+    img = await session.get(Image, image_id)
+    if img is None:
+        return None
+    if favorite is not None:
+        img.favorite = favorite
+    if tags is not None:
+        img.tags = _normalize_tags(tags)
+    return img
 
 
 async def delete_image(session: AsyncSession, image_id: str) -> bool:
@@ -126,7 +167,13 @@ async def stats(session: AsyncSession) -> dict:
         for (lora_id, name), count in lora_counts.most_common()
     ]
 
-    return {"total": total, "today": today, "by_model": by_model, "by_lora": by_lora}
+    tag_counts: Counter[str] = Counter()
+    for (tags,) in (await session.execute(select(Image.tags))).all():
+        for tag in _tag_entries(tags):
+            tag_counts[tag] += 1
+    by_tag = [{"tag": tag, "count": count} for tag, count in tag_counts.most_common()]
+
+    return {"total": total, "today": today, "by_model": by_model, "by_lora": by_lora, "by_tag": by_tag}
 
 
 def _lora_entries(params: Any) -> list[dict[str, str]]:
@@ -147,6 +194,29 @@ def _lora_entries(params: Any) -> list[dict[str, str]]:
     return out
 
 
+def _tag_entries(tags: Any) -> list[str]:
+    if not isinstance(tags, list):
+        return []
+    return _normalize_tags([tag for tag in tags if isinstance(tag, str)])
+
+
+def _normalize_tags(tags: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in tags:
+        tag = " ".join(raw.strip().split())[:40]
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+        if len(out) >= 32:
+            break
+    return out
+
+
 def to_out_dict(img: Image) -> dict:
     return {
         "id": img.id,
@@ -154,6 +224,8 @@ def to_out_dict(img: Image) -> dict:
         "seed": img.seed,
         "width": img.width,
         "height": img.height,
+        "favorite": bool(img.favorite),
+        "tags": _tag_entries(img.tags),
         "params": img.params,
         "created_at": img.created_at,
         "url": f"/api/images/{img.id}/file",

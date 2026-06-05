@@ -80,12 +80,19 @@ class ImageOut(BaseModel):
     seed: int | None = None
     width: int | None = None
     height: int | None = None
+    favorite: bool = False
+    tags: list[str] = Field(default_factory=list)
     params: dict[str, Any]
     created_at: datetime
     url: str
     thumb_url: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class ImageUpdateIn(BaseModel):
+    favorite: bool | None = None
+    tags: list[str] | None = Field(default=None, max_length=32)
 
 
 class ImageExportIn(BaseModel):

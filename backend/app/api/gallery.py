@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from ..schemas import ImageExportIn, ImageOut
+from ..schemas import ImageExportIn, ImageOut, ImageUpdateIn
 from ..services import gallery_service
 from .deps import get_session
 
@@ -30,13 +30,16 @@ async def list_images(
     model: str | None = Query(None, max_length=200),
     size: str | None = Query(None, pattern="^(square|landscape|portrait|large|small)$"),
     lora: str | None = Query(None, max_length=200),
+    favorite: bool | None = None,
+    tag: str | None = Query(None, max_length=40),
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[ImageOut]:
     images = await gallery_service.list_images(
         session, limit=limit, offset=offset, q=q,
-        model=model, size=size, lora=lora, date_from=date_from, date_to=date_to,
+        model=model, size=size, lora=lora, favorite=favorite, tag=tag,
+        date_from=date_from, date_to=date_to,
     )
     return [ImageOut.model_validate(gallery_service.to_out_dict(i)) for i in images]
 
@@ -77,6 +80,14 @@ async def export_images(body: ImageExportIn, session: AsyncSession = Depends(get
         filename=f"hfabric-images-{len(images)}.zip",
         background=BackgroundTask(lambda: zip_path.unlink(missing_ok=True)),
     )
+
+
+@router.patch("/{image_id}", response_model=ImageOut)
+async def update_image(image_id: str, body: ImageUpdateIn, session: AsyncSession = Depends(get_session)) -> ImageOut:
+    img = await gallery_service.update_image(session, image_id, favorite=body.favorite, tags=body.tags)
+    if img is None:
+        raise HTTPException(404, "image not found")
+    return ImageOut.model_validate(gallery_service.to_out_dict(img))
 
 
 @router.delete("/{image_id}")

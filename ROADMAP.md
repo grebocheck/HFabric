@@ -113,9 +113,10 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   `date_from`/`date_to` query params on `/api/images`; `/api/images/stats` also
   returns LoRA counts for the dropdown. *Remaining:* a true `family` column
   (today the snapshot only stores the model *name*).
-- [~] **P9.3 — Favorites, tags, delete.** Single delete (row + files) shipped via
-  `DELETE /api/images/{id}`. *Remaining:* favorites + free-text tags (needs new
-  SQLite columns) and filtering on them.
+- [x] **P9.3 — Favorites, tags, delete.** Single delete (row + files) ships via
+  `DELETE /api/images/{id}`; images now have `favorite` + free-text `tags`
+  columns with a tiny SQLite migration, `PATCH /api/images/{id}` metadata
+  updates, and History filters for favorites and tags.
 - [x] **P9.4 — Bulk + export.** Multi-select **Select** mode has bulk delete and
   bulk ZIP export (`POST /api/images/export`, images + metadata JSON); per-item
   PNG/JSON export + "Show in folder" remain in the detail modal.
