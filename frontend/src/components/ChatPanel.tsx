@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import { useEvents } from "../api/useEvents";
 import type { BusEvent, ChatConversation, ChatConversationImport, ChatImportMessage, ChatMessage, ChatSendBody, LlmConfig, Model, Preset, PresetImportItem } from "../types";
@@ -10,6 +10,8 @@ const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.
 const numField = "w-full rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs outline-none focus:border-emerald-500";
 const label = "text-xs uppercase tracking-wide text-white/40";
 const DEFAULTS_KEY = "hfabric.chat.defaults";
+const PROMPT_HISTORY_KEY = "hfabric.chat.promptHistory";
+const promptHistoryLimit = 14;
 
 type NumOrEmpty = number | "";
 type Stats = { tokens: number; tps: number; ttft: number };
@@ -22,11 +24,34 @@ function loadDefaults(): { model_id?: string; temperature?: number; max_tokens?:
   }
 }
 
+function loadPromptHistory(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string").slice(0, promptHistoryLimit) : [];
+  } catch {
+    return [];
+  }
+}
+
 const numOrUndef = (v: NumOrEmpty): number | undefined => (v === "" ? undefined : Number(v));
 const parseStop = (s: string): string[] | undefined => {
   const items = s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
   return items.length ? items : undefined;
 };
+
+function modelHint(model: Model): string | undefined {
+  const tags = [
+    model.quant ?? "",
+    model.estimated_vram_gb ? `~${model.estimated_vram_gb.toFixed(1)} GB` : "",
+    model.loaded ? "loaded" : model.warm ? "warm" : "",
+  ].filter(Boolean);
+  return tags.length ? tags.join(" / ") : undefined;
+}
+
+function modelTitle(model: Model): string {
+  const hint = modelHint(model);
+  return hint ? `${model.name} | ${hint}` : model.name;
+}
 
 function pickImageModel(models: Model[]): Model | undefined {
   const img = models.filter((m) => m.job_type === "image");
@@ -134,6 +159,7 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
   const [editText, setEditText] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
   const [convQuery, setConvQuery] = useState("");
+  const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
 
   // settings (per conversation)
   const [modelId, setModelId] = useState(saved.model_id ?? "");
@@ -176,6 +202,31 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
     () => api.listPresets().then((p) => setPersonas(p.filter((x) => x.type === "llm"))).catch(() => {}),
     [],
   );
+  const selectedModel = useMemo(() => llmModels.find((m) => m.id === modelId), [llmModels, modelId]);
+  const quickModels = useMemo(() => {
+    const current = llmModels.find((m) => m.id === modelId);
+    const loaded = llmModels.filter((m) => m.loaded || m.warm);
+    const rest = llmModels.filter((m) => !loaded.some((x) => x.id === m.id));
+    const out: Model[] = [];
+    for (const model of [current, ...loaded, ...rest]) {
+      if (model && !out.some((item) => item.id === model.id)) out.push(model);
+    }
+    return out.slice(0, 4);
+  }, [llmModels, modelId]);
+  const quickPersonas = useMemo(() => personas.slice(0, 4), [personas]);
+  const visiblePromptHistory = useMemo(
+    () => promptHistory.filter((item) => item !== input.trim()).slice(0, 4),
+    [input, promptHistory],
+  );
+
+  const rememberPrompt = useCallback((content: string) => {
+    const text = content.trim();
+    if (!text) return;
+    setPromptHistory((prev) => {
+      const next = [text, ...prev.filter((item) => item !== text)].slice(0, promptHistoryLimit);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     refreshConvs();
@@ -190,6 +241,10 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
   useEffect(() => {
     localStorage.setItem(DEFAULTS_KEY, JSON.stringify({ model_id: modelId, temperature, max_tokens: maxTokens }));
   }, [modelId, temperature, maxTokens]);
+
+  useEffect(() => {
+    localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(promptHistory));
+  }, [promptHistory]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -376,10 +431,11 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
       cid = c.id;
     }
     setInput("");
+    rememberPrompt(content);
     const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
     if (imgCmd) await submitImage(imgCmd[1].trim(), cid);
     else await submit(content, cid);
-  }, [input, busy, activeId, modelId, llmModels, submit, submitImage]);
+  }, [input, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage]);
 
   const stop_ = useCallback(async () => {
     await api.stopLlm().catch(() => {});
@@ -608,6 +664,52 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
         </div>
 
         <div className="border-t border-white/10 p-3">
+          <div className="mb-2 flex flex-col gap-2">
+            {quickModels.length > 0 ? (
+              <QuickRail label="Model">
+                {quickModels.map((model) => (
+                  <QuickChip
+                    key={model.id}
+                    active={model.id === modelId}
+                    onClick={() => setModelId(model.id)}
+                    title={modelTitle(model)}
+                  >
+                    {model.name}
+                  </QuickChip>
+                ))}
+                {selectedModel && !quickModels.some((model) => model.id === selectedModel.id) ? (
+                  <QuickChip active onClick={() => setModelId(selectedModel.id)} title={modelTitle(selectedModel)}>
+                    {selectedModel.name}
+                  </QuickChip>
+                ) : null}
+              </QuickRail>
+            ) : null}
+
+            {(personas.length > 0 || personaId) ? (
+              <QuickRail label="Persona">
+                <QuickChip active={!personaId} onClick={() => applyPersona("")}>None</QuickChip>
+                {quickPersonas.map((persona) => (
+                  <QuickChip
+                    key={persona.id}
+                    active={persona.id === personaId}
+                    onClick={() => applyPersona(persona.id)}
+                  >
+                    {persona.name}
+                  </QuickChip>
+                ))}
+              </QuickRail>
+            ) : null}
+
+            {visiblePromptHistory.length > 0 ? (
+              <QuickRail label="Recent">
+                {visiblePromptHistory.map((prompt) => (
+                  <QuickChip key={prompt} onClick={() => { setInput(prompt); inputRef.current?.focus(); }} title={prompt}>
+                    {prompt}
+                  </QuickChip>
+                ))}
+              </QuickRail>
+            ) : null}
+          </div>
           <textarea
             ref={inputRef}
             value={input}
@@ -815,6 +917,42 @@ export function ChatPanel({ models, jump }: { models: Model[]; jump?: ChatJump |
         </label>
       </aside>
     </div>
+  );
+}
+
+function QuickRail({ label: railLabel, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="w-12 shrink-0 text-[10px] uppercase tracking-wide text-white/30">{railLabel}</span>
+      <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">{children}</div>
+    </div>
+  );
+}
+
+function QuickChip({
+  active = false,
+  children,
+  onClick,
+  title,
+}: {
+  active?: boolean;
+  children: string;
+  onClick: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title ?? children}
+      className={`max-w-44 shrink-0 truncate rounded-md border px-2 py-1 text-xs transition ${
+        active
+          ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
+          : "border-white/10 bg-black/20 text-white/55 hover:border-white/20 hover:bg-white/10 hover:text-white/85"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

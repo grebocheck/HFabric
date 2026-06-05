@@ -398,7 +398,8 @@ P3/UX notes:
 - [x] **P5.C2 — Composer ergonomics.** Live token/context meter, tok/s + TTFT
   stats, Stop affordance and a busy/"generating" state were already in place; the
   auto-growing composer textarea (caps at 200 px, then scrolls) was added
-  2026-06-04. *Remaining:* inline model/persona quick-switch chips.
+  2026-06-04. Inline model/persona quick-switch chips and LLM prompt-history
+  recall shipped 2026-06-05.
 - [x] **P5.C3 — Styled selectors.** Shipped 2026-06-05: **every** native
   `<select>` in the app is now the shared keyboard-navigable `Select` with badge
   hints — Image (model/LoRA/preset), LLM (model/persona), and the RAG / Vision /
