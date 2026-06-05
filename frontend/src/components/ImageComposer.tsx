@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Select, type SelectOption } from "./Select";
 import { Slider } from "./Slider";
-import type { Lora, Model, Preset } from "../types";
+import type { ComposerApply, Lora, Model, Preset } from "../types";
 
 const STORE_KEY = "hfabric.image.composer";
 
@@ -16,6 +16,7 @@ type SavedComposer = {
   height?: number;
   seed?: number;
   batch?: number;
+  count?: number;
   selectedLoras?: LoraSelection[];
   presetId?: string;
 };
@@ -57,6 +58,7 @@ export function ImageComposer({
   onPresetsChanged,
   promptDraft,
   setPromptDraft,
+  apply,
 }: {
   models: Model[];
   loras: Lora[];
@@ -64,6 +66,7 @@ export function ImageComposer({
   onPresetsChanged: () => void;
   promptDraft: string;
   setPromptDraft: (v: string) => void;
+  apply?: ComposerApply | null;
 }) {
   const imgModels = models
     .filter((m) => m.job_type === "image")
@@ -81,7 +84,7 @@ export function ImageComposer({
   const [selectedLoras, setSelectedLoras] = useState<LoraSelection[]>(saved.selectedLoras ?? []);
   const [loraId, setLoraId] = useState("");
   const [loraWeight, setLoraWeight] = useState(1);
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useState(saved.count ?? 1);
   const [presetId, setPresetId] = useState(saved.presetId ?? "");
   const [presetName, setPresetName] = useState("");
   const [presetError, setPresetError] = useState("");
@@ -101,13 +104,13 @@ export function ImageComposer({
   }, [imgModels, imgModel]);
 
   useEffect(() => {
-    const data: SavedComposer = { imgModel, negative, steps, guidance, width, height, seed, batch, selectedLoras, presetId };
+    const data: SavedComposer = { imgModel, negative, steps, guidance, width, height, seed, batch, count, selectedLoras, presetId };
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(data));
     } catch {
       // Private-mode or quota errors should not break generation.
     }
-  }, [imgModel, negative, steps, guidance, width, height, seed, batch, selectedLoras, presetId]);
+  }, [imgModel, negative, steps, guidance, width, height, seed, batch, count, selectedLoras, presetId]);
 
   useEffect(() => {
     setSelectedLoras((current) =>
@@ -186,24 +189,36 @@ export function ImageComposer({
     }
   };
 
-  const applyPreset = () => {
-    const preset = imagePresets.find((p) => p.id === presetId);
-    if (!preset) return;
-    const params = preset.params;
+  // Load a full param snapshot into the composer. Shared by presets (model
+  // identified by id) and History reproduce (model id resolved by the caller).
+  const applyParams = (params: Record<string, unknown>, modelId?: string) => {
     if (typeof params.prompt === "string") setPromptDraft(params.prompt);
     setNegative(typeof params.negative === "string" ? params.negative : "");
-    const presetModel = typeof params.model_id === "string"
-      ? imgModels.find((m) => m.id === params.model_id)
-      : undefined;
-    if (presetModel) setImgModel(presetModel.id);
+    const targetId = modelId ?? (typeof params.model_id === "string" ? params.model_id : undefined);
+    const model = targetId ? imgModels.find((m) => m.id === targetId) : undefined;
+    if (model) setImgModel(model.id);
     setSteps(numberParam(params.steps, steps));
     setGuidance(numberParam(params.guidance, guidance));
     setWidth(numberParam(params.width, width));
     setHeight(numberParam(params.height, height));
     setSeed(numberParam(params.seed, seed));
     setBatch(numberParam(params.batch_size, batch));
-    setSelectedLoras(parseLoraSelections(params.loras, loras, presetModel ?? selectedImgModel));
+    setSelectedLoras(parseLoraSelections(params.loras, loras, model ?? selectedImgModel));
   };
+
+  const applyPreset = () => {
+    const preset = imagePresets.find((p) => p.id === presetId);
+    if (preset) applyParams(preset.params);
+  };
+
+  // External "reproduce from History" request: apply once per nonce.
+  const appliedNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!apply || apply.nonce === appliedNonce.current) return;
+    appliedNonce.current = apply.nonce;
+    applyParams(apply.params, apply.model_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apply]);
 
   const deletePreset = async () => {
     if (!presetId) return;

@@ -1,4 +1,4 @@
-import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, ImageItem, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceSettingsUpdate, VoiceStatus } from "../types";
+import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, ImageItem, ImageStats, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceSettingsUpdate, VoiceStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -66,6 +66,19 @@ export const api = {
     const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
     return fetch(`/api/images${params}`).then(j<ImageItem[]>);
   },
+  queryImages: (opts: { q?: string; model?: string; date_from?: string; date_to?: string; limit?: number; offset?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q?.trim()) p.set("q", opts.q.trim());
+    if (opts.model) p.set("model", opts.model);
+    if (opts.date_from) p.set("date_from", opts.date_from);
+    if (opts.date_to) p.set("date_to", opts.date_to);
+    if (opts.limit != null) p.set("limit", String(opts.limit));
+    if (opts.offset != null) p.set("offset", String(opts.offset));
+    const qs = p.toString();
+    return fetch(`/api/images${qs ? `?${qs}` : ""}`).then(j<ImageItem[]>);
+  },
+  imageStats: () => fetch("/api/images/stats").then(j<ImageStats>),
+  deleteImage: (id: string) => fetch(`/api/images/${id}`, { method: "DELETE" }).then(j<{ deleted: string }>),
   revealImage: (id: string) => fetch(`/api/images/${id}/reveal`, { method: "POST" }).then(j),
   listPresets: () => fetch("/api/presets").then(j<Preset[]>),
   createPreset: (name: string, type: JobType, params: Record<string, unknown>) =>

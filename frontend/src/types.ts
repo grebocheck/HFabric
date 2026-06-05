@@ -94,6 +94,19 @@ export interface ImageItem {
   thumb_url: string | null;
 }
 
+export interface ImageStats {
+  total: number;
+  today: number;
+  by_model: { model: string; count: number }[];
+}
+
+// A request to load params into the image composer (from History / a result).
+export interface ComposerApply {
+  model_id?: string;
+  params: Record<string, unknown>;
+  nonce: number;
+}
+
 export interface Preset {
   id: string;
   name: string;

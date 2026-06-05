@@ -19,7 +19,7 @@ import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VisionPanel } from "./components/VisionPanel";
 import { VoicePanel } from "./components/VoicePanel";
-import type { BusEvent, GpuStatus, ImageItem, Job, Lora, MemSnapshot, Model, Preset } from "./types";
+import type { BusEvent, ComposerApply, GpuStatus, ImageItem, Job, Lora, MemSnapshot, Model, Preset } from "./types";
 
 // A workspace is one top-level tab. Adding a tab = one entry here (label drives
 // the header tab + command palette; render() owns the whole main area).
@@ -40,6 +40,10 @@ export default function App() {
   const [chatJump, setChatJump] = useState<ChatJump | null>(null);
 
   const [promptDraft, setPromptDraft] = useState("");
+  // History self-fetches; bump this to make it reload after a new image lands.
+  const [imageEpoch, setImageEpoch] = useState(0);
+  // A "reproduce from History" request handed to the image composer.
+  const [composerApply, setComposerApply] = useState<ComposerApply | null>(null);
 
   const refreshJobs = useCallback(() => api.listJobs().then(setJobs).catch(() => {}), []);
   const refreshImages = useCallback((q?: string) => api.listImages(q).then(setImages).catch(() => {}), []);
@@ -91,11 +95,13 @@ export default function App() {
           refreshJobs();
           if (e.job_type === "image") {
             refreshImages();
+            setImageEpoch((n) => n + 1);
             toast.success("Image ready", { onClick: () => setView("history") });
           }
           break;
         case "image.ready":
           refreshImages();
+          setImageEpoch((n) => n + 1);
           break;
         case "mem.status":
           setMem({
@@ -111,6 +117,20 @@ export default function App() {
   const { connected } = useEvents(onEvent);
 
   const onFree = useCallback(() => api.freeGpu().catch(() => {}), []);
+
+  // Reproduce a History image in the composer. The stored snapshot keys the
+  // model by *name*; resolve it back to a live model id when one matches.
+  const onReproduce = useCallback(
+    (image: ImageItem, opts: { keepSeed: boolean }) => {
+      const modelName = typeof image.params?.model === "string" ? image.params.model : "";
+      const model = models.find((m) => m.job_type === "image" && m.name === modelName);
+      const params = { ...image.params, seed: opts.keepSeed ? image.seed ?? -1 : -1 };
+      setComposerApply({ model_id: model?.id, params, nonce: Date.now() });
+      setView("images");
+      toast.success(opts.keepSeed ? "Loaded into composer" : "Loaded as variation (new seed)");
+    },
+    [models],
+  );
 
   // remember the last active tab
   useEffect(() => { localStorage.setItem("hfabric.view", view); }, [view]);
@@ -147,6 +167,7 @@ export default function App() {
             onPresetsChanged={refreshPresets}
             promptDraft={promptDraft}
             setPromptDraft={setPromptDraft}
+            apply={composerApply}
           />
           <ResultPreview
             images={images}
@@ -162,7 +183,7 @@ export default function App() {
       label: "History",
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
-          <Gallery images={images} onSearch={refreshImages} />
+          <Gallery models={models} reloadSignal={imageEpoch} onReproduce={onReproduce} />
         </main>
       ),
     },

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,10 +23,29 @@ async def list_images(
     limit: int = Query(100, le=500),
     offset: int = 0,
     q: str | None = Query(None, max_length=200),
+    model: str | None = Query(None, max_length=200),
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[ImageOut]:
-    images = await gallery_service.list_images(session, limit=limit, offset=offset, q=q)
+    images = await gallery_service.list_images(
+        session, limit=limit, offset=offset, q=q,
+        model=model, date_from=date_from, date_to=date_to,
+    )
     return [ImageOut.model_validate(gallery_service.to_out_dict(i)) for i in images]
+
+
+@router.get("/stats")
+async def image_stats(session: AsyncSession = Depends(get_session)) -> dict:
+    """Generation counters for the History header (total / today / per-model)."""
+    return await gallery_service.stats(session)
+
+
+@router.delete("/{image_id}")
+async def delete_image(image_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    if not await gallery_service.delete_image(session, image_id):
+        raise HTTPException(404, "image not found")
+    return {"deleted": image_id}
 
 
 @router.get("/{image_id}/file")
