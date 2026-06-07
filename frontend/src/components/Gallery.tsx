@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select, type SelectOption } from "./Select";
 import { toast } from "./Toast";
+import { ZoomableImage } from "./ZoomableImage";
 import type { ImageItem, ImageStats, Model } from "../types";
 
 const PAGE = 60;
@@ -477,7 +478,7 @@ function DetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
-          <img src={image.url} alt="" className="max-h-[84vh] max-w-full rounded object-contain" />
+          <ZoomableImage src={image.url} className="h-[84vh] w-full rounded" />
         </div>
         <aside className="flex w-72 shrink-0 flex-col overflow-y-auto">
           <div className="mb-2 flex items-center justify-between">

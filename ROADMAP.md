@@ -132,6 +132,37 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 - [ ] **P12.4 — Memory timeline depth.** Optional process-RSS series + hover
   tooltips on the System-tab sparkline (P7.3 tail).
 
+### P13 — Generation pages, round 2 (Images + LLM comfort)
+
+> Direct user feedback after living in the pages: the model **cards** (P8.4) eat
+> too much vertical space, the result strip is too small, the detail view can't
+> zoom, and there's no img2img. The card *styling* was liked — keep it, just move
+> it into a dropdown.
+
+- [x] **P13.1 — Model picker back to a dropdown.** `Select` gained an optional
+  `renderOption` (keyboard-nav / search / click-outside intact); the new
+  `ModelPicker.tsx` wraps it so each option shows name + measured-VRAM + all badges
+  (family / quant / fast-path / slow / loaded) on **one row**. `ImageComposer`'s
+  `ModelCard` grid and the LLM page's plain model `Select` both use it now —
+  consistent and far more compact.
+- [x] **P13.2 — Bigger, scrollable result strip.** `ResultPreview`'s recent strip
+  now shows up to **50** larger (68px) tiles, wrapping into a bounded
+  (`max-h-44`) vertically-scrollable area.
+- [x] **P13.3 — Zoom in the detail view.** `ZoomableImage.tsx` (wheel zoom +
+  drag-pan + double-click reset + on-screen ±/Reset, clamped 1–8×) is used by both
+  the `ResultPreview` lightbox (now Esc-closable) and the History detail modal.
+- [ ] **P13.4 — img2img (image + prompt → image).** Backend: diffusers
+  `*Img2ImgPipeline` per family behind the existing arbiter/`sysmon` budget, with a
+  `strength` knob; the worker resolves an uploaded source image. UI: a source-image
+  drop/upload slot in the composer + strength slider; queue a job with
+  `init_image`. **Needs real-GPU verification** (pipeline assembly + VRAM), so it
+  lands as backend scaffolding + STUB path first, validated on hardware after.
+- [ ] **P13.5 — Inpainting / region edit (mask).** Build on P13.4: a mask canvas
+  over the source image (brush + lasso/freehand selection → alpha mask) feeding a
+  family `*InpaintPipeline`. The mask is sent alongside `init_image`. UI is the hard
+  part (canvas, undo, feather); backend mirrors P13.4. Also GPU-gated. Sequenced
+  after P13.4 proves the img2img path.
+
 ---
 
 ## Shipped (condensed)

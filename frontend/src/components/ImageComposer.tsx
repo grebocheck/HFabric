@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Badge } from "./Badge";
+import { ModelPicker } from "./ModelPicker";
 import { Select, type SelectOption } from "./Select";
 import { Slider } from "./Slider";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
@@ -15,7 +16,6 @@ import {
   FLUX2_SIZE,
   FLUX2_STEPS,
   formatSize,
-  formatVram,
   imageModelRank,
   isLoraCompatible,
   isNunchaku,
@@ -343,20 +343,13 @@ export function ImageComposer({
 
         <section className={section}>
           <div className={label}>Model</div>
-          <div className="mt-1.5 grid gap-2">
+          <div className="mt-1.5">
             {modelsLoading && imgModels.length === 0 ? (
-              <SkeletonRows rows={3} />
+              <SkeletonLine />
             ) : imgModels.length === 0 ? (
               <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/35">no image models</div>
             ) : (
-              imgModels.map((model) => (
-                <ModelCard
-                  key={model.id}
-                  model={model}
-                  active={model.id === imgModel}
-                  onSelect={() => setImgModel(model.id)}
-                />
-              ))
+              <ModelPicker models={imgModels} value={imgModel} onChange={setImgModel} />
             )}
           </div>
           {selectedImgModel?.slow ? (
@@ -509,43 +502,6 @@ function Notice({ tone, children }: { tone: "amber" | "emerald" | "sky"; childre
     sky: "border-sky-500/30 bg-sky-500/10 text-sky-100",
   };
   return <div className={`mt-2 rounded-md border px-2.5 py-2 text-xs leading-5 ${classes[tone]}`}>{children}</div>;
-}
-
-function ModelCard({ model, active, onSelect }: { model: Model; active: boolean; onSelect: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onSelect}
-      className={`min-w-0 rounded-md border px-3 py-2 text-left transition ${
-        active
-          ? "border-accent/60 bg-accent/15 shadow-sm shadow-accent/25"
-          : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.06]"
-      }`}
-    >
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-white/85" title={model.name}>{model.name}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <Badge color={familyColor(model.family)}>{model.family}</Badge>
-            {model.quant ? <Badge>{model.quant}</Badge> : null}
-            {model.loaded ? <Badge color="bg-emerald-700/55 text-emerald-100">loaded</Badge> : model.warm ? <Badge color="bg-sky-700/50 text-sky-100">warm</Badge> : null}
-          </div>
-        </div>
-        {model.estimated_vram_gb ? (
-          <div className="shrink-0 text-right">
-            <div className="font-mono text-xs text-white/70">{formatVram(model)}</div>
-            {model.vram_measured ? <div className="mt-0.5 text-[10px] text-white/35">measured</div> : null}
-          </div>
-        ) : null}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {model.slow ? <Badge color="bg-amber-600/35 text-amber-100">slow</Badge> : null}
-        {isNunchaku(model) ? <Badge color="bg-emerald-700/55 text-emerald-100">fast path</Badge> : null}
-        {active ? <Badge color="bg-accent/45 text-accent-fg">selected</Badge> : null}
-      </div>
-    </button>
-  );
 }
 
 function LoraCard({

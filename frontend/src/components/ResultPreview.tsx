@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { ImageItem } from "../types";
+import { ZoomableImage } from "./ZoomableImage";
 
 const actionBtn = "rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white";
 
@@ -26,6 +27,15 @@ export function ResultPreview({ images, onOpenHistory, generating = false }: { i
       setSelectedId(images[0]?.id ?? null);
     }
   }, [images, selectedId]);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
 
   const flash = useCallback((msg: string) => {
     setNote(msg);
@@ -123,13 +133,13 @@ export function ResultPreview({ images, onOpenHistory, generating = false }: { i
         </div>
 
         {images.length > 1 ? (
-          <div className="mt-3 flex h-16 gap-2 overflow-x-auto pb-1">
-            {images.slice(0, 18).map((img) => (
+          <div className="mt-3 flex max-h-44 flex-wrap content-start gap-2 overflow-y-auto pb-1">
+            {images.slice(0, 50).map((img) => (
               <button
                 key={img.id}
                 onClick={() => setSelectedId(img.id)}
                 title={text(img.params?.prompt)}
-                className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-md border transition ${
+                className={`relative h-[68px] w-[68px] shrink-0 overflow-hidden rounded-md border transition ${
                   selected?.id === img.id ? "border-accent/90" : "border-white/10 hover:border-white/35"
                 }`}
               >
@@ -142,15 +152,10 @@ export function ResultPreview({ images, onOpenHistory, generating = false }: { i
 
       {lightbox && selected && (
         <div
-          className="fixed inset-0 z-30 bg-black/90"
+          className="fixed inset-0 z-30 flex items-center justify-center bg-black/90"
           onClick={() => setLightbox(false)}
         >
-          <img
-            src={selected.url}
-            alt=""
-            className="absolute left-1/2 top-1/2 max-h-[92vh] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
+          <ZoomableImage src={selected.url} className="h-[92vh] w-[92vw]" />
           <button
             onClick={() => setLightbox(false)}
             className="absolute right-5 top-5 rounded-md border border-white/20 bg-black/60 px-3 py-1.5 text-sm hover:bg-white/10"

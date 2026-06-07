@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 export type SelectOption = { value: string; label: string; hint?: string; disabled?: boolean };
 
@@ -8,12 +8,16 @@ export function Select({
   onChange,
   placeholder = "select...",
   className = "",
+  renderOption,
 }: {
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  // Optional rich renderer for the option body (the row keeps its selection
+  // highlight, keyboard nav and click handling). Falls back to label + hint.
+  renderOption?: (option: SelectOption) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -154,8 +158,14 @@ export function Select({
                       : "text-white/80"
                 }`}
               >
-                <span className="min-w-0 truncate">{o.label}</span>
-                {o.hint ? <span className="shrink-0 text-[11px] text-white/40">{o.hint}</span> : null}
+                {renderOption ? (
+                  renderOption(o)
+                ) : (
+                  <>
+                    <span className="min-w-0 truncate">{o.label}</span>
+                    {o.hint ? <span className="shrink-0 text-[11px] text-white/40">{o.hint}</span> : null}
+                  </>
+                )}
               </button>
             ))}
           </div>

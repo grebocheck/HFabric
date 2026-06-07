@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { api } from "../api/client";
 import { useEvents } from "../api/useEvents";
 import type { BusEvent, ChatConversation, ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
+import { ModelPicker } from "./ModelPicker";
 import { Select } from "./Select";
 import { AssistantContent } from "./Thinking";
 import { Toggle } from "./Toggle";
@@ -737,13 +738,9 @@ export function ChatPanel({ models, modelsLoading = false, jump }: { models: Mod
           {modelsLoading && llmModels.length === 0 ? (
             <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
           ) : (
-            <Select
-              value={modelId}
-              onChange={setModelId}
-              placeholder="no LLM models"
-              className="mt-1"
-              options={llmModels.map((m) => ({ value: m.id, label: m.name }))}
-            />
+            <div className="mt-1">
+              <ModelPicker models={llmModels} value={modelId} onChange={setModelId} placeholder="no LLM models" />
+            </div>
           )}
         </label>
 
