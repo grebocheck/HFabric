@@ -33,6 +33,7 @@ class DiffusersImageBackend(ImageBackend):
         super().__init__(descriptor)
         self._pipe: Any = None  # diffusers pipeline in real mode
         self._img2img_pipe: Any = None  # lazily-built img2img view sharing _pipe's weights
+        self._inpaint_pipe: Any = None  # lazily-built inpaint view sharing _pipe's weights
         self._active_features: dict[str, Any] = {}
         self._loaded_loras: dict[str, str] = {}
         self._loaded_lora_last_used: dict[str, int] = {}
@@ -612,6 +613,7 @@ class DiffusersImageBackend(ImageBackend):
         del self._pipe
         self._pipe = None
         self._img2img_pipe = None  # shares _pipe's weights; drop the view too
+        self._inpaint_pipe = None
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -620,6 +622,7 @@ class DiffusersImageBackend(ImageBackend):
     def _clear_resident_state(self, *, reset_generation: bool) -> None:
         self._pipe = None
         self._img2img_pipe = None
+        self._inpaint_pipe = None
         self._loaded = False
         self._warm = False
         self._active_features = {}
@@ -729,10 +732,13 @@ class DiffusersImageBackend(ImageBackend):
         if base_seed in (None, -1):
             base_seed = random.randint(0, 2**31 - 1)
 
-        # img2img (P13.4): a source image steers generation. Only SDXL is wired
-        # so far; fail fast with a clear message for other families.
-        if params.get("init_image") and self.descriptor.family is not ModelFamily.SDXL:
-            raise ValueError("img2img is currently supported only for SDXL models")
+        # img2img/inpainting (P13.4/P13.5): a source image steers generation;
+        # an optional mask constrains the repaint region. Only SDXL is wired so
+        # far; fail fast with a clear message for other families.
+        if params.get("mask_image") and not params.get("init_image"):
+            raise ValueError("inpainting requires an img2img source image")
+        if (params.get("init_image") or params.get("mask_image")) and self.descriptor.family is not ModelFamily.SDXL:
+            raise ValueError("img2img/inpainting is currently supported only for SDXL models")
 
         self._stop = False
         results: list[dict[str, Any]] = []
@@ -754,13 +760,16 @@ class DiffusersImageBackend(ImageBackend):
         meta = {**self._public_params(params), "seed": seed, "width": width, "height": height,
                 "model": self.descriptor.name, "family": self.descriptor.family.value, "stub": True,
                 "acceleration": self._active_features}
+        self._add_strength_meta(meta, params, steps)
         lines = [
             f"[STUB] {self.descriptor.name}",
             f"seed={seed}  {width}x{height}  steps={steps}",
             f"prompt: {params.get('prompt', '')}",
         ]
         if params.get("init_image"):
-            lines.append(f"img2img strength={self._strength(params):.2f}")
+            lines.append(f"img2img strength={self._effective_strength(params, steps):.2f}")
+        if params.get("mask_image"):
+            lines.append("inpaint mask: enabled")
         img = imaging.make_placeholder(width, height, lines)
         return self._persist(img, meta, seed, width, height)
 
@@ -792,6 +801,8 @@ class DiffusersImageBackend(ImageBackend):
             return kw
 
         init_token = params.get("init_image")
+        mask_token = params.get("mask_image")
+        strength = self._effective_strength(params, steps)
 
         def _run():
             gen = torch.Generator(device="cuda").manual_seed(seed)
@@ -805,12 +816,20 @@ class DiffusersImageBackend(ImageBackend):
                 "callback_on_step_end": _step_cb,
             }
             with self._generation_context(steps), self._attention_context(torch):
-                if init_token:
+                if init_token and mask_token:
+                    # Inpainting (SDXL only, guarded in generate()). Reuse the
+                    # loaded pipeline's weights via a SDXL Inpaint view.
+                    src = self._load_init_image(init_token, width, height)
+                    mask = self._load_mask_image(mask_token, width, height)
+                    out = self._sdxl_inpaint_pipe()(
+                        image=src, mask_image=mask, strength=strength, **common
+                    )
+                elif init_token:
                     # img2img (SDXL only, guarded in generate()). Reuse the loaded
                     # pipeline's weights via a SDXL Img2Img view (no extra VRAM).
                     src = self._load_init_image(init_token, width, height)
                     out = self._sdxl_img2img_pipe()(
-                        image=src, strength=self._strength(params), **common
+                        image=src, strength=strength, **common
                     )
                 else:
                     call_kwargs = {
@@ -831,8 +850,9 @@ class DiffusersImageBackend(ImageBackend):
                 "steps": steps, "guidance": self._guidance(params),
                 "model": self.descriptor.name, "family": self.descriptor.family.value,
                 "acceleration": self._active_features}
-        if init_token:
-            meta["strength"] = self._strength(params)
+        self._add_strength_meta(meta, params, steps)
+        if mask_token:
+            meta["inpaint"] = True
         return self._persist(img, meta, seed, width, height)
 
     @staticmethod
@@ -843,6 +863,22 @@ class DiffusersImageBackend(ImageBackend):
         except (TypeError, ValueError):
             value = settings.img2img_default_strength
         return max(0.05, min(1.0, value))
+
+    @classmethod
+    def _effective_strength(cls, params: dict[str, Any], steps: int) -> float:
+        """Diffusers img2img floors ``steps * strength`` to choose timesteps.
+        Keep low-step smoke/tests from producing a zero-length denoise schedule."""
+        return max(cls._strength(params), 1.0 / max(1, int(steps)))
+
+    @classmethod
+    def _add_strength_meta(cls, meta: dict[str, Any], params: dict[str, Any], steps: int) -> None:
+        if not params.get("init_image"):
+            return
+        requested = cls._strength(params)
+        effective = cls._effective_strength(params, steps)
+        meta["strength"] = effective
+        if effective != requested:
+            meta["requested_strength"] = requested
 
     def _load_init_image(self, token: str, width: int, height: int):
         """Open an uploaded source image and resize it to the requested canvas so
@@ -856,14 +892,35 @@ class DiffusersImageBackend(ImageBackend):
             raise ValueError("img2img source image not found (re-upload it)")
         return PILImage.open(path).convert("RGB").resize((width, height))
 
+    def _load_mask_image(self, token: str, width: int, height: int):
+        """Open an uploaded inpaint mask and resize it to the requested canvas.
+        White pixels are repainted; black pixels are preserved."""
+        from PIL import Image as PILImage  # noqa: PLC0415
+
+        from ..util import uploads as uploads_util  # noqa: PLC0415
+
+        path = uploads_util.resolve_upload(token)
+        if path is None or not path.exists():
+            raise ValueError("inpainting mask not found (re-upload it)")
+        return PILImage.open(path).convert("L").resize((width, height))
+
     def _sdxl_img2img_pipe(self):
         """A SDXL Img2Img pipeline sharing the resident text2img pipeline's
-        weights (built once, no extra VRAM). GPU-validation pending (M0-style)."""
+        weights (built once, no extra VRAM). GPU-smoke validated on Blackwell."""
         if self._img2img_pipe is None:
             from diffusers import StableDiffusionXLImg2ImgPipeline  # noqa: PLC0415
 
             self._img2img_pipe = StableDiffusionXLImg2ImgPipeline(**self._pipe.components)
         return self._img2img_pipe
+
+    def _sdxl_inpaint_pipe(self):
+        """A SDXL Inpaint pipeline sharing the resident text2img pipeline's
+        weights (built once, no extra VRAM). GPU-smoke validated on Blackwell."""
+        if self._inpaint_pipe is None:
+            from diffusers import StableDiffusionXLInpaintPipeline  # noqa: PLC0415
+
+            self._inpaint_pipe = StableDiffusionXLInpaintPipeline(**self._pipe.components)
+        return self._inpaint_pipe
 
     def _dimension(self, params: dict[str, Any], key: str, default: int, flux2_default: int) -> int:
         if self.descriptor.family is ModelFamily.FLUX2 and key not in params:

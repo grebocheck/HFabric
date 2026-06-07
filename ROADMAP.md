@@ -151,20 +151,26 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 - [x] **P13.3 — Zoom in the detail view.** `ZoomableImage.tsx` (wheel zoom +
   drag-pan + double-click reset + on-screen ±/Reset, clamped 1–8×) is used by both
   the `ResultPreview` lightbox (now Esc-closable) and the History detail modal.
-- [~] **P13.4 — img2img (image + prompt → image).** *Shipped (STUB-verified):* a
+- [x] **P13.4 — img2img (image + prompt → image).** *Shipped + real-GPU smoke
+  validated:* a
   source-image upload (`POST /api/images/upload` → opaque token under
   `outputs/uploads`, served back for preview), a composer drop/upload slot +
   strength slider (SDXL-gated), the `init_image`/`strength` params flowing through
   the queue, the STUB generation path, and tests (upload round-trip, SDXL-only
-  guard, strength clamp, end-to-end stub job). *Real path:* a SDXL
+  guard, strength clamp, low-step effective-strength guard, end-to-end stub job).
+  *Real path:* a SDXL
   `StableDiffusionXLImg2ImgPipeline` sharing the resident pipeline's weights (no
-  extra VRAM) — written to convention but **GPU-validation pending**. FLUX/FLUX.2
+  extra VRAM), validated on RTX 5070 Ti with a 512² / 2-step smoke. FLUX/FLUX.2
   img2img fail fast with a clear message until wired + validated on hardware.
-- [ ] **P13.5 — Inpainting / region edit (mask).** Build on P13.4: a mask canvas
-  over the source image (brush + lasso/freehand selection → alpha mask) feeding a
-  family `*InpaintPipeline`. The mask is sent alongside `init_image`. UI is the hard
-  part (canvas, undo, feather); backend mirrors P13.4. Also GPU-gated. Sequenced
-  after P13.4 proves the img2img path.
+- [x] **P13.5 — Inpainting / region edit (mask).** Built on P13.4: the composer
+  now has a source-image mask canvas with brush, lasso/freehand fill, erase, undo,
+  clear, and feather controls. The mask is uploaded as a normalized PNG
+  (`POST /api/images/upload-mask`) and queued as `mask_image` alongside
+  `init_image`; STUB generation and upload round-trips are covered by tests. The
+  real SDXL path uses a `StableDiffusionXLInpaintPipeline` view sharing the
+  resident pipeline's weights (no extra resident model), validated on RTX 5070 Ti
+  with a 512² / 2-step smoke. FLUX/FLUX.2 still fail fast with a clear SDXL-only
+  message until their inpaint paths are wired and validated on hardware.
 
 ---
 

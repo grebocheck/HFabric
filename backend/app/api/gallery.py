@@ -55,14 +55,19 @@ async def image_stats(session: AsyncSession = Depends(get_session)) -> dict:
     return await gallery_service.stats(session)
 
 
-@router.post("/upload")
-async def upload_init_image(file: UploadFile = File(...)) -> dict:
-    """Accept a source image for img2img (P13.4). We re-encode to PNG via PIL so
-    the stored file is normalized, and return an opaque token the composer puts in
-    a job's ``init_image`` param."""
+async def _read_upload_bytes(file: UploadFile) -> bytes:
     raw = await file.read()
     if len(raw) > settings.image_upload_max_mb * 1024 * 1024:
         raise HTTPException(413, f"image exceeds {settings.image_upload_max_mb} MB")
+    return raw
+
+
+@router.post("/upload")
+async def upload_init_image(file: UploadFile = File(...)) -> dict:
+    """Accept a source image for img2img/inpainting. We re-encode to PNG via PIL
+    so the stored file is normalized, and return an opaque token the composer
+    puts in a job's ``init_image`` param."""
+    raw = await _read_upload_bytes(file)
     try:
         from PIL import Image as PILImage  # noqa: PLC0415
 
@@ -72,6 +77,27 @@ async def upload_init_image(file: UploadFile = File(...)) -> dict:
     token = uuid4().hex
     img.save(uploads_util.uploads_dir() / f"{token}.png", format="PNG")
     return {"init_image": token, "url": f"/api/images/upload/{token}", "width": img.width, "height": img.height}
+
+
+@router.post("/upload-mask")
+async def upload_mask_image(file: UploadFile = File(...)) -> dict:
+    """Accept an inpainting mask. White/bright pixels mark the repaint region;
+    grey pixels are preserved for feathered edges."""
+    raw = await _read_upload_bytes(file)
+    try:
+        from PIL import Image as PILImage
+        from PIL import ImageChops  # noqa: PLC0415
+
+        img = PILImage.open(io.BytesIO(raw)).convert("RGBA")
+        grey = img.convert("L")
+        alpha = img.getchannel("A")
+        if alpha.getextrema() != (255, 255):
+            grey = ImageChops.multiply(grey, alpha)
+    except Exception:
+        raise HTTPException(400, "unsupported or corrupt mask image")
+    token = uuid4().hex
+    grey.save(uploads_util.uploads_dir() / f"{token}.png", format="PNG")
+    return {"mask_image": token, "url": f"/api/images/upload/{token}", "width": grey.width, "height": grey.height}
 
 
 @router.get("/upload/{token}")

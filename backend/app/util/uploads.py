@@ -1,4 +1,4 @@
-"""Source-image uploads for img2img (P13.4).
+"""Source-image and mask uploads for img2img/inpainting (P13.4/P13.5).
 
 Tokens are opaque 32-char hex names for PNGs under ``outputs/uploads``. Both the
 upload API and the diffusers backend resolve them through here so the path rules

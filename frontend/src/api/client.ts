@@ -27,6 +27,12 @@ export const api = {
     return fetch("/api/images/upload", { method: "POST", body: fd })
       .then(j<{ init_image: string; url: string; width: number; height: number }>);
   },
+  uploadMaskImage: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch("/api/images/upload-mask", { method: "POST", body: fd })
+      .then(j<{ mask_image: string; url: string; width: number; height: number }>);
+  },
   queuePlan: () => fetch("/api/jobs/plan").then(j<QueuePlan>),
   getJob: (id: string) => fetch(`/api/jobs/${id}`).then(j<Job>),
   cancelJob: (id: string) => fetch(`/api/jobs/${id}`, { method: "DELETE" }).then(j<Job>),

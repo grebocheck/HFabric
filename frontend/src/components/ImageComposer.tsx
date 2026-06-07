@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Badge } from "./Badge";
+import { MaskEditor } from "./MaskEditor";
 import { ModelPicker } from "./ModelPicker";
 import { Select, type SelectOption } from "./Select";
 import { Slider } from "./Slider";
@@ -93,6 +94,7 @@ export function ImageComposer({
   const selectedFamily = selectedImgModel?.family;
   // img2img source (P13.4) — transient, not persisted. Only SDXL is wired so far.
   const [initImage, setInitImage] = useState<{ token: string; url: string } | null>(null);
+  const [maskDraft, setMaskDraft] = useState<File | null>(null);
   const [strength, setStrength] = useState(0.6);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -136,7 +138,7 @@ export function ImageComposer({
   }, [selectedFamily]);
 
   const useImg2img = img2imgSupported && initImage !== null;
-  const imageParams = () => ({
+  const imageParams = (maskToken?: string) => ({
     prompt: promptDraft.trim(),
     negative: negative.trim() || undefined,
     steps,
@@ -147,6 +149,7 @@ export function ImageComposer({
     batch_size: batch,
     loras: selectedLoras.length ? selectedLoras.map(({ id, weight }) => ({ id, weight })) : undefined,
     init_image: useImg2img ? initImage!.token : undefined,
+    mask_image: useImg2img && maskToken ? maskToken : undefined,
     strength: useImg2img ? strength : undefined,
   });
 
@@ -158,7 +161,18 @@ export function ImageComposer({
 
   const generate = async () => {
     if (!imgModel || !promptDraft.trim()) return;
-    const params = imageParams();
+    let maskToken: string | undefined;
+    if (useImg2img && maskDraft) {
+      setUploadError("");
+      try {
+        const res = await api.uploadMaskImage(maskDraft);
+        maskToken = res.mask_image;
+      } catch {
+        setUploadError("mask upload failed");
+        return;
+      }
+    }
+    const params = imageParams(maskToken);
     rememberPrompt(params.prompt);
     await api.createJobs(Array.from({ length: count }, () => ({ type: "image" as const, model_id: imgModel, params })));
   };
@@ -170,6 +184,7 @@ export function ImageComposer({
     try {
       const res = await api.uploadInitImage(file);
       setInitImage({ token: res.init_image, url: res.url });
+      setMaskDraft(null);
       // snap the canvas to the source aspect (rounded to 64) for a faithful result
       const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
       setWidth(round64(res.width));
@@ -400,7 +415,13 @@ export function ImageComposer({
             <div className="flex items-center justify-between">
               <div className={label}>Source image (img2img)</div>
               {initImage ? (
-                <button onClick={() => setInitImage(null)} className="text-[11px] text-white/45 transition hover:text-white/80">
+                <button
+                  onClick={() => {
+                    setInitImage(null);
+                    setMaskDraft(null);
+                  }}
+                  className="text-[11px] text-white/45 transition hover:text-white/80"
+                >
                   clear
                 </button>
               ) : null}
@@ -418,9 +439,15 @@ export function ImageComposer({
                 </div>
                 <Slider value={strength} min={0.05} max={1} step={0.05} onChange={setStrength} />
                 <p className="text-[11px] text-white/35">Lower keeps the source; higher follows the prompt.</p>
+                <MaskEditor src={initImage.url} onMaskChange={setMaskDraft} />
               </div>
             ) : (
               <label
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  onPickInitImage(e.dataTransfer.files?.[0]);
+                }}
                 className={`mt-1.5 flex cursor-pointer items-center justify-center rounded-md border border-dashed border-white/15 px-3 py-4 text-center text-xs text-white/45 transition hover:border-white/30 hover:text-white/70 ${
                   uploadBusy ? "pointer-events-none opacity-50" : ""
                 }`}
@@ -658,4 +685,3 @@ function parseLoraSelections(value: unknown, loras: Lora[], model: Model | undef
   }
   return selections;
 }
-
