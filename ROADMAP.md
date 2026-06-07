@@ -94,10 +94,15 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 > Tidy debt that's accumulating quietly while features land.
 
-- [ ] **P11.1 — Decompose the oversized screens.** `ChatPanel.tsx` (~1125 lines),
-  `backends/image_diffusers.py` (~1004), `VoicePanel.tsx` (~749), `ImageComposer.tsx`
-  (~698). Extract hooks / sub-components / helper modules with **no behavior
-  change** so they stay reviewable.
+- [~] **P11.1 — Decompose the oversized screens.** *Started:* the pure,
+  view-agnostic logic is extracted into tested helper modules with **no behavior
+  change** — `chatHelpers.ts` (import-bundle parsing, sampling coercion, model
+  labelling; 152 lines) out of `ChatPanel.tsx` (1125 → 1003) and
+  `imageComposerHelpers.ts` (persisted composer state, model ranking, LoRA
+  compatibility, formatters; 99 lines) out of `ImageComposer.tsx` (698 → 631),
+  each with a vitest suite. *Remaining:* the harder sub-component / hook splits of
+  the same two files, `VoicePanel.tsx` (~749), and `backends/image_diffusers.py`
+  (~1004, GPU — needs real-hardware verification, not just typecheck).
 - [x] **P11.2 — Commit lint/format config.** `backend/pyproject.toml` now holds a
   ruff config (E/F/I/B/C4/UP, with the manual-judgment rules deferred and
   documented) and the pytest config; 75 mechanical issues auto-fixed across the

@@ -6,32 +6,29 @@ import { Slider } from "./Slider";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
 import { Toggle } from "./Toggle";
 import type { ComposerApply, Lora, Model, Preset } from "../types";
-
-const STORE_KEY = "hfabric.image.composer";
-const PROMPT_HISTORY_KEY = "hfabric.image.promptHistory";
-const promptHistoryLimit = 14;
-
-type LoraSelection = { id: string; weight: number };
-type SavedComposer = {
-  imgModel?: string;
-  negative?: string;
-  steps?: number;
-  guidance?: number;
-  width?: number;
-  height?: number;
-  seed?: number;
-  batch?: number;
-  count?: number;
-  selectedLoras?: LoraSelection[];
-  presetId?: string;
-};
-
-const DEFAULT_STEPS = 28;
-const DEFAULT_GUIDANCE = 3.5;
-const DEFAULT_SIZE = 1024;
-const FLUX2_STEPS = 6;
-const FLUX2_GUIDANCE = 4.0;
-const FLUX2_SIZE = 768;
+import {
+  DEFAULT_GUIDANCE,
+  DEFAULT_SIZE,
+  DEFAULT_STEPS,
+  familyColor,
+  FLUX2_GUIDANCE,
+  FLUX2_SIZE,
+  FLUX2_STEPS,
+  formatSize,
+  formatVram,
+  imageModelRank,
+  isLoraCompatible,
+  isNunchaku,
+  loadPromptHistory,
+  numberParam,
+  pickDefaultImageModel,
+  PROMPT_HISTORY_KEY,
+  promptHistoryLimit,
+  readSaved,
+  STORE_KEY,
+  type LoraSelection,
+  type SavedComposer,
+} from "./imageComposerHelpers";
 
 const field =
   "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-white/25 focus:border-accent";
@@ -46,24 +43,6 @@ const RATIOS: Array<{ label: string; w: number; h: number }> = [
   { label: "16:9", w: 16, h: 9 },
   { label: "9:16", w: 9, h: 16 },
 ];
-
-function readSaved(): SavedComposer {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? (JSON.parse(raw) as SavedComposer) : {};
-  } catch {
-    return {};
-  }
-}
-
-function loadPromptHistory(): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string").slice(0, promptHistoryLimit) : [];
-  } catch {
-    return [];
-  }
-}
 
 export function ImageComposer({
   models,
@@ -650,49 +629,3 @@ function parseLoraSelections(value: unknown, loras: Lora[], model: Model | undef
   return selections;
 }
 
-function isLoraCompatible(lora: Lora, model: Model | undefined): boolean {
-  return !model || !lora.family || lora.family === model.family;
-}
-
-function formatSize(bytes: number): string {
-  if (!bytes) return "";
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
-}
-
-function formatVram(model: Model): string {
-  if (!model.estimated_vram_gb) return "";
-  const prefix = model.slow ? ">=" : "~";
-  return `${prefix}${model.estimated_vram_gb.toFixed(1)} GB`;
-}
-
-function familyColor(family: string): string {
-  if (family === "flux2") return "bg-sky-700/50 text-sky-100";
-  if (family === "flux") return "bg-accent/55 text-accent-fg";
-  if (family === "sdxl") return "bg-emerald-700/55 text-emerald-100";
-  if (family === "gguf") return "bg-amber-700/50 text-amber-100";
-  return "bg-white/10 text-white/65";
-}
-
-function numberParam(value: unknown, fallback: number): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function imageModelRank(model: Model): number {
-  if (model.family === "flux2" && isNunchaku(model)) return -1;
-  if (model.family === "flux2") return 0;
-  if (model.family === "flux" && isNunchaku(model)) return 0;
-  if (!model.slow) return 1;
-  return 2;
-}
-
-function pickDefaultImageModel(models: Model[]): Model | undefined {
-  return models.find((m) => m.family === "flux" && isNunchaku(m))
-    ?? models.find((m) => !m.slow)
-    ?? models[0];
-}
-
-function isNunchaku(model: Model | undefined): boolean {
-  return Boolean(model?.quant?.startsWith("nunchaku"));
-}

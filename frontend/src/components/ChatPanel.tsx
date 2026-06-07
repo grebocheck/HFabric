@@ -1,154 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import { useEvents } from "../api/useEvents";
-import type { BusEvent, ChatConversation, ChatConversationImport, ChatImportMessage, ChatMessage, ChatSendBody, LlmConfig, Model, Preset, PresetImportItem } from "../types";
+import type { BusEvent, ChatConversation, ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
 import { Select } from "./Select";
 import { AssistantContent } from "./Thinking";
 import { Toggle } from "./Toggle";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
+import {
+  DEFAULTS_KEY,
+  downloadJson,
+  hasActiveSelection,
+  loadDefaults,
+  loadPromptHistory,
+  modelTitle,
+  numOrUndef,
+  parseImportBundle,
+  parseStop,
+  pickImageModel,
+  PROMPT_HISTORY_KEY,
+  promptHistoryLimit,
+  type NumOrEmpty,
+} from "./chatHelpers";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
 const numField = "w-full rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs outline-none focus:border-emerald-500";
 const label = "text-xs uppercase tracking-wide text-white/40";
-const DEFAULTS_KEY = "hfabric.chat.defaults";
-const PROMPT_HISTORY_KEY = "hfabric.chat.promptHistory";
-const promptHistoryLimit = 14;
 
-type NumOrEmpty = number | "";
 type Stats = { tokens: number; tps: number; ttft: number };
-
-function loadDefaults(): { model_id?: string; temperature?: number; max_tokens?: number } {
-  try {
-    return JSON.parse(localStorage.getItem(DEFAULTS_KEY) ?? "{}");
-  } catch {
-    return {};
-  }
-}
-
-function loadPromptHistory(): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string").slice(0, promptHistoryLimit) : [];
-  } catch {
-    return [];
-  }
-}
-
-const numOrUndef = (v: NumOrEmpty): number | undefined => (v === "" ? undefined : Number(v));
-const parseStop = (s: string): string[] | undefined => {
-  const items = s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
-  return items.length ? items : undefined;
-};
-
-function modelHint(model: Model): string | undefined {
-  const tags = [
-    model.quant ?? "",
-    model.estimated_vram_gb ? `~${model.estimated_vram_gb.toFixed(1)} GB` : "",
-    model.loaded ? "loaded" : model.warm ? "warm" : "",
-  ].filter(Boolean);
-  return tags.length ? tags.join(" / ") : undefined;
-}
-
-function modelTitle(model: Model): string {
-  const hint = modelHint(model);
-  return hint ? `${model.name} | ${hint}` : model.name;
-}
-
-function pickImageModel(models: Model[]): Model | undefined {
-  const img = models.filter((m) => m.job_type === "image");
-  return img.find((m) => m.family === "flux2")
-    ?? img.find((m) => m.quant?.startsWith("nunchaku"))
-    ?? img.find((m) => !m.slow)
-    ?? img[0];
-}
-
-type ImportBundle = { conversations: ChatConversationImport[]; presets: PresetImportItem[] };
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function stringOrNull(v: unknown): string | null | undefined {
-  return typeof v === "string" ? v : v === null ? null : undefined;
-}
-
-function asRecord(v: unknown): Record<string, unknown> {
-  return isRecord(v) ? v : {};
-}
-
-function isPresent<T>(v: T | null | undefined): v is T {
-  return v != null;
-}
-
-function hasActiveSelection(): boolean {
-  const selection = window.getSelection?.();
-  return Boolean(selection && !selection.isCollapsed && selection.toString());
-}
-
-function asMessageImport(v: unknown): ChatImportMessage | null {
-  if (!isRecord(v)) return null;
-  const role = v.role;
-  if (role !== "user" && role !== "assistant" && role !== "system") return null;
-  return {
-    role,
-    content: typeof v.content === "string" ? v.content : "",
-    error: typeof v.error === "boolean" ? v.error : undefined,
-    created_at: typeof v.created_at === "string" ? v.created_at : undefined,
-  };
-}
-
-function asConversationImport(v: unknown): ChatConversationImport | null {
-  if (!isRecord(v)) return null;
-  const hasConversationShape = Array.isArray(v.messages)
-    || typeof v.title === "string"
-    || typeof v.system === "string"
-    || typeof v.model_id === "string";
-  if (!hasConversationShape) return null;
-  return {
-    title: typeof v.title === "string" ? v.title : undefined,
-    model_id: stringOrNull(v.model_id),
-    system: stringOrNull(v.system),
-    params: asRecord(v.params),
-    created_at: typeof v.created_at === "string" ? v.created_at : undefined,
-    updated_at: typeof v.updated_at === "string" ? v.updated_at : undefined,
-    messages: Array.isArray(v.messages) ? v.messages.map(asMessageImport).filter(isPresent) : [],
-  };
-}
-
-function asPresetImport(v: unknown): PresetImportItem | null {
-  if (!isRecord(v)) return null;
-  if (typeof v.name !== "string" || (v.type !== "llm" && v.type !== "image")) return null;
-  return { name: v.name, type: v.type, params: asRecord(v.params) };
-}
-
-function parseImportBundle(data: unknown): ImportBundle {
-  if (Array.isArray(data)) {
-    return {
-      conversations: data.map(asConversationImport).filter(isPresent),
-      presets: data.map(asPresetImport).filter(isPresent),
-    };
-  }
-
-  if (!isRecord(data)) return { conversations: [], presets: [] };
-
-  const conversations = Array.isArray(data.conversations)
-    ? data.conversations.map(asConversationImport).filter(isPresent)
-    : (Array.isArray(data.messages) ? [asConversationImport(data)].filter(isPresent) : []);
-  const presets = Array.isArray(data.presets)
-    ? data.presets.map(asPresetImport).filter(isPresent)
-    : [asPresetImport(data)].filter(isPresent);
-
-  return { conversations, presets };
-}
-
-function downloadJson(filename: string, payload: unknown) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export type ChatJump = { conversationId: string; jobId?: string; nonce: number };
 
