@@ -29,6 +29,9 @@ force-sort-within-sections = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Put the backend root on sys.path so `import app...` works whether tests are
+# run as `pytest` (CI) or `python -m pytest` (which also adds the cwd).
+pythonpath = ["."]
 addopts = "-q"
 filterwarnings = [
     "ignore::DeprecationWarning",
