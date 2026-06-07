@@ -151,12 +151,15 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 - [x] **P13.3 — Zoom in the detail view.** `ZoomableImage.tsx` (wheel zoom +
   drag-pan + double-click reset + on-screen ±/Reset, clamped 1–8×) is used by both
   the `ResultPreview` lightbox (now Esc-closable) and the History detail modal.
-- [ ] **P13.4 — img2img (image + prompt → image).** Backend: diffusers
-  `*Img2ImgPipeline` per family behind the existing arbiter/`sysmon` budget, with a
-  `strength` knob; the worker resolves an uploaded source image. UI: a source-image
-  drop/upload slot in the composer + strength slider; queue a job with
-  `init_image`. **Needs real-GPU verification** (pipeline assembly + VRAM), so it
-  lands as backend scaffolding + STUB path first, validated on hardware after.
+- [~] **P13.4 — img2img (image + prompt → image).** *Shipped (STUB-verified):* a
+  source-image upload (`POST /api/images/upload` → opaque token under
+  `outputs/uploads`, served back for preview), a composer drop/upload slot +
+  strength slider (SDXL-gated), the `init_image`/`strength` params flowing through
+  the queue, the STUB generation path, and tests (upload round-trip, SDXL-only
+  guard, strength clamp, end-to-end stub job). *Real path:* a SDXL
+  `StableDiffusionXLImg2ImgPipeline` sharing the resident pipeline's weights (no
+  extra VRAM) — written to convention but **GPU-validation pending**. FLUX/FLUX.2
+  img2img fail fast with a clear message until wired + validated on hardware.
 - [ ] **P13.5 — Inpainting / region edit (mask).** Build on P13.4: a mask canvas
   over the source image (brush + lasso/freehand selection → alpha mask) feeding a
   family `*InpaintPipeline`. The mask is sent alongside `init_image`. UI is the hard

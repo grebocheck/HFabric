@@ -32,6 +32,7 @@ class DiffusersImageBackend(ImageBackend):
     def __init__(self, descriptor: ModelDescriptor) -> None:
         super().__init__(descriptor)
         self._pipe: Any = None  # diffusers pipeline in real mode
+        self._img2img_pipe: Any = None  # lazily-built img2img view sharing _pipe's weights
         self._active_features: dict[str, Any] = {}
         self._loaded_loras: dict[str, str] = {}
         self._loaded_lora_last_used: dict[str, int] = {}
@@ -610,6 +611,7 @@ class DiffusersImageBackend(ImageBackend):
 
         del self._pipe
         self._pipe = None
+        self._img2img_pipe = None  # shares _pipe's weights; drop the view too
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -617,6 +619,7 @@ class DiffusersImageBackend(ImageBackend):
 
     def _clear_resident_state(self, *, reset_generation: bool) -> None:
         self._pipe = None
+        self._img2img_pipe = None
         self._loaded = False
         self._warm = False
         self._active_features = {}
@@ -726,6 +729,11 @@ class DiffusersImageBackend(ImageBackend):
         if base_seed in (None, -1):
             base_seed = random.randint(0, 2**31 - 1)
 
+        # img2img (P13.4): a source image steers generation. Only SDXL is wired
+        # so far; fail fast with a clear message for other families.
+        if params.get("init_image") and self.descriptor.family is not ModelFamily.SDXL:
+            raise ValueError("img2img is currently supported only for SDXL models")
+
         self._stop = False
         results: list[dict[str, Any]] = []
         for i in range(batch):
@@ -746,11 +754,14 @@ class DiffusersImageBackend(ImageBackend):
         meta = {**self._public_params(params), "seed": seed, "width": width, "height": height,
                 "model": self.descriptor.name, "family": self.descriptor.family.value, "stub": True,
                 "acceleration": self._active_features}
-        img = imaging.make_placeholder(width, height, [
+        lines = [
             f"[STUB] {self.descriptor.name}",
             f"seed={seed}  {width}x{height}  steps={steps}",
             f"prompt: {params.get('prompt', '')}",
-        ])
+        ]
+        if params.get("init_image"):
+            lines.append(f"img2img strength={self._strength(params):.2f}")
+        img = imaging.make_placeholder(width, height, lines)
         return self._persist(img, meta, seed, width, height)
 
     async def _generate_real(self, params, width, height, steps, seed, i, batch, progress) -> dict[str, Any]:
@@ -780,24 +791,39 @@ class DiffusersImageBackend(ImageBackend):
             )
             return kw
 
+        init_token = params.get("init_image")
+
         def _run():
             gen = torch.Generator(device="cuda").manual_seed(seed)
             self._apply_runtime_loras(params)
-            call_kwargs = {
+            common = {
                 "prompt": params.get("prompt", ""),
-                "width": width,
-                "height": height,
                 "num_inference_steps": steps,
                 "guidance_scale": self._guidance(params),
                 "generator": gen,
-                "callback_on_step_end": _step_cb_flux2
-                if self.descriptor.family is ModelFamily.FLUX2
-                else _step_cb,
+                "negative_prompt": params.get("negative") or None,
+                "callback_on_step_end": _step_cb,
             }
-            if self.descriptor.family is not ModelFamily.FLUX2:
-                call_kwargs["negative_prompt"] = params.get("negative") or None
             with self._generation_context(steps), self._attention_context(torch):
-                out = self._pipe(**call_kwargs)
+                if init_token:
+                    # img2img (SDXL only, guarded in generate()). Reuse the loaded
+                    # pipeline's weights via a SDXL Img2Img view (no extra VRAM).
+                    src = self._load_init_image(init_token, width, height)
+                    out = self._sdxl_img2img_pipe()(
+                        image=src, strength=self._strength(params), **common
+                    )
+                else:
+                    call_kwargs = {
+                        **common,
+                        "width": width,
+                        "height": height,
+                        "callback_on_step_end": _step_cb_flux2
+                        if self.descriptor.family is ModelFamily.FLUX2
+                        else _step_cb,
+                    }
+                    if self.descriptor.family is ModelFamily.FLUX2:
+                        call_kwargs.pop("negative_prompt", None)
+                    out = self._pipe(**call_kwargs)
             return out.images[0]
 
         img = await asyncio.to_thread(_run)
@@ -805,7 +831,39 @@ class DiffusersImageBackend(ImageBackend):
                 "steps": steps, "guidance": self._guidance(params),
                 "model": self.descriptor.name, "family": self.descriptor.family.value,
                 "acceleration": self._active_features}
+        if init_token:
+            meta["strength"] = self._strength(params)
         return self._persist(img, meta, seed, width, height)
+
+    @staticmethod
+    def _strength(params: dict[str, Any]) -> float:
+        """img2img denoise strength, clamped to a sane range."""
+        try:
+            value = float(params.get("strength", settings.img2img_default_strength))
+        except (TypeError, ValueError):
+            value = settings.img2img_default_strength
+        return max(0.05, min(1.0, value))
+
+    def _load_init_image(self, token: str, width: int, height: int):
+        """Open an uploaded source image and resize it to the requested canvas so
+        the img2img output matches the composer's width/height."""
+        from PIL import Image as PILImage  # noqa: PLC0415
+
+        from ..util import uploads as uploads_util  # noqa: PLC0415
+
+        path = uploads_util.resolve_upload(token)
+        if path is None or not path.exists():
+            raise ValueError("img2img source image not found (re-upload it)")
+        return PILImage.open(path).convert("RGB").resize((width, height))
+
+    def _sdxl_img2img_pipe(self):
+        """A SDXL Img2Img pipeline sharing the resident text2img pipeline's
+        weights (built once, no extra VRAM). GPU-validation pending (M0-style)."""
+        if self._img2img_pipe is None:
+            from diffusers import StableDiffusionXLImg2ImgPipeline  # noqa: PLC0415
+
+            self._img2img_pipe = StableDiffusionXLImg2ImgPipeline(**self._pipe.components)
+        return self._img2img_pipe
 
     def _dimension(self, params: dict[str, Any], key: str, default: int, flux2_default: int) -> int:
         if self.descriptor.family is ModelFamily.FLUX2 and key not in params:

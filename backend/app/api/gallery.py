@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 from datetime import datetime
+import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from uuid import uuid4
 import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
+from ..config import settings
 from ..schemas import ImageExportIn, ImageOut, ImageUpdateIn
 from ..services import gallery_service
+from ..util import uploads as uploads_util
 from .deps import get_session
 
 router = APIRouter(prefix="/api/images", tags=["gallery"])
@@ -49,6 +53,33 @@ async def list_images(
 async def image_stats(session: AsyncSession = Depends(get_session)) -> dict:
     """Generation counters for the History header (total / today / per-model)."""
     return await gallery_service.stats(session)
+
+
+@router.post("/upload")
+async def upload_init_image(file: UploadFile = File(...)) -> dict:
+    """Accept a source image for img2img (P13.4). We re-encode to PNG via PIL so
+    the stored file is normalized, and return an opaque token the composer puts in
+    a job's ``init_image`` param."""
+    raw = await file.read()
+    if len(raw) > settings.image_upload_max_mb * 1024 * 1024:
+        raise HTTPException(413, f"image exceeds {settings.image_upload_max_mb} MB")
+    try:
+        from PIL import Image as PILImage  # noqa: PLC0415
+
+        img = PILImage.open(io.BytesIO(raw)).convert("RGB")
+    except Exception:
+        raise HTTPException(400, "unsupported or corrupt image")
+    token = uuid4().hex
+    img.save(uploads_util.uploads_dir() / f"{token}.png", format="PNG")
+    return {"init_image": token, "url": f"/api/images/upload/{token}", "width": img.width, "height": img.height}
+
+
+@router.get("/upload/{token}")
+async def upload_file(token: str) -> FileResponse:
+    path = uploads_util.resolve_upload(token)
+    if path is None or not path.exists():
+        raise HTTPException(404, "upload not found")
+    return FileResponse(path, media_type="image/png")
 
 
 @router.post("/export")

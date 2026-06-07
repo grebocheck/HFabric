@@ -91,6 +91,12 @@ export function ImageComposer({
 
   const selectedImgModel = imgModels.find((m) => m.id === imgModel);
   const selectedFamily = selectedImgModel?.family;
+  // img2img source (P13.4) — transient, not persisted. Only SDXL is wired so far.
+  const [initImage, setInitImage] = useState<{ token: string; url: string } | null>(null);
+  const [strength, setStrength] = useState(0.6);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const img2imgSupported = selectedFamily === "sdxl";
   const imagePresets = presets.filter((p) => p.type === "image");
   const compatibleLoras = loras
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
@@ -129,6 +135,7 @@ export function ImageComposer({
     setHeight((value) => value === DEFAULT_SIZE ? FLUX2_SIZE : value);
   }, [selectedFamily]);
 
+  const useImg2img = img2imgSupported && initImage !== null;
   const imageParams = () => ({
     prompt: promptDraft.trim(),
     negative: negative.trim() || undefined,
@@ -139,6 +146,8 @@ export function ImageComposer({
     seed,
     batch_size: batch,
     loras: selectedLoras.length ? selectedLoras.map(({ id, weight }) => ({ id, weight })) : undefined,
+    init_image: useImg2img ? initImage!.token : undefined,
+    strength: useImg2img ? strength : undefined,
   });
 
   const rememberPrompt = useCallback((content: string) => {
@@ -152,6 +161,24 @@ export function ImageComposer({
     const params = imageParams();
     rememberPrompt(params.prompt);
     await api.createJobs(Array.from({ length: count }, () => ({ type: "image" as const, model_id: imgModel, params })));
+  };
+
+  const onPickInitImage = async (file: File | null | undefined) => {
+    if (!file) return;
+    setUploadError("");
+    setUploadBusy(true);
+    try {
+      const res = await api.uploadInitImage(file);
+      setInitImage({ token: res.init_image, url: res.url });
+      // snap the canvas to the source aspect (rounded to 64) for a faithful result
+      const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
+      setWidth(round64(res.width));
+      setHeight(round64(res.height));
+    } catch {
+      setUploadError("upload failed");
+    } finally {
+      setUploadBusy(false);
+    }
   };
 
   const applyRatio = (rw: number, rh: number) => {
@@ -367,6 +394,53 @@ export function ImageComposer({
             </Notice>
           ) : null}
         </section>
+
+        {img2imgSupported ? (
+          <section className={section}>
+            <div className="flex items-center justify-between">
+              <div className={label}>Source image (img2img)</div>
+              {initImage ? (
+                <button onClick={() => setInitImage(null)} className="text-[11px] text-white/45 transition hover:text-white/80">
+                  clear
+                </button>
+              ) : null}
+            </div>
+            {initImage ? (
+              <div className="mt-1.5 space-y-2">
+                <img
+                  src={initImage.url}
+                  alt="source"
+                  className="max-h-40 w-full rounded-md border border-white/10 bg-black/30 object-contain"
+                />
+                <div className="flex items-center justify-between text-[11px] text-white/40">
+                  <span>Strength</span>
+                  <span className="font-mono text-white/60">{strength.toFixed(2)}</span>
+                </div>
+                <Slider value={strength} min={0.05} max={1} step={0.05} onChange={setStrength} />
+                <p className="text-[11px] text-white/35">Lower keeps the source; higher follows the prompt.</p>
+              </div>
+            ) : (
+              <label
+                className={`mt-1.5 flex cursor-pointer items-center justify-center rounded-md border border-dashed border-white/15 px-3 py-4 text-center text-xs text-white/45 transition hover:border-white/30 hover:text-white/70 ${
+                  uploadBusy ? "pointer-events-none opacity-50" : ""
+                }`}
+              >
+                {uploadBusy ? "uploading…" : "drop or click to add a source image"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadBusy}
+                  onChange={(e) => {
+                    onPickInitImage(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+            {uploadError ? <Notice tone="amber">{uploadError}</Notice> : null}
+          </section>
+        ) : null}
 
         <section className={section}>
           <div className="flex items-center justify-between">

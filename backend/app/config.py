@@ -188,6 +188,12 @@ class Settings(BaseSettings):
     learn_memory_profiles: bool = True
     learned_ram_margin_gb: float = 1.5
 
+    # --- img2img (P13.4) ---
+    # Max accepted source-image upload size, and the default denoise strength
+    # (low = keep more of the source, high = follow the prompt more freely).
+    image_upload_max_mb: int = 24
+    img2img_default_strength: float = 0.6
+
     # --- image generation defaults ---
     default_steps: int = 28
     default_guidance: float = 3.5  # FLUX-ish; SDXL overrides to ~6.0 at runtime
