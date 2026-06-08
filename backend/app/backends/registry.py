@@ -44,6 +44,15 @@ def _nunchaku_family(name: str) -> ModelFamily:
     return ModelFamily.FLUX
 
 
+def _has_transformer_weights(repo_dir: Path) -> bool:
+    """True if a Diffusers repo folder still carries its transformer weights.
+
+    Slimmed fp4 base repos keep transformer/config.json but have the heavy bf16
+    ``*.safetensors`` removed; such a folder can only serve as a base for a
+    separate Nunchaku fp4 transformer, not load on its own."""
+    return any((repo_dir / "transformer").glob("*.safetensors"))
+
+
 def _image_safetensors_paths(root: Path) -> list[Path]:
     paths = set(root.glob("*.safetensors"))
     for path in root.glob("*/*.safetensors"):
@@ -92,6 +101,12 @@ class ModelRegistry:
                 self._add(path, fam, quant=quant)
         # Multi-file Diffusers repos (FLUX.2 [klein], Qwen-Image, Z-Image).
         for sub, family in diffusers_dirs:
+            if family in (ModelFamily.QWEN_IMAGE, ModelFamily.Z_IMAGE) and not _has_transformer_weights(sub):
+                # A "slimmed" base repo (transformer/ weights deleted): it only
+                # supplies the text encoder / VAE / tokenizer to a separate Nunchaku
+                # fp4 transformer, so don't expose it as a standalone (it would fail
+                # to load with no transformer). The fp4 .safetensors is the model.
+                continue
             if family is ModelFamily.FLUX2:
                 quant = settings.flux2_quant
             elif family is ModelFamily.QWEN_IMAGE:
