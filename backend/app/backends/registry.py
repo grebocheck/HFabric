@@ -35,6 +35,10 @@ def _nunchaku_quant(name: str) -> str:
 
 def _nunchaku_family(name: str) -> ModelFamily:
     normalized = name.replace("_", "-")
+    if "qwen-image" in normalized:
+        return ModelFamily.QWEN_IMAGE
+    if "z-image" in normalized:
+        return ModelFamily.Z_IMAGE
     if "flux.2" in normalized or "flux2" in normalized:
         return ModelFamily.FLUX2
     return ModelFamily.FLUX

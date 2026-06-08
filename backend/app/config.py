@@ -214,6 +214,24 @@ class Settings(BaseSettings):
     z_image_default_width: int = 1024
     z_image_default_height: int = 1024
 
+    # --- Nunchaku SVDQuant fp4 fast paths for Qwen-Image / Z-Image ---
+    # The bf16 repos above are huge; a Nunchaku SVDQuant fp4 transformer (a single
+    # ~12 GB file for Qwen, ~4 GB for Z-Image) is transformer-only, so it borrows
+    # the text encoder / VAE / tokenizer / scheduler from the matching local bf16
+    # repo folder below. Drop the fp4 .safetensors into models/image/ and the
+    # registry auto-detects it (name contains "nunchaku"/"svdq" + the family).
+    qwen_image_base_repo: Path = ROOT / "models" / "image" / "qwen-image-2512"
+    z_image_base_repo: Path = ROOT / "models" / "image" / "z-image-turbo"
+    # On <18 GB cards Nunchaku Qwen-Image needs per-layer transformer offload
+    # (transformer.set_offload) + sequential CPU offload for the bf16 Qwen2.5-VL
+    # text encoder. num_blocks_on_gpu trades VRAM for speed (raise it if VRAM
+    # allows). Z-Image's fp4 transformer is small enough to keep resident.
+    qwen_image_nunchaku_blocks_on_gpu: int = 20
+    # The bf16 Qwen2.5-VL text encoder (~16 GB) won't fit 32 GB RAM under sequential
+    # offload alongside the fp4 transformer; quantize it to 4-bit by default.
+    qwen_image_nunchaku_text_encoder_quant: str = "bnb-nf4"  # bnb-nf4 | bnb-fp4 | none
+    z_image_nunchaku_offload: str = "model"  # model | none (none = keep resident)
+
     # --- image acceleration ---
     # P1.1: Opt-in compile because Blackwell compile can spike RAM/VRAM during
     # graph capture. When enabled, the backend records before/after memory in
