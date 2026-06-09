@@ -1,52 +1,57 @@
-import { isValidElement, useRef, useState, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { isValidElement, memo, useRef, useState, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 
+// react-markdown identifies element overrides by *reference*. If this map (and
+// its arrow functions) were rebuilt on every render, React would treat each
+// element type as new and tear down + rebuild the whole rendered DOM — which
+// destroys any active text selection whenever the panel re-renders (e.g. the
+// 3s mem.status poll). Defining it once at module scope keeps the DOM stable.
+const components: Components = {
+  p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
+  h1: ({ children }) => <h1 className="mb-2 mt-3 text-lg font-semibold">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2 mt-3 text-base font-semibold">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-1 mt-3 text-sm font-semibold">{children}</h3>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+  li: ({ children }) => <li className="marker:text-white/40">{children}</li>,
+  a: ({ children, href }) => (
+    <a href={href} target="_blank" rel="noreferrer" className="text-sky-400 underline hover:text-sky-300">
+      {children}
+    </a>
+  ),
+  img: ({ src, alt }) => (
+    <img src={src as string} alt={(alt as string) ?? ""} loading="lazy" className="my-2 max-h-[28rem] w-auto rounded-md border border-white/10" />
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 border-l-2 border-white/20 pl-3 text-white/70">{children}</blockquote>
+  ),
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border border-white/15 px-2 py-1 text-left font-semibold">{children}</th>,
+  td: ({ children }) => <td className="border border-white/10 px-2 py-1">{children}</td>,
+  pre: PreBlock,
+  code: InlineOrBlockCode,
+};
+
 // Lightweight typographic styling via component overrides so we don't pull in a
 // full prose plugin. Code blocks get syntax highlighting + a copy button.
-export function Markdown({ content }: { content: string }) {
+// Memoized so unchanged content (e.g. during the periodic mem.status re-render)
+// bails out entirely and never touches the DOM, preserving text selection.
+export const Markdown = memo(function Markdown({ content }: { content: string }) {
   return (
     <div className="text-sm leading-relaxed text-white/90">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-        components={{
-          p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
-          h1: ({ children }) => <h1 className="mb-2 mt-3 text-lg font-semibold">{children}</h1>,
-          h2: ({ children }) => <h2 className="mb-2 mt-3 text-base font-semibold">{children}</h2>,
-          h3: ({ children }) => <h3 className="mb-1 mt-3 text-sm font-semibold">{children}</h3>,
-          ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
-          ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
-          li: ({ children }) => <li className="marker:text-white/40">{children}</li>,
-          a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noreferrer" className="text-sky-400 underline hover:text-sky-300">
-              {children}
-            </a>
-          ),
-          img: ({ src, alt }) => (
-            <img src={src as string} alt={(alt as string) ?? ""} loading="lazy" className="my-2 max-h-[28rem] w-auto rounded-md border border-white/10" />
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="my-2 border-l-2 border-white/20 pl-3 text-white/70">{children}</blockquote>
-          ),
-          table: ({ children }) => (
-            <div className="my-2 overflow-x-auto">
-              <table className="w-full border-collapse text-xs">{children}</table>
-            </div>
-          ),
-          th: ({ children }) => <th className="border border-white/15 px-2 py-1 text-left font-semibold">{children}</th>,
-          td: ({ children }) => <td className="border border-white/10 px-2 py-1">{children}</td>,
-          pre: PreBlock,
-          code: InlineOrBlockCode,
-        }}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={components}>
         {content}
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 function InlineOrBlockCode({ className, children }: { className?: string; children?: ReactNode }) {
   const text = textFromChildren(children);
