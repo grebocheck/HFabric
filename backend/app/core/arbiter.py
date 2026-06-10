@@ -43,7 +43,7 @@ class GpuArbiter:
                     model=backend.descriptor.name,
                     family=backend.descriptor.family.value,
                 ))
-                await self._unload_current(allow_keep_warm=True)
+                await self._unload_current(allow_keep_warm=True, incoming=backend)
             if not backend.loaded:
                 await self._guard_budget(backend)
                 warm_resume = backend.warm
@@ -77,10 +77,14 @@ class GpuArbiter:
                 await self._unload_warm(backend)
             await self._publish_status()
 
-    async def _unload_current(self, *, allow_keep_warm: bool = False) -> None:
+    async def _unload_current(
+        self, *, allow_keep_warm: bool = False, incoming: GpuBackend | None = None
+    ) -> None:
         cur = self._current
         assert cur is not None
-        keep_warm, reason = self._keep_warm_decision(cur, allow_keep_warm=allow_keep_warm)
+        keep_warm, reason = self._keep_warm_decision(
+            cur, allow_keep_warm=allow_keep_warm, incoming=incoming
+        )
         await self._bus.publish(Event(
             EventType.MODEL_UNLOADING,
             resident=cur.resident_key,
@@ -133,7 +137,7 @@ class GpuArbiter:
         ))
 
     def _keep_warm_decision(
-        self, backend: GpuBackend, *, allow_keep_warm: bool
+        self, backend: GpuBackend, *, allow_keep_warm: bool, incoming: GpuBackend | None = None
     ) -> tuple[bool, str]:
         from ..config import settings  # noqa: PLC0415
         from ..util import sysmon  # noqa: PLC0415
@@ -151,8 +155,17 @@ class GpuArbiter:
         if settings.stub_mode:
             return True, "stub keep-warm"
 
+        # During a swap the parked model and the incoming load must coexist in
+        # RAM, so reserve the incoming model's share before agreeing to park.
+        incoming_need_gb = 0.0
+        if incoming is not None and not incoming.warm:
+            i = incoming.descriptor
+            incoming_need_gb = sysmon.estimate_ram_need_gb(i.family, i.size_bytes, i.quant, i.id)
+
         d = backend.descriptor
-        return sysmon.can_keep_warm(d.family, d.size_bytes, d.quant, d.id)
+        return sysmon.can_keep_warm(
+            d.family, d.size_bytes, d.quant, d.id, incoming_need_gb=incoming_need_gb
+        )
 
     async def _record_profile(self, backend: GpuBackend) -> None:
         """Learn this model's measured RAM/VRAM from its load report (P7.2).
@@ -184,7 +197,11 @@ class GpuArbiter:
 
     async def _guard_budget(self, backend: GpuBackend) -> None:
         """Refuse a load that would risk the pagefile (raises MemoryError, which
-        the worker turns into a clear job error instead of an OOM hang). Before
+        the worker turns into a clear job error instead of an OOM hang).
+
+        Warm-parked models are RAM we control: before refusing, evict them one
+        by one (the backend being loaded last, since dropping it forfeits its
+        warm resume) and re-measure. Only refuse once the pool is empty. Before
         raising, publish a structured note so the UI can show *why* it refused."""
         from ..config import settings  # noqa: PLC0415
         from ..util import sysmon  # noqa: PLC0415
@@ -193,6 +210,25 @@ class GpuArbiter:
             return
         d = backend.descriptor
         decision = sysmon.ram_budget(d.family, d.size_bytes, d.quant, d.id)
+        victims = [b for b in self._warm_backends if b is not backend]
+        if backend in self._warm_backends:
+            victims.append(backend)
+        for victim in victims:
+            if decision["ok"]:
+                return
+            await self._bus.publish(Event(
+                EventType.ARBITER_NOTE,
+                reason="warm_evict",
+                message=(
+                    f"Evicting warm {victim.descriptor.name} from RAM to make room "
+                    f"for {d.name} (needs ~{decision['need_gb']:.1f} GB, only "
+                    f"{decision['available_gb']:.1f} GB free)."
+                ),
+                model=victim.descriptor.name,
+                family=victim.descriptor.family.value,
+            ))
+            await self._unload_warm(victim)
+            decision = sysmon.ram_budget(d.family, d.size_bytes, d.quant, d.id)
         if decision["ok"]:
             return
         await self._bus.publish(Event(

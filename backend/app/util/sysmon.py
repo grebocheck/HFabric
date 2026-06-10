@@ -208,16 +208,28 @@ def check_ram_budget(
 
 
 def can_keep_warm(
-    family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None
+    family: ModelFamily,
+    size_bytes: int,
+    quant: str | None,
+    model_id: str | None = None,
+    *,
+    incoming_need_gb: float = 0.0,
 ) -> tuple[bool, str]:
-    """Return whether parking a model in CPU RAM keeps enough free headroom."""
+    """Return whether parking a model in CPU RAM keeps enough free headroom.
+
+    ``incoming_need_gb`` is the RAM the model we are swapping *to* will need:
+    during a swap the parked model and the incoming load must fit at the same
+    time, otherwise parking now causes the very refusal it tried to avoid."""
     need = estimate_ram_need_gb(family, size_bytes, quant, model_id)
     available = ram_stats()["available_gb"]
-    required = need + settings.keep_warm_min_available_ram_gb
+    required = need + incoming_need_gb + settings.keep_warm_min_available_ram_gb
     if available < required:
+        incoming_note = (
+            f" + ~{incoming_need_gb:.1f} GB for the incoming model" if incoming_need_gb else ""
+        )
         return (
             False,
-            f"parking would need ~{need:.1f} GB RAM plus "
+            f"parking would need ~{need:.1f} GB RAM{incoming_note} plus "
             f"{settings.keep_warm_min_available_ram_gb:.1f} GB keep-warm headroom, "
             f"but only {available:.1f} GB is available",
         )

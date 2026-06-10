@@ -128,3 +128,18 @@ def test_can_keep_warm_decision(monkeypatch):
     ok, msg = sysmon.can_keep_warm(ModelFamily.SDXL, 10 * 1_000_000_000, None)
     assert ok is False
     assert "parking would need" in msg
+
+
+def test_can_keep_warm_reserves_room_for_incoming_model(monkeypatch):
+    # During a swap the parked model and the incoming load coexist in RAM.
+    # Parking alone fits (6.5 + 10 headroom <= 20), but once the incoming
+    # model's ~12 GB is reserved the same parking must be refused — otherwise
+    # parking now causes the budget refusal it was meant to avoid.
+    _fix_available_ram(monkeypatch, 20.0)
+    ok, _ = sysmon.can_keep_warm(ModelFamily.SDXL, 5 * 1_000_000_000, None)
+    assert ok is True
+    ok, msg = sysmon.can_keep_warm(
+        ModelFamily.SDXL, 5 * 1_000_000_000, None, incoming_need_gb=12.0
+    )
+    assert ok is False
+    assert "incoming model" in msg
