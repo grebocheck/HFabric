@@ -19,3 +19,15 @@ third-party model, dataset, voice, tokenizer, or generated asset.
 Before downloading, storing, running, fine-tuning, sharing, or publishing outputs
 from a model, users are responsible for reviewing and complying with that
 model's own license and terms from its provider.
+
+Native voice engine (P6R):
+
+- RVC synthesizer interface code is vendored from
+  `RVC-Project/Retrieval-based-Voice-Conversion-WebUI` (MIT License) and trimmed
+  to inference-only modules under `backend/app/services/voice_engine/rvc/`.
+- ContentVec (`content_vec_500.onnx` / fp16 variant) and RMVPE (`rmvpe.pt`) are
+  user-supplied local runtime assets discovered from `models/voice/pretrain` or
+  a local w-okada install fallback. They are not redistributed by HFabric.
+- RVC voice checkpoints and faiss indexes under `models/voice` or
+  `MMVCServerSIO/model_dir` are user-supplied voice/model assets and remain
+  governed by their own licenses and consent terms.

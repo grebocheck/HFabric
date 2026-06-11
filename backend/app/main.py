@@ -28,6 +28,7 @@ from .api import (
     tts,
     vision,
     voice,
+    voice_engine,
     ws,
 )
 from .backends.registry import ModelRegistry
@@ -113,6 +114,7 @@ app.include_router(transcription.router)
 app.include_router(tts.router)
 app.include_router(vision.router)
 app.include_router(voice.router)
+app.include_router(voice_engine.router)
 app.include_router(ws.router)
 
 

@@ -20,6 +20,13 @@ sentencepiece>=0.2.0           # T5 tokenizer for FLUX
 protobuf>=5.0
 bitsandbytes>=0.49             # 4-bit path (Blackwell sm_120 supported)
 
+# --- Native voice engine (P6R): offline/realtime RVC audio stack ---
+sounddevice>=0.5
+soundfile>=0.13
+faiss-cpu>=1.14
+onnxruntime>=1.26
+soxr>=1.0
+
 # FLUX note (M0 finding): the local flux_dev.safetensors is an fp8 ComfyUI
 # all-in-one checkpoint. diffusers needs a (non-gated) config to assemble the
 # pipeline -> we use HFAB_FLUX_CONFIG_REPO (default ChuckMcSneed/FLUX.1-dev).

@@ -75,40 +75,60 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   cap. One pass, mostly verification — the token guard in `util/uploads.py` is
   already right.
 
-### P6 — Real-time voice changer (carried — the one unproven phase; audit W2)
+### P6R — Native voice engine (REPLANNED 2026-06-11 — replaces the w-okada wrap)
 
-> Real-time voice conversion (mic → target voice → output) wrapping w-okada /
-> MMVCServerSIO (local install `D:\MMVCServerSIO`, override
-> `HFAB_VOICE_WOKADA_DIR`). A live session pins the GPU via a **voice lane**
-> coordinated with the arbiter. All four sub-items are wired but **none is
-> validated against a real audio stream** — that end-to-end validation is the
-> gating work, and ~530 lines of `api/voice.py` are effectively unverified until
-> it happens.
+> **Direction change (user decision):** depending on an external
+> `MMVCServerSIO.exe` is not acceptable — the voice changer gets a **native
+> in-process RVC engine** with our own functions and settings, built for
+> correctness and reliability. The pretrained assets it needs already exist
+> locally in `D:\MMVCServerSIO\pretrain` (`content_vec_500.onnx`, `rmvpe.pt` /
+> `rmvpe.onnx`, crepe/fcpe) and the user's voice model is standard RVC v2
+> (`.pth`/`.safetensors` + faiss `.index`) — no downloads required. The w-okada
+> wrapper stays functional as the realtime fallback **until P6R.2/.3 reach
+> parity**, then it is deleted (P6R.4). The 2026-06 Voice-tab UX rework (guided
+> setup flow, monitor mode, auto-apply, `voiceHelpers.ts`) carries over — the
+> page contract was deliberately kept engine-agnostic.
+>
+> Inference stack: audio → 16 kHz mono (soxr) → ContentVec features
+> (onnxruntime) → optional faiss index mix (`index_ratio`) → RMVPE f0 + pitch
+> shift → vendored RVC v2 synthesizer (torch, MIT-attributed) → protect blend →
+> output. Deps added to the GPU venv: `sounddevice`, `soundfile`, `faiss-cpu`,
+> `onnxruntime`, `soxr`.
 
-- [~] **P6.1 — Voice detection shell.** Detection, `model_dir` slots, server
-  probe shipped. *Remaining:* none beyond the live validation in P6.5.
-- [~] **P6.2 — Drive the w-okada server.** Launch/stop as managed subprocess,
-  settings proxy, slot select, queue parking shipped. *Remaining:* latency
-  measurement + richer performance display.
-- [~] **P6.3 — Output routing.** Device pickers, sample-rate, chunk, gain
-  shipped (see [voice-routing.md](docs/voice-routing.md)). *Remaining:* validate
-  selectors live + friendlier handling of unsupported sample-rate combos.
-- [~] **P6.4 — The UI (the differentiator).** Live metrics, VU bars, waveform,
-  pitch/formant controls, presets, PTT shipped. *2026-06 UX rework (user
-  feedback):* the page is now a guided setup flow (Engine → Voice → Audio
-  devices → Go live) with the input/output/monitor pickers promoted to a
-  first-class step, an explicit **Monitor "hear myself" toggle** (auto-picks the
-  output device, gain beside it), debounced auto-apply for all routing changes
-  with an applying/applied hint, and pure logic extracted to `voiceHelpers.ts`
-  (+10 tests; `VoiceMeters.tsx` / `VoicePanelParts.tsx` split keeps the panel at
-  ~650 lines). *Remaining:* validate meters/timings against a real stream; tune
-  stage labels.
-- [ ] **P6.5 — End-to-end live validation (gates the phase).** With a real mic +
-  virtual cable: start a session, confirm conversion + monitor output, measure
-  round-trip latency at 2–3 chunk sizes, confirm the voice lane actually parks a
-  queued image job and resumes it after stop, confirm llama/image jobs cannot
-  steal the GPU mid-session, and write the measured numbers into this file.
-  Fix what breaks; only then mark P6.1–P6.4 done.
+- [x] **P6R.1 — Engine core + offline conversion.** Shipped: the
+  `backend/app/services/voice_engine/` package — pretrain-asset discovery
+  (`models/voice/pretrain` first, w-okada `pretrain/` fallback), RVC model
+  discovery (`models/voice` slots + w-okada `model_dir` fallback), the **real**
+  vendored RVC v2 inference network (enc_p / flow / NSF-HiFi-GAN dec / emb_g,
+  ~2 400 lines, MIT-attributed) and the **real** RMVPE (E2E0 DeepUnet + BiGRU,
+  numpy slaney mel — no librosa dep), ContentVec via onnxruntime, the offline
+  `convert()` pipeline (index mix, f0 shift + coarse, protect blend, per-stage
+  timings), sounddevice enumeration, deterministic STUB path, parallel API
+  (`/api/voice/engine/*`: status / settings / convert / file with size caps +
+  token guard), 9 stub tests (116 total green). **Gate passed** on the real
+  `chocola_yagiyukiv2.pth` via `scripts/voice_engine_smoke.py`: strict
+  state-dict load 457/0/0; RMVPE median 220.25 Hz on a 220 Hz tone; converted
+  output flatness 0.17–0.23 vs 0.0008 sine baseline; CUDA warm synth **20.7 ms**
+  for a 2 s clip (CPU ~320 ms) — realtime-viable. *Note:* first fake-synth
+  attempt was rejected at review; the smoke script is now the permanent
+  anti-fake gate for this code.
+- [ ] **P6R.2 — Realtime session.** `sounddevice` duplex stream (ring buffer +
+  worker thread), chunked pipeline with SOLA/crossfade, monitor output ("hear
+  myself") with its own gain, pass-through/PTT, per-stage timings + VU metrics
+  into `/status`, and the **voice lane**: session start frees the arbiter
+  resident and parks GPU jobs (same contract the worker already checks via
+  `voice_lane_active()`). Latency target: report measured round-trip at 3 chunk
+  sizes.
+- [ ] **P6R.3 — UI rewire to the native engine.** Point the Voice tab's
+  `api/client.ts` calls at `/api/voice/engine/*`; the guided flow, device
+  pickers, monitor toggle, and auto-apply stay — "Engine" step becomes asset +
+  model readiness (no external server to start), "Open w-okada UI" disappears.
+  voiceHelpers tests updated.
+- [ ] **P6R.4 — Live validation + w-okada removal (gates the phase).** With a
+  real mic: confirm conversion + monitor output, measure round-trip latency at
+  2–3 chunk sizes, confirm a queued image job parks during the session and
+  resumes after, write the numbers into this file — then delete the w-okada
+  wrapper code, its settings (`voice_wokada_dir`/`_url`), and the launch path.
 
 ### P15 — Reliability & data layer (NEW — audit W3, W7)
 

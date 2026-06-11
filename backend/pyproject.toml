@@ -26,6 +26,18 @@ ignore = [
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
 
+[tool.ruff.lint.per-file-ignores]
+"app/services/voice_engine/rvc/*.py" = [
+    "B007",   # vendored upstream loop naming
+    "F841",   # vendored upstream temporaries retained for parity
+    "I001",   # keep vendored import order stable
+    "UP006",  # keep vendored typing style stable
+    "UP008",  # keep vendored super(Class, self) style stable
+    "UP032",  # keep vendored string formatting stable
+    "UP035",  # keep vendored typing imports stable
+    "UP045",  # keep vendored Optional[...] style stable
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

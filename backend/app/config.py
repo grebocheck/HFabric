@@ -108,6 +108,7 @@ class Settings(BaseSettings):
     embed_models_dir: Path = ROOT / "models" / "embed"
     vision_models_dir: Path = ROOT / "models" / "vision"
     voice_models_dir: Path = ROOT / "models" / "voice"
+    voice_pretrain_dir: Path = ROOT / "models" / "voice" / "pretrain"
     data_dir: Path = ROOT / "data"
     outputs_dir: Path = ROOT / "data" / "outputs"
     db_path: Path = ROOT / "data" / "hfabric.db"
@@ -161,6 +162,10 @@ class Settings(BaseSettings):
     voice_device: str = "cpu"
     voice_timeout_seconds: int = 600
     voice_max_upload_mb: int = 64
+    voice_pitch: int = 0
+    voice_index_ratio: float = 1.0
+    voice_protect: float = 0.5
+    voice_f0_detector: str = "rmvpe"
     # w-okada Voice Changer (MMVCServerSIO) runs as its own realtime server; we
     # detect it and build UI on its API rather than importing it. Override the
     # install dir with HFAB_VOICE_WOKADA_DIR. Models live in <dir>/model_dir as
@@ -320,6 +325,7 @@ class Settings(BaseSettings):
             self.embed_models_dir,
             self.vision_models_dir,
             self.voice_models_dir,
+            self.voice_pretrain_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 
