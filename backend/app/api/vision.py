@@ -19,6 +19,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from ..config import settings
+from ..util import uploads as uploads_util
 
 router = APIRouter(prefix="/api/vision", tags=["vision"])
 
@@ -109,10 +110,11 @@ async def analyze_image(
     if not projector:
         raise HTTPException(404, "vision projector not found")
 
-    max_bytes = settings.vision_max_upload_mb * 1024 * 1024
-    payload = await file.read(max_bytes + 1)
-    if len(payload) > max_bytes:
-        raise HTTPException(413, f"image upload exceeds {settings.vision_max_upload_mb} MB")
+    payload = await uploads_util.read_limited_upload(
+        file,
+        max_bytes=settings.vision_max_upload_mb * 1024 * 1024,
+        label="image upload",
+    )
     if not payload:
         raise HTTPException(422, "image file is empty")
 

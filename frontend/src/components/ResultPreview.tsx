@@ -46,7 +46,7 @@ export function ResultPreview({ images, onOpenHistory, generating = false }: { i
   const copyImage = async () => {
     if (!selected) return;
     try {
-      const blob = await (await fetch(selected.url)).blob();
+      const blob = await api.downloadUrlBlob(selected.url);
       await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
       flash("copied");
     } catch {
@@ -123,7 +123,7 @@ export function ResultPreview({ images, onOpenHistory, generating = false }: { i
             {selected ? (
               <>
                 <a href={selected.url} download={`${selected.id}.png`} className={actionBtn}>PNG</a>
-                <a href={`/api/images/${selected.id}/metadata`} download className={actionBtn}>JSON</a>
+                <a href={api.assetUrl(`/api/images/${selected.id}/metadata`)} download className={actionBtn}>JSON</a>
               </>
             ) : null}
           </div>

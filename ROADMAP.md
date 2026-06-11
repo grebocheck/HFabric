@@ -49,25 +49,25 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > `POST /api/images/{id}/reveal`. CORS only restricts *browsers* — it is not an
 > auth layer. Until this phase lands, treat LAN exposure as unsafe.
 
-- [ ] **P14.1 — Decide and enforce the bind posture.** Revert the local `.env` to
+- [x] **P14.1 — Decide and enforce the bind posture.** Revert the local `.env` to
   the code default (`127.0.0.1:8260`) *or* make LAN exposure deliberate: keep
   `HFAB_HOST=0.0.0.0` only together with P14.2 auth. Add a loud startup warning
   (log + `/api/health` field + UI toast) whenever the server is bound to a
   non-loopback address without a token configured. Document the threat model in
   README ("local single-user app; LAN exposure requires HFAB_API_TOKEN").
-- [ ] **P14.2 — Optional bearer-token auth.** New `HFAB_API_TOKEN` setting; when
+- [x] **P14.2 — Optional bearer-token auth.** New `HFAB_API_TOKEN` setting; when
   set, a middleware rejects any request without `Authorization: Bearer <token>`
   (and the WebSocket without a `?token=` query param). The frontend reads the
   token from a small login prompt persisted in `localStorage` and attaches it in
   `api/client.ts` + `useEvents.ts`. Empty/unset token = current open behavior on
   loopback. Tests: 401 paths, WS rejection, health stays open (or not — decide).
-- [ ] **P14.3 — Gate desktop-reaching endpoints to loopback.** `reveal_image`
+- [x] **P14.3 — Gate desktop-reaching endpoints to loopback.** `reveal_image`
   (spawns `explorer`/`open`/`xdg-open`) must refuse requests whose client address
   is not `127.0.0.1/::1`, regardless of token — a remote caller has no business
   driving the local desktop. Audit for other desktop/process endpoints as they
   appear (voice launch falls under the token, not loopback, since the UI may be
   remote-legit later).
-- [ ] **P14.4 — Upload/content hardening sweep.** Verify every upload path
+- [x] **P14.4 — Upload/content hardening sweep.** Verify every upload path
   enforces its size cap *before* reading the body where possible
   (`image_upload_max_mb`, `transcription_max_upload_mb`, `vision_max_upload_mb`,
   `voice_max_upload_mb`); confirm Pillow re-encodes (not just opens) uploaded

@@ -1,13 +1,89 @@
-import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, ImageItem, ImageStats, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceSettingsUpdate, VoiceStatus } from "../types";
+import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceSettingsUpdate, VoiceStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
+const TOKEN_KEY = "hfabric.apiToken";
+
+type AuthEvent = { token: string; unauthorized: boolean };
+type AuthListener = (event: AuthEvent) => void;
+const authListeners = new Set<AuthListener>();
+
+function readToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function emitAuth(unauthorized = false) {
+  const event = { token: readToken(), unauthorized };
+  for (const listener of authListeners) listener(event);
+}
+
+function authHeaders(headers?: HeadersInit): Headers {
+  const next = new Headers(headers);
+  const token = readToken();
+  if (token) next.set("Authorization", `Bearer ${token}`);
+  return next;
+}
+
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const res = await globalThis.fetch(input, { ...init, headers: authHeaders(init.headers) });
+  if (res.status === 401) emitAuth(true);
+  return res;
+}
+
+const fetch = apiFetch;
+
+export function apiAssetUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  const token = readToken();
+  if (!token || !url.startsWith("/api/")) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
+function withImageAuth(image: ImageItem): ImageItem {
+  return {
+    ...image,
+    url: apiAssetUrl(image.url),
+    thumb_url: image.thumb_url ? apiAssetUrl(image.thumb_url) : null,
+  };
+}
+
+function withTtsAuth(result: TtsGenerateResult): TtsGenerateResult {
+  return { ...result, url: apiAssetUrl(result.url) };
+}
+
+export const apiAuth = {
+  getToken: readToken,
+  setToken(token: string) {
+    const clean = token.trim();
+    try {
+      if (clean) localStorage.setItem(TOKEN_KEY, clean);
+      else localStorage.removeItem(TOKEN_KEY);
+    } catch {
+      // Auth remains in-memory-unavailable; the next call will still fail loudly.
+    }
+    emitAuth(false);
+  },
+  clearToken() {
+    this.setToken("");
+  },
+  subscribe(listener: AuthListener): () => void {
+    authListeners.add(listener);
+    return () => authListeners.delete(listener);
+  },
+};
 
 async function j<T>(res: Response): Promise<T> {
+  if (res.status === 401) emitAuth(true);
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json() as Promise<T>;
 }
 
 export const api = {
+  health: () => globalThis.fetch("/api/health").then(j<HealthStatus>),
   listModels: () => fetch("/api/models").then(j<Model[]>),
   listLoras: () => fetch("/api/loras").then(j<Lora[]>),
   runtimeSettings: () => fetch("/api/settings").then(j<RuntimeSettings>),
@@ -25,13 +101,15 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     return fetch("/api/images/upload", { method: "POST", body: fd })
-      .then(j<{ init_image: string; url: string; width: number; height: number }>);
+      .then(j<{ init_image: string; url: string; width: number; height: number }>)
+      .then((res) => ({ ...res, url: apiAssetUrl(res.url) }));
   },
   uploadMaskImage: (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
     return fetch("/api/images/upload-mask", { method: "POST", body: fd })
-      .then(j<{ mask_image: string; url: string; width: number; height: number }>);
+      .then(j<{ mask_image: string; url: string; width: number; height: number }>)
+      .then((res) => ({ ...res, url: apiAssetUrl(res.url) }));
   },
   queuePlan: () => fetch("/api/jobs/plan").then(j<QueuePlan>),
   getJob: (id: string) => fetch(`/api/jobs/${id}`).then(j<Job>),
@@ -77,7 +155,7 @@ export const api = {
 
   listImages: (q?: string) => {
     const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
-    return fetch(`/api/images${params}`).then(j<ImageItem[]>);
+    return fetch(`/api/images${params}`).then(j<ImageItem[]>).then((rows) => rows.map(withImageAuth));
   },
   queryImages: (opts: { q?: string; model?: string; family?: string; size?: string; lora?: string; favorite?: boolean; tag?: string; date_from?: string; date_to?: string; limit?: number; offset?: number } = {}) => {
     const p = new URLSearchParams();
@@ -93,12 +171,13 @@ export const api = {
     if (opts.limit != null) p.set("limit", String(opts.limit));
     if (opts.offset != null) p.set("offset", String(opts.offset));
     const qs = p.toString();
-    return fetch(`/api/images${qs ? `?${qs}` : ""}`).then(j<ImageItem[]>);
+    return fetch(`/api/images${qs ? `?${qs}` : ""}`).then(j<ImageItem[]>).then((rows) => rows.map(withImageAuth));
   },
   imageStats: () => fetch("/api/images/stats").then(j<ImageStats>),
   updateImage: (id: string, body: { favorite?: boolean; tags?: string[] }) =>
     fetch(`/api/images/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(body) })
-      .then(j<ImageItem>),
+      .then(j<ImageItem>)
+      .then(withImageAuth),
   exportImages: async (imageIds: string[]) => {
     const res = await fetch("/api/images/export", {
       method: "POST",
@@ -142,7 +221,8 @@ export const api = {
   ttsStatus: () => fetch("/api/tts/status").then(j<TtsStatus>),
   generateTts: (body: TtsGenerateBody) =>
     fetch("/api/tts/generate", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
-      .then(j<TtsGenerateResult>),
+      .then(j<TtsGenerateResult>)
+      .then(withTtsAuth),
 
   transcriptionStatus: () => fetch("/api/transcription/status").then(j<TranscriptionStatus>),
   transcribeAudio: (body: { file: File; model_id: string; language?: string; task?: string; initial_prompt?: string }) => {
@@ -198,4 +278,10 @@ export const api = {
     return fetch(`/api/code/files${params}`).then(j<CodeFile[]>);
   },
   getCodeFile: (path: string) => fetch(`/api/code/file?path=${encodeURIComponent(path)}`).then(j<CodeFileContent>),
+  assetUrl: apiAssetUrl,
+  downloadUrlBlob: async (url: string) => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.blob();
+  },
 };

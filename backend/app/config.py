@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # --- server ---
     host: str = "127.0.0.1"
     port: int = 8260
+    # Optional API bearer token. Keep unset for loopback-only local use; set it
+    # before binding to a LAN interface.
+    api_token: str | None = None
     # Vite dev server origin(s) allowed via CORS.
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 

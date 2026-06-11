@@ -15,11 +15,11 @@ from ..config import settings
 from ..services.voice_engine import assets as asset_discovery
 from ..services.voice_engine import devices, storage
 from ..services.voice_engine.engine import get_engine
+from ..util import uploads as uploads_util
 
 router = APIRouter(prefix="/api/voice/engine", tags=["voice-engine"])
 
 ALLOWED_EXTS = {".wav", ".flac", ".ogg"}
-CHUNK_SIZE = 1024 * 1024
 
 
 class VoiceEngineSettingsUpdate(BaseModel):
@@ -74,18 +74,14 @@ async def _write_upload_to_temp(file: UploadFile, ext: str) -> Path:
     storage.output_dir()
     fd, name = tempfile.mkstemp(prefix="voice-upload-", suffix=ext, dir=str(storage.output_dir()))
     path = Path(name)
-    total = 0
     try:
         with open(fd, "wb") as handle:
-            while True:
-                remaining = max_bytes - total
-                chunk = await file.read(min(CHUNK_SIZE, max(1, remaining + 1)))
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
-                    raise HTTPException(413, f"audio upload exceeds {settings.voice_max_upload_mb} MB")
-                handle.write(chunk)
+            total = await uploads_util.copy_limited_upload(
+                file,
+                handle,
+                max_bytes=max_bytes,
+                label="audio upload",
+            )
     except Exception:
         path.unlink(missing_ok=True)
         raise

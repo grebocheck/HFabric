@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from ..config import settings
 from ..core.arbiter import GpuArbiter
 from ..core.scheduler import Worker
+from ..util import uploads as uploads_util
 from .deps import get_arbiter, get_worker
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
@@ -511,12 +512,19 @@ async def voice_session_stop() -> dict:
 
 @router.post("/convert")
 async def voice_convert(
-    file: UploadFile = File(...),  # noqa: ARG001 - accepted now, used once the API is driven
+    file: UploadFile = File(...),
     model_id: str = Form(...),
     pitch: int = Form(0),  # noqa: ARG001
 ) -> dict:
     """Placeholder. w-okada is a realtime engine; driving its conversion API is
     wired in P6.2. Refuse clearly rather than fake a result."""
+    payload = await uploads_util.read_limited_upload(
+        file,
+        max_bytes=settings.voice_max_upload_mb * 1024 * 1024,
+        label="audio upload",
+    )
+    if not payload:
+        raise HTTPException(422, "audio file is empty")
     if not next((m for m in _models() if m["id"] == model_id), None):
         raise HTTPException(404, "voice model not found")
     if not await _server_reachable():

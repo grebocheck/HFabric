@@ -12,7 +12,7 @@ import tempfile
 from uuid import uuid4
 import zipfile
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
@@ -20,6 +20,7 @@ from starlette.background import BackgroundTask
 from ..config import settings
 from ..schemas import ImageExportIn, ImageOut, ImageUpdateIn
 from ..services import gallery_service
+from ..util import security
 from ..util import uploads as uploads_util
 from .deps import get_session
 
@@ -56,10 +57,11 @@ async def image_stats(session: AsyncSession = Depends(get_session)) -> dict:
 
 
 async def _read_upload_bytes(file: UploadFile) -> bytes:
-    raw = await file.read()
-    if len(raw) > settings.image_upload_max_mb * 1024 * 1024:
-        raise HTTPException(413, f"image exceeds {settings.image_upload_max_mb} MB")
-    return raw
+    return await uploads_util.read_limited_upload(
+        file,
+        max_bytes=settings.image_upload_max_mb * 1024 * 1024,
+        label="image",
+    )
 
 
 @router.post("/upload")
@@ -176,9 +178,16 @@ async def image_metadata(image_id: str, session: AsyncSession = Depends(get_sess
 
 
 @router.post("/{image_id}/reveal")
-async def reveal_image(image_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+async def reveal_image(
+    image_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
     """Open the OS file manager with the image file selected. Local-app
     convenience — the browser cannot reach the desktop file manager itself."""
+    client_host = request.client.host if request.client else None
+    if not security.is_loopback_host(client_host):
+        raise HTTPException(403, "file reveal is only allowed from loopback clients")
     img = await gallery_service.get_image(session, image_id)
     if not img or not Path(img.path).exists():
         raise HTTPException(404, "image not found")

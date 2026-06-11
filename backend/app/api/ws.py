@@ -6,15 +6,20 @@ On connect we push the current GPU status so a freshly opened tab is in sync.
 from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 
 from ..core.enums import EventType
 from ..core.events import Event
+from ..util import security
 
 router = APIRouter(tags=["ws"])
 
 
 @router.websocket("/ws")
 async def ws_events(ws: WebSocket) -> None:
+    if not security.websocket_is_authorized(ws):
+        await ws.send_denial_response(JSONResponse({"detail": "authentication required"}, status_code=401))
+        return
     await ws.accept()
     bus = ws.app.state.bus
     arbiter = ws.app.state.arbiter

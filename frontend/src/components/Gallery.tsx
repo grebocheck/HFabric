@@ -454,7 +454,7 @@ function DetailModal({
 
   const copyImage = async () => {
     try {
-      const blob = await (await fetch(image.url)).blob();
+      const blob = await api.downloadUrlBlob(image.url);
       await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
       toast.success("Image copied");
     } catch {
@@ -571,7 +571,7 @@ function DetailModal({
             <button onClick={copyImage} className={actionBtn}>Copy</button>
             <button onClick={reveal} className={actionBtn}>Show in folder</button>
             <a href={image.url} download={`${image.id}.png`} className={actionBtn}>PNG</a>
-            <a href={`/api/images/${image.id}/metadata`} download className={actionBtn}>JSON</a>
+            <a href={api.assetUrl(`/api/images/${image.id}/metadata`)} download className={actionBtn}>JSON</a>
             <button onClick={onDelete} className="rounded border border-red-400/25 px-2.5 py-1 text-xs text-red-300 hover:bg-red-400/10">
               Delete
             </button>

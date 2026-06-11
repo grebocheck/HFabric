@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .api import (
     chat,
@@ -39,7 +41,9 @@ from .core.events import Event, EventBus
 from .core.scheduler import Worker
 from .db.session import init_db
 from .services.embedding_service import embedding_service
-from .util import sysmon
+from .util import security, sysmon
+
+logger = logging.getLogger("hfabric")
 
 
 async def _mem_monitor(bus: EventBus) -> None:
@@ -67,6 +71,7 @@ async def _prime_learned_profiles() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    security.log_startup_posture(logger)
     await _prime_learned_profiles()
 
     registry = ModelRegistry()
@@ -101,6 +106,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def api_token_middleware(request, call_next):
+    if request.method == "OPTIONS" or request.url.path == "/api/health":
+        return await call_next(request)
+    if security.request_is_authorized(request):
+        return await call_next(request)
+    return JSONResponse(
+        {"detail": "authentication required"},
+        status_code=401,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 app.include_router(models.router)
 app.include_router(jobs.router)
 app.include_router(llm.router)
@@ -126,4 +145,5 @@ async def health() -> dict:
         "models": len(app.state.registry.descriptors()),
         "gpu": app.state.arbiter.status(),
         "mem": sysmon.snapshot(),
+        "security": security.security_posture(),
     }

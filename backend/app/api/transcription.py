@@ -20,6 +20,7 @@ import uuid
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from ..config import settings
+from ..util import uploads as uploads_util
 
 router = APIRouter(prefix="/api/transcription", tags=["transcription"])
 
@@ -149,10 +150,11 @@ async def transcribe_audio(
     if not _has(module_name):
         raise HTTPException(503, f"{engine} is not installed")
 
-    max_bytes = settings.transcription_max_upload_mb * 1024 * 1024
-    payload = await file.read(max_bytes + 1)
-    if len(payload) > max_bytes:
-        raise HTTPException(413, f"audio upload exceeds {settings.transcription_max_upload_mb} MB")
+    payload = await uploads_util.read_limited_upload(
+        file,
+        max_bytes=settings.transcription_max_upload_mb * 1024 * 1024,
+        label="audio upload",
+    )
     if not payload:
         raise HTTPException(422, "audio file is empty")
 

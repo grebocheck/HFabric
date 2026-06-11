@@ -58,6 +58,20 @@ export interface MemSnapshot {
   vram: VramStats | null;
 }
 
+export interface SecurityPosture {
+  exposed: boolean;
+  token_required: boolean;
+}
+
+export interface HealthStatus {
+  status: string;
+  stub_mode: boolean;
+  models: number;
+  gpu: GpuStatus;
+  mem: MemSnapshot;
+  security: SecurityPosture;
+}
+
 // One point in the rolling memory-pressure timeline (System tab).
 export interface MemPoint {
   ts: number;

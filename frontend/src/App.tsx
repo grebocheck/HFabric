@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api } from "./api/client";
+import { api, apiAuth } from "./api/client";
 import { useEvents } from "./api/useEvents";
 import { ChatPanel } from "./components/ChatPanel";
 import type { ChatJump } from "./components/ChatPanel";
@@ -19,10 +19,11 @@ import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VisionPanel } from "./components/VisionPanel";
 import { VoicePanel } from "./components/VoicePanel";
-import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, GpuStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
+import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
 
 const MEM_HISTORY_MAX = 90; // rolling timeline points (~a few minutes at the poll rate)
 const THEME_KEY = "hfabric.theme";
+const SECURITY_WARNING_KEY = "hfabric.securityWarning.dismissed";
 const THEMES: AppTheme[] = ["dark", "dim", "light"];
 const THEME_META: Record<AppTheme, string> = {
   dark: "#0b0d12",
@@ -59,6 +60,11 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<View>(() => (localStorage.getItem("hfabric.view") as View) || "images");
   const [theme, setTheme] = useState<AppTheme>(() => readTheme());
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [securityWarningDismissed, setSecurityWarningDismissed] = useState(() => localStorage.getItem(SECURITY_WARNING_KEY) === "1");
+  const [authLocked, setAuthLocked] = useState(false);
+  const [authTokenDraft, setAuthTokenDraft] = useState(() => apiAuth.getToken());
+  const [authRevision, setAuthRevision] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const tabIdsRef = useRef<View[]>([]);
   const [chatJump, setChatJump] = useState<ChatJump | null>(null);
@@ -71,6 +77,7 @@ export default function App() {
   const [imageEpoch, setImageEpoch] = useState(0);
   // A "reproduce from History" request handed to the image composer.
   const [composerApply, setComposerApply] = useState<ComposerApply | null>(null);
+  const postureToastShown = useRef(false);
 
   const refreshJobs = useCallback(() => api.listJobs().then(setJobs).catch(() => {}), []);
   const refreshImages = useCallback((q?: string) => api.listImages(q).then(setImages).catch(() => {}), []);
@@ -105,13 +112,40 @@ export default function App() {
     }
   }, []);
 
+  const refreshHealth = useCallback(async () => {
+    try {
+      const next = await api.health();
+      setHealth(next);
+      if (
+        next.security.exposed
+        && !next.security.token_required
+        && !securityWarningDismissed
+        && !postureToastShown.current
+      ) {
+        postureToastShown.current = true;
+        toast.error("Security warning: backend is reachable from the network without HFAB_API_TOKEN.", { duration: 12000 });
+      }
+    } catch {
+      // Health is best-effort; the app keeps trying through normal refreshes.
+    }
+  }, [securityWarningDismissed]);
+
+  useEffect(() => {
+    void refreshHealth();
+  }, [refreshHealth, authRevision]);
+
+  useEffect(() => apiAuth.subscribe((event) => {
+    setAuthTokenDraft(event.token);
+    if (event.unauthorized) setAuthLocked(true);
+  }), []);
+
   useEffect(() => {
     void refreshModels();
     void refreshLoras();
     refreshJobs();
     refreshImages();
     refreshPresets();
-  }, [refreshModels, refreshLoras, refreshJobs, refreshImages, refreshPresets]);
+  }, [refreshModels, refreshLoras, refreshJobs, refreshImages, refreshPresets, authRevision]);
 
   const onEvent = useCallback(
     (e: BusEvent) => {
@@ -189,6 +223,22 @@ export default function App() {
   );
 
   const { connected } = useEvents(onEvent);
+  const lockVisible = authLocked || Boolean(health?.security.token_required && !authTokenDraft.trim());
+  const saveToken = useCallback(() => {
+    apiAuth.setToken(authTokenDraft);
+    setAuthLocked(false);
+    setAuthRevision((n) => n + 1);
+  }, [authTokenDraft]);
+  const clearToken = useCallback(() => {
+    setAuthTokenDraft("");
+    apiAuth.clearToken();
+    setAuthLocked(true);
+    setAuthRevision((n) => n + 1);
+  }, []);
+  const dismissSecurityWarning = useCallback(() => {
+    localStorage.setItem(SECURITY_WARNING_KEY, "1");
+    setSecurityWarningDismissed(true);
+  }, []);
 
   const onFree = useCallback(() => api.freeGpu().catch(() => {}), []);
   const cycleTheme = useCallback(() => {
@@ -406,11 +456,90 @@ export default function App() {
         onPalette={() => setPaletteOpen(true)}
       />
 
+      {health?.security.exposed && !health.security.token_required && !securityWarningDismissed ? (
+        <div className="flex items-center gap-3 border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-100">
+          <span className="min-w-0 flex-1">
+            Security warning: backend is bound to a non-loopback host without HFAB_API_TOKEN.
+          </span>
+          <button
+            onClick={dismissSecurityWarning}
+            className="rounded border border-red-200/25 px-2 py-1 text-xs text-red-100 hover:bg-red-500/15"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       {active.render()}
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
+      {lockVisible ? (
+        <AuthLockScreen
+          token={authTokenDraft}
+          onToken={setAuthTokenDraft}
+          onSubmit={saveToken}
+          onClear={clearToken}
+          unauthorized={authLocked}
+        />
+      ) : null}
       <ToastHost />
+    </div>
+  );
+}
+
+function AuthLockScreen({
+  token,
+  onToken,
+  onSubmit,
+  onClear,
+  unauthorized,
+}: {
+  token: string;
+  onToken: (value: string) => void;
+  onSubmit: () => void;
+  onClear: () => void;
+  unauthorized: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+        className="w-full max-w-sm rounded-lg border border-white/12 bg-surface p-4 shadow-2xl shadow-black/50"
+      >
+        <h2 className="text-base font-semibold text-white/85">API token required</h2>
+        <p className="mt-1 text-sm leading-5 text-white/55">
+          Enter the HFAB_API_TOKEN configured for this backend.
+        </p>
+        {unauthorized ? <p className="mt-2 text-xs text-red-300">The last request was rejected with 401.</p> : null}
+        <input
+          type="password"
+          value={token}
+          onChange={(event) => onToken(event.target.value)}
+          autoFocus
+          className="mt-4 w-full rounded-md border border-white/10 bg-black/35 px-3 py-2 text-sm text-white/85 outline-none focus:border-accent"
+          placeholder="Bearer token"
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded-md border border-white/15 px-3 py-1.5 text-sm text-white/60 hover:bg-white/10"
+          >
+            Clear
+          </button>
+          <button
+            type="submit"
+            disabled={!token.trim()}
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+          >
+            Unlock
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -337,6 +337,16 @@ Models are read in place from `models/`: image checkpoints/repos under
 `models/image/`, LoRAs under `models/lora/`, and GGUF LLMs under `models/llm/`.
 Nothing is copied. See [models/README.md](models/README.md).
 
+### Security model
+
+HFabric is a local, single-user app by default. The backend binds to
+`127.0.0.1:8260`, which keeps the API on the local machine. If you deliberately
+bind it to a LAN interface such as `HFAB_HOST=0.0.0.0`, set `HFAB_API_TOKEN` and
+enter that token in the UI when prompted. CORS is not an authentication layer:
+without a token, LAN clients could call local APIs directly. `/api/health`
+stays open so the UI can report the security posture, and desktop-reaching
+actions such as "Show in folder" are loopback-only regardless of token.
+
 ## Configuration
 
 Env vars (prefix `HFAB_`, or a `.env` file in repo root). Highlights:
@@ -344,7 +354,9 @@ Env vars (prefix `HFAB_`, or a `.env` file in repo root). Highlights:
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `HFAB_STUB_MODE` | `true` | Run without GPU/ML stack (foundation mode). |
+| `HFAB_HOST` | `127.0.0.1` | Backend bind host. Use a LAN address only with `HFAB_API_TOKEN`. |
 | `HFAB_PORT` | `8260` | Backend port. |
+| `HFAB_API_TOKEN` | unset | Optional bearer token required for API and WebSocket access when set. |
 | `HFAB_LLAMA_SERVER_BIN` | `bin/llama/llama-server.exe` | CUDA(sm_120) llama.cpp build. |
 | `HFAB_LLAMA_NGL` | `999` | GPU layers to offload (999 = full offload). |
 | `HFAB_LLAMA_CTX` | `8192` | llama.cpp context size. |

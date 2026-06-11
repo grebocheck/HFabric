@@ -43,6 +43,7 @@ if not _GGUF.exists():
     _GGUF.write_bytes(b"GGUF\x00")
 
 os.environ.setdefault("HFAB_STUB_MODE", "true")
+os.environ.pop("HFAB_API_TOKEN", None)
 os.environ["HFAB_DB_PATH"] = str(_TMP / "hfabric_test.db")
 os.environ["HFAB_DATA_DIR"] = str(_TMP / "data")
 os.environ["HFAB_OUTPUTS_DIR"] = str(_TMP / "outputs")

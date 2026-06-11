@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { apiAuth } from "./client";
 import type { BusEvent } from "../types";
 
 /**
@@ -8,8 +9,11 @@ import type { BusEvent } from "../types";
  */
 export function useEvents(onEvent: (e: BusEvent) => void): { connected: boolean } {
   const [connected, setConnected] = useState(false);
+  const [token, setToken] = useState(() => apiAuth.getToken());
   const cbRef = useRef(onEvent);
   cbRef.current = onEvent;
+
+  useEffect(() => apiAuth.subscribe((event) => setToken(event.token)), []);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -18,7 +22,8 @@ export function useEvents(onEvent: (e: BusEvent) => void): { connected: boolean 
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      const query = token ? `?token=${encodeURIComponent(token)}` : "";
+      ws = new WebSocket(`${proto}://${location.host}/ws${query}`);
       ws.onopen = () => setConnected(true);
       ws.onmessage = (ev) => {
         try {
@@ -40,7 +45,7 @@ export function useEvents(onEvent: (e: BusEvent) => void): { connected: boolean 
       clearTimeout(retry);
       ws?.close();
     };
-  }, []);
+  }, [token]);
 
   return { connected };
 }
