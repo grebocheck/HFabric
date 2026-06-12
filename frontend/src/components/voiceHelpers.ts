@@ -19,6 +19,10 @@ export const inputHighpassOptions = [
   { value: "120", label: "120 Hz" },
   { value: "160", label: "160 Hz" },
 ];
+export const denoiseOptions = [
+  { value: "off", label: "Off" },
+  { value: "dtln", label: "DTLN (neural)" },
+];
 
 export const latencyPresets = [
   { id: "fast", label: "Fast", chunk: 96, crossFade: 0.03, extra: 3 },
@@ -34,6 +38,7 @@ export type VoiceControlState = {
   formantShift: number;
   inputGateDb: number;
   inputHighpassHz: number;
+  inputDenoise: "off" | "dtln";
   indexRatio: number;
   protect: number;
   f0Detector: string;
@@ -76,6 +81,7 @@ export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceE
     formantShift: num(settings.input_formant, 0),
     inputGateDb: num(settings.input_gate_db, -60),
     inputHighpassHz: num(settings.input_highpass_hz, 80),
+    inputDenoise: settings.input_denoise === "dtln" ? "dtln" : "off",
     indexRatio: num(settings.index_ratio, 1),
     protect: num(settings.protect, 0.5),
     f0Detector: f0Options.some((o) => o.value === f0) ? f0 : "rmvpe",
@@ -114,6 +120,7 @@ export function nativeTuningSettingsPatch(state: Pick<
   | "formantShift"
   | "inputGateDb"
   | "inputHighpassHz"
+  | "inputDenoise"
   | "indexRatio"
   | "protect"
   | "f0Detector"
@@ -124,6 +131,7 @@ export function nativeTuningSettingsPatch(state: Pick<
     input_formant: state.formantShift,
     input_gate_db: state.inputGateDb,
     input_highpass_hz: state.inputHighpassHz,
+    input_denoise: state.inputDenoise,
     index_ratio: state.indexRatio,
     protect: state.protect,
     f0_detector: state.f0Detector,

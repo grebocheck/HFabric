@@ -16,10 +16,13 @@ def test_asset_discovery_prefers_local(monkeypatch, tmp_path):
     found = assets.discover_assets()
 
     assert found["ready"] is True
-    assert {item["name"]: item["source"] for item in found["assets"]} == {
+    by_name = {item["name"]: item for item in found["assets"]}
+    assert {name: by_name[name]["source"] for name in ("content_vec", "rmvpe")} == {
         "content_vec": "local",
         "rmvpe": "local",
     }
+    assert by_name["denoise_dtln"]["found"] is False
+    assert by_name["denoise_dtln"]["optional"] is True
 
 
 def test_asset_discovery_missing_not_ready(monkeypatch, tmp_path):
@@ -28,7 +31,22 @@ def test_asset_discovery_missing_not_ready(monkeypatch, tmp_path):
     found = assets.discover_assets()
 
     assert found["ready"] is False
-    assert [item["found"] for item in found["assets"]] == [False, False]
+    assert [item["found"] for item in found["assets"]] == [False, False, False]
+
+
+def test_optional_dtln_asset_missing_does_not_break_ready(monkeypatch, tmp_path):
+    local = tmp_path / "local-pretrain"
+    local.mkdir()
+    (local / "content_vec_500.onnx").write_bytes(b"onnx")
+    (local / "rmvpe.pt").write_bytes(b"pt")
+    monkeypatch.setattr(settings, "voice_pretrain_dir", local)
+
+    found = assets.discover_assets()
+    by_name = {item["name"]: item for item in found["assets"]}
+
+    assert found["ready"] is True
+    assert by_name["denoise_dtln"]["found"] is False
+    assert by_name["denoise_dtln"]["path"] is None
 
 
 def test_slot_discovery_params_bare_and_zip_ignored(monkeypatch, tmp_path):

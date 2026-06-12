@@ -4,7 +4,10 @@ A live session owns a sounddevice duplex stream: the PortAudio callback only
 moves samples in/out of ring buffers; a dedicated worker thread pulls fixed
 chunks, re-converts a sliding context window through the shared
 ``pipeline.convert_audio`` core, and stitches chunk seams with a small
-SOLA-style alignment + equal-power crossfade so they don't click.
+SOLA-style alignment + equal-power crossfade so they don't click. Stateful DTLN
+denoise, when enabled, runs once on each new chunk before that chunk is appended
+to the rolling context; the overlapping context passed to ``convert_audio`` is
+therefore already denoised and must not be denoised again.
 
 Threading model: the audio callback and the worker communicate through
 ``_InputRing`` / ``_OutputRing`` (lock-guarded deques of float32 samples);
@@ -83,12 +86,13 @@ class ChunkProcessor:
     converts context + chunk, and SOLA-crossfades the seam with the previous
     output tail."""
 
-    def __init__(self, engine: VoiceEngine, loaded: Any, stream_sr: int) -> None:
+    def __init__(self, engine: VoiceEngine, loaded: Any, stream_sr: int, denoiser: Any | None = None) -> None:
         import numpy as np  # noqa: PLC0415
 
         self._np = np
         self._engine = engine
         self._loaded = loaded
+        self._denoiser = denoiser
         self.stream_sr = int(stream_sr)
         self._context_16k = np.zeros(0, dtype=np.float32)
         self._prev_tail = np.zeros(0, dtype=np.float32)  # @ stream sr
@@ -111,17 +115,23 @@ class ChunkProcessor:
 
         stage = time.perf_counter()
         chunk_16k = soxr.resample(chunk, self.stream_sr, 16000).astype(np.float32)
+        timings["resample_16k"] = round((time.perf_counter() - stage) * 1000, 3)
+
+        if self._denoiser is not None:
+            stage = time.perf_counter()
+            chunk_16k = self._denoiser.process(chunk_16k).astype(np.float32, copy=False)
+            timings["input_denoise"] = round((time.perf_counter() - stage) * 1000, 3)
+
         self._context_16k = np.concatenate([self._context_16k, chunk_16k])
         limit = self._context_limit_16k()
         if len(self._context_16k) > limit:
             self._context_16k = self._context_16k[-limit:]
-        timings["resample_16k"] = round((time.perf_counter() - stage) * 1000, 3)
 
         from . import pipeline  # noqa: PLC0415
 
-        # Input cleanup/formant DSP runs inside convert_audio on the full
-        # rolling context, not on only the new raw chunk, so the converted tail
-        # used for stitching is derived from the same processed history.
+        # HPF/gate/formant DSP runs inside convert_audio on the full rolling
+        # context. DTLN is excluded here because the new chunk was denoised once
+        # above before joining that context.
         converted, model_sr, core_timings = pipeline.convert_audio(
             self._context_16k,
             self._loaded,
@@ -132,6 +142,7 @@ class ChunkProcessor:
             input_highpass_hz=self._engine.input_highpass_hz,
             input_gate_db=self._engine.input_gate_db,
             input_formant=self._engine.input_formant,
+            denoiser=None,
             device=self._engine.device,
         )
         timings.update(core_timings)
@@ -220,11 +231,14 @@ class RealtimeSession:
 
         engine = self._engine
         loaded = engine.load_model_sync(model_id)
+        denoiser = engine.denoiser_sync()
+        if denoiser is not None:
+            denoiser.reset()
         self.stream_sr = int(engine.server_audio_sample_rate)
         self.chunk_samples = max(1, int(engine.server_read_chunk_size)) * CHUNK_UNIT_SAMPLES
         self._input_ring = _Ring()
         self._output_ring = _Ring()
-        self._processor = ChunkProcessor(engine, loaded, self.stream_sr)
+        self._processor = ChunkProcessor(engine, loaded, self.stream_sr, denoiser=denoiser)
         with self._metrics_lock:
             self._metrics["chunk_ms"] = round(self.chunk_samples / self.stream_sr * 1000, 1)
 

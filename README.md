@@ -463,6 +463,14 @@ calls `/api/voice/engine/*` for status, settings, offline conversion, and live
 sessions. A live session frees the current arbiter resident and parks queued
 image/LLM jobs until the session stops.
 
+Optional neural microphone denoise uses breizhn/DTLN (MIT) ONNX weights under
+`models/voice/pretrain/denoise`. HFabric never downloads these implicitly; run
+the explicit fetch script when you want the `DTLN (neural)` input mode:
+
+```powershell
+python .\scripts\fetch_dtln.py
+```
+
 ### RAG workspace
 
 The RAG tab scans `models/embed` for local GGUF embedding models and starts a

@@ -16,7 +16,8 @@ models/
 |- tts/     *.gguf                        (llama-tts voice/acoustic models)
 |- transcribe/ Whisper model folders/.pt  (local transcription models)
 |- embed/   *.gguf embedding models       (RAG workspace)
-`- vision/  *.gguf + mmproj GGUF          (Vision workspace)
+|- vision/  *.gguf + mmproj GGUF          (Vision workspace)
+`- voice/   RVC slots + pretrain assets   (native voice engine)
 ```
 
 The backend scans these folders on startup:
@@ -31,6 +32,7 @@ The backend scans these folders on startup:
 | `transcribe/` | local faster-whisper folders or `.pt`/`.pth` | Whisper transcription models |
 | `embed/` | `.gguf` | RAG embedding models for llama.cpp `--embeddings` |
 | `vision/` | model `.gguf` + `mmproj*.gguf` | Multimodal models for `llama-mtmd-cli` |
+| `voice/` | RVC checkpoint slots, `pretrain/*.onnx`, `pretrain/*.pt`, optional `pretrain/denoise/*.onnx` | Native RVC voice conversion |
 
 FLUX.2 klein is a multi-file diffusers repo, not a single `.safetensors`; put the
 downloaded folder under `models/image/`, for example:
@@ -83,6 +85,22 @@ huggingface-cli download Tongyi-MAI/Z-Image-Turbo --local-dir models/image/z-ima
 
 Or run `python scripts/fetch_qwen_z_image.py` from the repository root to fetch
 both public repos.
+
+Optional DTLN neural input denoise weights are stored as:
+
+```text
+models/voice/pretrain/denoise/
+|- dtln_model_1.onnx
+`- dtln_model_2.onnx
+```
+
+Fetch them explicitly with:
+
+```powershell
+python scripts/fetch_dtln.py
+```
+
+The DTLN weights are from `breizhn/DTLN` and keep their upstream MIT license.
 
 Qwen-Image-2512 defaults to the backend's bitsandbytes 4-bit path
 (`HFAB_QWEN_IMAGE_QUANT=bnb-nf4`) because the bf16 repo is large. Z-Image-Turbo

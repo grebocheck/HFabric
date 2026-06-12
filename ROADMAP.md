@@ -150,6 +150,13 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   input-side formant/brightness with f0 compensation so the existing pitch knob
   remains the pitch control. The realtime path applies it to the rolling context
   before chunk-tail stitching; offline `/convert` accepts compact overrides.
+- [x] **P6R polish - Neural input denoise.** Added optional breizhn/DTLN
+  streaming ONNX denoise before HPF/gate/formant. Offline conversion resets and
+  runs one DTLN pass over the 16 kHz file; realtime denoises each new chunk once
+  before it enters the rolling context so overlapping context is not processed
+  twice. The optional `denoise_dtln` asset pair is listed separately and does
+  not block base engine readiness; selecting `dtln` without the weights returns
+  a 503 naming `models/voice/pretrain/denoise`.
 - [~] **P6R.4 — Live validation + legacy voice removal (gates the phase).** Code
   part done 2026-06-12: deleted the old wrapper router, launch path, settings,
   pidfile reap hook, discovery fallbacks, frontend legacy client/types/helpers,

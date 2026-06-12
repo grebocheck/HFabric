@@ -199,6 +199,7 @@ def convert(
     input_highpass_hz: int = dsp.DEFAULT_INPUT_HIGHPASS_HZ,
     input_gate_db: float = dsp.DEFAULT_INPUT_GATE_DB,
     input_formant: float = dsp.DEFAULT_INPUT_FORMANT,
+    denoiser: Any | None = None,
 ):
     import numpy as np  # noqa: PLC0415
     import soundfile as sf  # noqa: PLC0415
@@ -225,6 +226,7 @@ def convert(
         input_highpass_hz=input_highpass_hz,
         input_gate_db=input_gate_db,
         input_formant=input_formant,
+        denoiser=denoiser,
         device=device,
     )
     timings.update(core_timings)
@@ -243,6 +245,7 @@ def convert_audio(
     input_highpass_hz: int = dsp.DEFAULT_INPUT_HIGHPASS_HZ,
     input_gate_db: float = dsp.DEFAULT_INPUT_GATE_DB,
     input_formant: float = dsp.DEFAULT_INPUT_FORMANT,
+    denoiser: Any | None = None,
 ):
     """Shared conversion core: 16 kHz mono float32 array -> (audio @ model sr,
     sr, per-stage timings). The offline file path and the realtime chunk
@@ -252,9 +255,15 @@ def convert_audio(
 
     timings: dict[str, float] = {}
 
+    audio = np.asarray(audio_16k, dtype=np.float32).reshape(-1)
+    if denoiser is not None:
+        stage = time.perf_counter()
+        audio = denoiser.process(audio)
+        timings["input_denoise"] = _ms(stage)
+
     stage = time.perf_counter()
     analysis_audio, formant_factor = dsp.process_input(
-        audio_16k,
+        audio,
         input_highpass_hz=input_highpass_hz,
         input_gate_db=input_gate_db,
         input_formant=input_formant,

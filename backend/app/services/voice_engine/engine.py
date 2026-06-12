@@ -12,6 +12,8 @@ from . import assets as asset_discovery
 from . import dsp, slots
 from .f0 import F0_DETECTORS, SUPPORTED_DETECTORS
 
+INPUT_DENOISE_MODES = {"off", "dtln"}
+
 
 def _clamp_pitch(value: int) -> int:
     return max(-24, min(24, int(value)))
@@ -40,6 +42,13 @@ def _validate_f0_detector(value: str) -> str:
     return value
 
 
+def _validate_input_denoise(value: object) -> str:
+    mode = str(value or "off").strip().lower()
+    if mode not in INPUT_DENOISE_MODES:
+        raise ValueError(f"unsupported input denoise mode: {value}")
+    return mode
+
+
 def _clamp_sample_rate(value: int) -> int:
     return max(8_000, min(192_000, int(value)))
 
@@ -61,6 +70,7 @@ class ConvertParams:
     input_highpass_hz: int
     input_gate_db: float
     input_formant: float
+    input_denoise: str
 
     def public(self) -> dict[str, float | int | str]:
         return {
@@ -71,6 +81,7 @@ class ConvertParams:
             "input_highpass_hz": self.input_highpass_hz,
             "input_gate_db": self.input_gate_db,
             "input_formant": self.input_formant,
+            "input_denoise": self.input_denoise,
         }
 
 
@@ -83,6 +94,7 @@ class VoiceEngine:
         self.input_highpass_hz = dsp.clamp_input_highpass_hz(settings.voice_input_highpass_hz)
         self.input_gate_db = dsp.clamp_input_gate_db(settings.voice_input_gate_db)
         self.input_formant = dsp.clamp_input_formant(settings.voice_input_formant)
+        self.input_denoise = _validate_input_denoise(settings.voice_input_denoise)
         self.device = settings.voice_device
         self.server_input_device_id: int | None = None
         self.server_output_device_id: int | None = None
@@ -99,6 +111,7 @@ class VoiceEngine:
         self._lock = asyncio.Lock()
         self._loaded_model_id: str | None = None
         self._loaded_model = None
+        self._denoiser = None
 
     @property
     def loaded_model_id(self) -> str | None:
@@ -113,6 +126,7 @@ class VoiceEngine:
             "input_highpass_hz": self.input_highpass_hz,
             "input_gate_db": self.input_gate_db,
             "input_formant": self.input_formant,
+            "input_denoise": self.input_denoise,
             "server_input_device_id": self.server_input_device_id,
             "server_output_device_id": self.server_output_device_id,
             "server_monitor_device_id": self.server_monitor_device_id,
@@ -141,6 +155,8 @@ class VoiceEngine:
             self.input_gate_db = dsp.clamp_input_gate_db(data["input_gate_db"])
         if data.get("input_formant") is not None:
             self.input_formant = dsp.clamp_input_formant(data["input_formant"])
+        if data.get("input_denoise") is not None:
+            self.input_denoise = _validate_input_denoise(data["input_denoise"])
         if data.get("server_input_device_id") is not None:
             self.server_input_device_id = _clamp_device_id(data["server_input_device_id"])
         if data.get("server_output_device_id") is not None:
@@ -222,6 +238,7 @@ class VoiceEngine:
                     "path": item["path"],
                     "found": True,
                     "source": item["source"] or "stub",
+                    "optional": item.get("optional", False),
                 }
                 for item in found["assets"]
             ],
@@ -235,6 +252,7 @@ class VoiceEngine:
         input_highpass_hz: int | str | None = None,
         input_gate_db: float | str | None = None,
         input_formant: float | None = None,
+        input_denoise: str | None = None,
     ) -> ConvertParams:
         return ConvertParams(
             pitch=self.pitch if pitch is None else _clamp_pitch(pitch),
@@ -246,14 +264,18 @@ class VoiceEngine:
                 if input_highpass_hz is None
                 else dsp.clamp_input_highpass_hz(input_highpass_hz)
             ),
-            input_gate_db=self.input_gate_db if input_gate_db is None else dsp.clamp_input_gate_db(input_gate_db),
+            input_gate_db=(
+                self.input_gate_db if input_gate_db is None else dsp.clamp_input_gate_db(input_gate_db)
+            ),
             input_formant=self.input_formant if input_formant is None else dsp.clamp_input_formant(input_formant),
+            input_denoise=self.input_denoise if input_denoise is None else _validate_input_denoise(input_denoise),
         )
 
     async def unload(self) -> None:
         async with self._lock:
             self._loaded_model = None
             self._loaded_model_id = None
+            self._denoiser = None
             if not settings.stub_mode:
                 try:
                     import torch  # noqa: PLC0415
@@ -275,8 +297,9 @@ class VoiceEngine:
         input_highpass_hz: int | str | None = None,
         input_gate_db: float | str | None = None,
         input_formant: float | None = None,
+        input_denoise: str | None = None,
     ) -> dict:
-        params = self._params(pitch, index_ratio, protect, input_highpass_hz, input_gate_db, input_formant)
+        params = self._params(pitch, index_ratio, protect, input_highpass_hz, input_gate_db, input_formant, input_denoise)
         async with self._lock:
             if settings.stub_mode:
                 return await asyncio.to_thread(
@@ -352,7 +375,7 @@ class VoiceEngine:
         if slot is None:
             raise FileNotFoundError("voice model not found")
         assets = asset_discovery.discover_assets()
-        missing = [item["name"] for item in assets["assets"] if not item["found"]]
+        missing = [item["name"] for item in assets["assets"] if not item["found"] and not item.get("optional")]
         if missing:
             dirs = ", ".join(asset_discovery.searched_dirs())
             raise RuntimeError(f"missing required voice pretrain asset(s): {', '.join(missing)}; searched {dirs}")
@@ -362,6 +385,23 @@ class VoiceEngine:
         self._loaded_model = pipeline.load_model(slot, asset_paths, self.device)
         self._loaded_model_id = model_id
         return self._loaded_model
+
+    def denoiser_sync(self):
+        """Return the reusable DTLN denoiser for the active input mode."""
+        if self.input_denoise != "dtln":
+            return None
+        return self._dtln_denoiser_sync()
+
+    def _dtln_denoiser_sync(self):
+        paths = asset_discovery.dtln_model_paths()
+        if paths is None:
+            dirs = ", ".join(asset_discovery.denoise_searched_dirs())
+            raise RuntimeError(f"missing required DTLN denoise asset(s): denoise_dtln; searched {dirs}")
+        if self._denoiser is None:
+            from .denoise import DtlnDenoiser  # noqa: PLC0415
+
+            self._denoiser = DtlnDenoiser(paths[0], paths[1])
+        return self._denoiser
 
     def _convert_real_sync(
         self,
@@ -375,6 +415,9 @@ class VoiceEngine:
         from . import pipeline  # noqa: PLC0415
 
         loaded = self._load_real_model(model_id)
+        denoiser = self._dtln_denoiser_sync() if params.input_denoise == "dtln" else None
+        if denoiser is not None:
+            denoiser.reset()
         audio, sr, timings = pipeline.convert(
             input_path,
             loaded,
@@ -385,6 +428,7 @@ class VoiceEngine:
             input_highpass_hz=params.input_highpass_hz,
             input_gate_db=params.input_gate_db,
             input_formant=params.input_formant,
+            denoiser=denoiser,
             device=self.device,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)

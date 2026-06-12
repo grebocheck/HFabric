@@ -500,6 +500,7 @@ export interface VoiceEngineAsset {
   path: string | null;
   found: boolean;
   source: string | null;
+  optional?: boolean;
 }
 
 export interface VoiceEngineSettings {
@@ -510,6 +511,7 @@ export interface VoiceEngineSettings {
   input_highpass_hz: number;
   input_gate_db: number;
   input_formant: number;
+  input_denoise: "off" | "dtln";
   server_input_device_id: number | null;
   server_output_device_id: number | null;
   server_monitor_device_id: number | null;
@@ -531,6 +533,7 @@ export interface VoiceEngineSettingsUpdate {
   input_highpass_hz?: number | string | null;
   input_gate_db?: number | string | null;
   input_formant?: number | null;
+  input_denoise?: "off" | "dtln" | string | null;
   server_input_device_id?: number | null;
   server_output_device_id?: number | null;
   server_monitor_device_id?: number | null;
@@ -587,6 +590,7 @@ export interface VoiceEngineConvertResult {
     input_highpass_hz: number;
     input_gate_db: number;
     input_formant: number;
+    input_denoise: "off" | "dtln";
   };
 }
 

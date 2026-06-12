@@ -47,6 +47,12 @@ def _add_fake_slot() -> str:
     return "fake-slot"
 
 
+def _add_fake_pretrain() -> None:
+    settings.voice_pretrain_dir.mkdir(parents=True, exist_ok=True)
+    (settings.voice_pretrain_dir / "content_vec_500.onnx").write_bytes(b"onnx")
+    (settings.voice_pretrain_dir / "rmvpe.pt").write_bytes(b"pt")
+
+
 async def test_status_reports_stub_ready_and_fake_devices(client):
     body = (await client.get("/api/voice/engine/status")).json()
 
@@ -67,6 +73,7 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
             "input_highpass_hz": 999,
             "input_gate_db": -999,
             "input_formant": 9,
+            "input_denoise": "dtln",
             "server_input_gain": 9,
             "server_output_gain": -2,
         },
@@ -79,6 +86,7 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
     assert current["input_highpass_hz"] == 300
     assert current["input_gate_db"] == -90.0
     assert current["input_formant"] == 2.0
+    assert current["input_denoise"] == "dtln"
     assert current["server_input_gain"] == 4.0
     assert current["server_output_gain"] == 0.0
 
@@ -89,6 +97,13 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
 
     bad = await client.post("/api/voice/engine/settings", json={"f0_detector": "nope"})
     assert bad.status_code == 400
+
+    bad_denoise = await client.post("/api/voice/engine/settings", json={"input_denoise": "spectral-magic"})
+    assert bad_denoise.status_code == 400
+
+    accepted = await client.post("/api/voice/engine/settings", json={"input_denoise": "dtln"})
+    assert accepted.status_code == 200
+    assert accepted.json()["settings"]["input_denoise"] == "dtln"
 
 
 async def test_convert_round_trip_is_deterministic(client):
@@ -128,6 +143,7 @@ async def test_convert_round_trip_is_deterministic(client):
     assert first_body["params"]["input_highpass_hz"] == 120
     assert first_body["params"]["input_gate_db"] == -50.0
     assert first_body["params"]["input_formant"] == 1.5
+    assert first_body["params"]["input_denoise"] == "off"
     assert "stub_convert" in first_body["timings_ms"]
 
     first_wav = (await client.get(first_body["url"])).content
@@ -151,6 +167,23 @@ async def test_convert_enforces_upload_size_before_full_buffer(client, monkeypat
     )
 
     assert response.status_code == 413
+
+
+async def test_convert_dtln_missing_assets_returns_503_without_loading_torch(client, monkeypatch):
+    monkeypatch.setattr(settings, "stub_mode", False)
+    model_id = _add_fake_slot()
+    _add_fake_pretrain()
+
+    response = await client.post(
+        "/api/voice/engine/convert",
+        data={"model_id": model_id, "input_denoise": "dtln"},
+        files={"file": ("tone.wav", _wav_bytes(), "audio/wav")},
+    )
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "denoise_dtln" in detail
+    assert str(settings.voice_pretrain_dir / "denoise") in detail
 
 
 async def test_file_token_guard_returns_404(client):

@@ -28,6 +28,10 @@ Native voice engine (P6R):
 - ContentVec (`content_vec_500.onnx` / fp16 variant) and RMVPE (`rmvpe.pt`) are
   user-supplied local runtime assets discovered from `models/voice/pretrain` or
   a local w-okada install fallback. They are not redistributed by HFabric.
+- Optional DTLN denoise weights (`dtln_model_1.onnx`, `dtln_model_2.onnx`) are
+  user-supplied local runtime assets from `breizhn/DTLN` (MIT License),
+  discovered from `models/voice/pretrain/denoise`. They are not redistributed by
+  HFabric.
 - RVC voice checkpoints and faiss indexes under `models/voice` or
   `MMVCServerSIO/model_dir` are user-supplied voice/model assets and remain
   governed by their own licenses and consent terms.

@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--formant", type=float, default=1.0)
+    parser.add_argument("--denoise", choices=("off", "dtln"), default="off")
     return parser.parse_args()
 
 
@@ -126,6 +127,7 @@ def validate_output(
     sr: int,
     *,
     input_duration: float,
+    duration_tolerance: float = 0.20,
 ) -> float:
     if sr != 32000:
         raise AssertionError(f"{label}: expected output sr 32000, got {sr}")
@@ -138,8 +140,11 @@ def validate_output(
     if rms <= 1e-5:
         raise AssertionError(f"{label}: output RMS is too close to silence ({rms:.8f})")
     duration = len(audio) / float(sr)
-    if not (input_duration * 0.8 <= duration <= input_duration * 1.2):
-        raise AssertionError(f"{label}: duration {duration:.3f}s is not within 20% of {input_duration:.3f}s")
+    min_duration = input_duration * (1.0 - duration_tolerance)
+    max_duration = input_duration * (1.0 + duration_tolerance)
+    if not (min_duration <= duration <= max_duration):
+        pct = duration_tolerance * 100.0
+        raise AssertionError(f"{label}: duration {duration:.3f}s is not within {pct:.0f}% of {input_duration:.3f}s")
 
     t = np.arange(len(audio), dtype=np.float32) / sr
     sine = np.sin(2.0 * np.pi * 150.0 * t).astype(np.float32)
@@ -159,6 +164,27 @@ def validate_output(
 def print_timings(label: str, timings: dict[str, float]) -> None:
     ordered = ", ".join(f"{key}={value:.3f}" for key, value in timings.items())
     print(f"{label} timings_ms: {ordered}")
+    denoise_ms = timings.get("input_denoise")
+    if denoise_ms is not None:
+        dtln_hops = max(1, int(np.ceil(2.0 * 16000 / 128)))
+        hop_ms = denoise_ms / dtln_hops
+        default_realtime_chunk_hops = (133 * 128 * 16000 / 48000) / 128
+        print(
+            f"{label} denoise_cost: total_ms={denoise_ms:.3f} "
+            f"hop_ms={hop_ms:.3f} realtime_chunk_133_est_ms={hop_ms * default_realtime_chunk_hops:.3f}"
+        )
+
+
+def create_denoiser(mode: str):
+    if mode == "off":
+        return None
+    paths = asset_discovery.dtln_model_paths()
+    if paths is None:
+        searched = ", ".join(asset_discovery.denoise_searched_dirs())
+        raise AssertionError(f"missing DTLN denoise asset(s); searched {searched}")
+    from app.services.voice_engine.denoise import DtlnDenoiser  # noqa: PLC0415
+
+    return DtlnDenoiser(paths[0], paths[1])
 
 
 def slot_for_model(model_path: Path) -> dict:
@@ -190,6 +216,7 @@ def main() -> int:
     np.random.seed(1234)
     torch.manual_seed(1234)
     paths = asset_paths()
+    denoiser = create_denoiser(args.denoise)
     rmvpe_sanity(paths["rmvpe"], args.device)
     strict_load(args.model, args.device)
 
@@ -201,9 +228,13 @@ def main() -> int:
     input_duration = len(input_audio) / float(input_sr)
     sf.write(str(input_path), input_audio, input_sr, subtype="PCM_16")
     print(f"input: path={input_path} sr={input_sr} duration_s={input_duration:.3f}")
+    print(f"denoise: {args.denoise}")
 
     loaded = pipeline.load_model(slot_for_model(args.model), paths, args.device)
+    duration_tolerance = 0.05 if args.denoise == "dtln" else 0.20
 
+    if denoiser is not None:
+        denoiser.reset()
     out0, sr0, timings0 = pipeline.convert(
         input_path,
         loaded,
@@ -211,11 +242,20 @@ def main() -> int:
         index_ratio=0.0,
         protect=0.5,
         f0_detector="rmvpe",
+        denoiser=denoiser,
         device=args.device,
     )
-    validate_output("convert_index_0", out0, sr0, input_duration=input_duration)
+    validate_output(
+        "convert_index_0",
+        out0,
+        sr0,
+        input_duration=input_duration,
+        duration_tolerance=duration_tolerance,
+    )
     print_timings("convert_index_0", timings0)
 
+    if denoiser is not None:
+        denoiser.reset()
     out1, sr1, timings1 = pipeline.convert(
         input_path,
         loaded,
@@ -223,11 +263,14 @@ def main() -> int:
         index_ratio=0.5,
         protect=0.5,
         f0_detector="rmvpe",
+        denoiser=denoiser,
         device=args.device,
     )
-    validate_output("convert_index_0_5", out1, sr1, input_duration=input_duration)
+    validate_output("convert_index_0_5", out1, sr1, input_duration=input_duration, duration_tolerance=duration_tolerance)
     print_timings("convert_index_0_5", timings1)
 
+    if denoiser is not None:
+        denoiser.reset()
     out_formant, sr_formant, timings_formant = pipeline.convert(
         input_path,
         loaded,
@@ -236,9 +279,10 @@ def main() -> int:
         protect=0.5,
         f0_detector="rmvpe",
         input_formant=args.formant,
+        denoiser=denoiser,
         device=args.device,
     )
-    validate_output("convert_formant", out_formant, sr_formant, input_duration=input_duration)
+    validate_output("convert_formant", out_formant, sr_formant, input_duration=input_duration, duration_tolerance=0.05)
     print_timings("convert_formant", timings_formant)
     formant_duration = len(out_formant) / float(sr_formant)
     if not (input_duration * 0.95 <= formant_duration <= input_duration * 1.05):
@@ -251,10 +295,13 @@ def main() -> int:
         f"formant_centroid: base_hz={base_centroid:.3f} "
         f"formant_{args.formant:+.2f}_hz={formant_centroid:.3f}"
     )
-    if args.formant > 0 and formant_centroid <= base_centroid:
-        raise AssertionError("positive formant did not raise converted spectral centroid")
-    if args.formant < 0 and formant_centroid >= base_centroid:
-        raise AssertionError("negative formant did not lower converted spectral centroid")
+    if args.denoise == "off":
+        if args.formant > 0 and formant_centroid <= base_centroid:
+            raise AssertionError("positive formant did not raise converted spectral centroid")
+        if args.formant < 0 and formant_centroid >= base_centroid:
+            raise AssertionError("negative formant did not lower converted spectral centroid")
+    else:
+        print("formant_centroid: direction gate skipped because neural denoise changes spectral balance")
 
     out_path = args.out if args.out.is_absolute() else ROOT / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)

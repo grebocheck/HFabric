@@ -36,6 +36,7 @@ class VoiceEngineSettingsUpdate(BaseModel):
     input_highpass_hz: int | str | None = None
     input_gate_db: float | str | None = None
     input_formant: float | None = None
+    input_denoise: str | None = None
     server_input_device_id: int | None = None
     server_output_device_id: int | None = None
     server_monitor_device_id: int | None = None
@@ -53,12 +54,16 @@ class VoiceSessionStart(BaseModel):
     model_id: str
 
 
-def _asset_error() -> str | None:
+def _asset_error(input_denoise: str | None = None) -> str | None:
     if settings.stub_mode:
         return None
     discovered = asset_discovery.discover_assets()
-    missing = [item["name"] for item in discovered["assets"] if not item["found"]]
+    missing = [item["name"] for item in discovered["assets"] if not item["found"] and not item.get("optional")]
     if not missing:
+        mode = str(input_denoise or get_engine().input_denoise).strip().lower()
+        if mode == "dtln" and asset_discovery.dtln_model_paths() is None:
+            dirs = ", ".join(asset_discovery.denoise_searched_dirs())
+            return f"missing required DTLN denoise asset(s): denoise_dtln; searched {dirs}"
         return None
     dirs = ", ".join(asset_discovery.searched_dirs())
     return f"missing required voice pretrain asset(s): {', '.join(missing)}; searched {dirs}"
@@ -146,6 +151,7 @@ async def voice_engine_convert(
     input_highpass_hz: str | None = Form(None),
     input_gate_db: str | None = Form(None),
     input_formant: float | None = Form(None),
+    input_denoise: str | None = Form(None),
 ) -> dict[str, Any]:
     engine = get_engine()
     if engine.get_model(model_id) is None:
@@ -155,7 +161,7 @@ async def voice_engine_convert(
     if not ext:
         raise HTTPException(415, "unsupported audio container; use wav, flac, or ogg")
 
-    missing = _asset_error()
+    missing = _asset_error(input_denoise)
     if missing is not None:
         raise HTTPException(503, missing)
 
@@ -175,7 +181,10 @@ async def voice_engine_convert(
                 input_highpass_hz=input_highpass_hz,
                 input_gate_db=input_gate_db,
                 input_formant=input_formant,
+                input_denoise=input_denoise,
             )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         except wave.Error as exc:
             raise HTTPException(415, f"unsupported or corrupt WAV input: {exc}") from exc
         except RuntimeError as exc:
@@ -209,7 +218,7 @@ async def voice_engine_session_start(
         raise HTTPException(409, "a voice session is already live")
     if worker.running_job_id:
         raise HTTPException(409, f"GPU job is still running ({worker.running_job_id}); wait or stop it first")
-    missing = _asset_error()
+    missing = _asset_error(engine.input_denoise)
     if missing is not None:
         raise HTTPException(503, missing)
     await arbiter.free_all()

@@ -18,6 +18,7 @@ import {
 } from "./VoicePanelParts";
 import {
   deviceName,
+  denoiseOptions,
   f0Options,
   formatMs,
   inputHighpassOptions,
@@ -36,6 +37,7 @@ import type { VoiceEngineAsset, VoiceEngineConvertResult, VoiceEngineSettingsUpd
 
 const field = "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm outline-none focus:border-accent";
 const assetSearchHint = "Place content_vec_500.onnx and rmvpe.pt in models/voice/pretrain.";
+const denoiseAssetHint = "Place dtln_model_1.onnx and dtln_model_2.onnx in models/voice/pretrain/denoise.";
 const modelDirHint = "models/voice";
 
 const nativeF0Options = f0Options.map((option) => (
@@ -72,6 +74,7 @@ function parseApiError(err: unknown): string {
 }
 
 function assetTitle(asset: VoiceEngineAsset): string {
+  if (!asset.found && asset.name === "denoise_dtln") return denoiseAssetHint;
   return asset.found ? (asset.path ?? asset.name) : assetSearchHint;
 }
 
@@ -91,6 +94,7 @@ export function VoicePanel() {
   const [formantShift, setFormantShift] = useState(0);
   const [inputGateDb, setInputGateDb] = useState(-60);
   const [inputHighpassHz, setInputHighpassHz] = useState(80);
+  const [inputDenoise, setInputDenoise] = useState<"off" | "dtln">("off");
   const [indexRatio, setIndexRatio] = useState(1);
   const [protect, setProtect] = useState(0.5);
   const [f0Detector, setF0Detector] = useState("rmvpe");
@@ -193,6 +197,7 @@ export function VoicePanel() {
     setOfflineFormant(next.formantShift);
     setInputGateDb(next.inputGateDb);
     setInputHighpassHz(next.inputHighpassHz);
+    setInputDenoise(next.inputDenoise);
     setIndexRatio(next.indexRatio);
     setProtect(next.protect);
     setF0Detector(next.f0Detector);
@@ -261,6 +266,7 @@ export function VoicePanel() {
     formantShift,
     inputGateDb,
     inputHighpassHz,
+    inputDenoise,
     indexRatio,
     protect,
     f0Detector,
@@ -345,6 +351,7 @@ export function VoicePanel() {
     form.append("model_id", offlineModelId);
     form.append("pitch", String(offlinePitch));
     form.append("input_formant", String(offlineFormant));
+    form.append("input_denoise", inputDenoise);
     setOfflineBusy(true);
     setOfflineError("");
     setOfflineResult(null);
@@ -639,7 +646,17 @@ export function VoicePanel() {
 
           <div className="md:col-span-2 xl:col-span-4">
             <div className="text-xs uppercase tracking-wide text-white/40">Input clean-up & character</div>
-            <div className="mt-2 grid gap-3 md:grid-cols-3">
+            <div className="mt-2 grid gap-3 md:grid-cols-4">
+              <label>
+                <div className="text-xs text-white/45">Denoise</div>
+                <Select
+                  value={inputDenoise}
+                  onChange={(value) => setInputDenoise(value === "dtln" ? "dtln" : "off")}
+                  className="mt-1.5"
+                  options={denoiseOptions}
+                />
+              </label>
+
               <div>
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs text-white/45">Formant</div>
@@ -853,6 +870,7 @@ export function VoicePanel() {
               <span className="text-xs text-white/45">
                 {offlineResult.sample_rate} Hz / {offlineResult.duration_s.toFixed(2)} s / pitch {offlineResult.params.pitch}
                 {" / "}formant {offlineResult.params.input_formant.toFixed(2)}
+                {" / "}denoise {offlineResult.params.input_denoise}
               </span>
             </div>
             <div className="mt-2 text-xs text-white/40">{timingsLine(offlineResult.timings_ms)}</div>
