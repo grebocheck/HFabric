@@ -43,7 +43,12 @@ if not _GGUF.exists():
     _GGUF.write_bytes(b"GGUF\x00")
 
 os.environ.setdefault("HFAB_STUB_MODE", "true")
-os.environ.pop("HFAB_API_TOKEN", None)
+# Popping is not enough: pydantic-settings also reads the repo .env FILE, so a
+# developer's real HFAB_API_TOKEN/HFAB_HOST would leak into the suite (every
+# request suddenly 401s). Env vars take precedence over env_file - pin them.
+os.environ["HFAB_API_TOKEN"] = ""
+os.environ["HFAB_HOST"] = "127.0.0.1"
+os.environ["HFAB_PORT"] = "8260"
 os.environ["HFAB_DB_PATH"] = str(_TMP / "hfabric_test.db")
 os.environ["HFAB_DATA_DIR"] = str(_TMP / "data")
 os.environ["HFAB_OUTPUTS_DIR"] = str(_TMP / "outputs")

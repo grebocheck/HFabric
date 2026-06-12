@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import tempfile
 from typing import Any
 import wave
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..config import settings
+from ..core.arbiter import GpuArbiter
+from ..core.scheduler import Worker
 from ..services.voice_engine import assets as asset_discovery
-from ..services.voice_engine import devices, storage
+from ..services.voice_engine import devices, realtime, storage
 from ..services.voice_engine.engine import get_engine
 from ..util import uploads as uploads_util
+from .deps import get_arbiter, get_worker
 
 router = APIRouter(prefix="/api/voice/engine", tags=["voice-engine"])
 
@@ -33,6 +37,15 @@ class VoiceEngineSettingsUpdate(BaseModel):
     server_input_gain: float | None = None
     server_output_gain: float | None = None
     server_monitor_gain: float | None = None
+    server_audio_sample_rate: int | None = None
+    server_read_chunk_size: int | None = None
+    cross_fade_overlap_size: float | None = None
+    extra_convert_size: float | None = None
+    pass_through: bool | None = None
+
+
+class VoiceSessionStart(BaseModel):
+    model_id: str
 
 
 def _asset_error() -> str | None:
@@ -51,6 +64,7 @@ def _status_payload() -> dict[str, Any]:
     asset_info = engine.assets()
     models = engine.models()
     ready = True if settings.stub_mode else asset_info["ready"] and bool(models)
+    session = realtime.current_session()
     return {
         "engine": "native-rvc",
         "stub": settings.stub_mode,
@@ -61,6 +75,17 @@ def _status_payload() -> dict[str, Any]:
         "device": engine.device,
         "settings": engine.settings_payload(),
         "loaded_model": engine.loaded_model_id,
+        "live": session is not None,
+        "session_error": session.error if session is not None else None,
+        "metrics": session.metrics() if session is not None else {
+            "input_vu": 0.0,
+            "output_vu": 0.0,
+            "timings_ms": {},
+            "total_ms": None,
+            "chunk_ms": None,
+            "overruns": 0,
+            "underruns": 0,
+        },
     }
 
 
@@ -154,6 +179,43 @@ async def voice_engine_convert(
         "url": f"/api/voice/engine/file/{token}",
         **result,
     }
+
+
+@router.post("/session/start")
+async def voice_engine_session_start(
+    body: VoiceSessionStart,
+    arbiter: GpuArbiter = Depends(get_arbiter),
+    worker: Worker = Depends(get_worker),
+) -> dict[str, Any]:
+    """Start a live native voice session. The session pins the GPU, so the
+    arbiter resident is freed first and the worker parks queued jobs (voice
+    lane) until the session stops."""
+    engine = get_engine()
+    if engine.get_model(body.model_id) is None:
+        raise HTTPException(404, "voice model not found")
+    if realtime.session_active():
+        raise HTTPException(409, "a voice session is already live")
+    if worker.running_job_id:
+        raise HTTPException(409, f"GPU job is still running ({worker.running_job_id}); wait or stop it first")
+    missing = _asset_error()
+    if missing is not None:
+        raise HTTPException(503, missing)
+    await arbiter.free_all()
+    try:
+        await asyncio.to_thread(realtime.start_session, engine, body.model_id)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface device/model failures clearly
+        raise HTTPException(500, f"could not start the voice session: {exc}") from exc
+    return _status_payload()
+
+
+@router.post("/session/stop")
+async def voice_engine_session_stop(worker: Worker = Depends(get_worker)) -> dict[str, Any]:
+    stopped = await asyncio.to_thread(realtime.stop_session)
+    if stopped:
+        worker.notify()
+    return _status_payload()
 
 
 @router.get("/file/{token}")

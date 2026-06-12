@@ -191,7 +191,6 @@ def convert(
     import numpy as np  # noqa: PLC0415
     import soundfile as sf  # noqa: PLC0415
     import soxr  # noqa: PLC0415
-    import torch  # noqa: PLC0415
 
     timings: dict[str, float] = {}
 
@@ -203,6 +202,37 @@ def convert(
     stage = time.perf_counter()
     audio_16k = mono if int(sr) == 16000 else soxr.resample(mono, int(sr), 16000).astype(np.float32)
     timings["resample_16k"] = _ms(stage)
+
+    out, out_sr, core_timings = convert_audio(
+        audio_16k,
+        loaded,
+        pitch=pitch,
+        index_ratio=index_ratio,
+        protect=protect,
+        f0_detector=f0_detector,
+        device=device,
+    )
+    timings.update(core_timings)
+    return out, out_sr, timings
+
+
+def convert_audio(
+    audio_16k,
+    loaded: LoadedVoiceModel,
+    *,
+    pitch: int,
+    index_ratio: float,
+    protect: float,
+    f0_detector: str,
+    device: str,
+):
+    """Shared conversion core: 16 kHz mono float32 array -> (audio @ model sr,
+    sr, per-stage timings). The offline file path and the realtime chunk
+    processor both run through here so their outputs can never diverge."""
+    import numpy as np  # noqa: PLC0415
+    import torch  # noqa: PLC0415
+
+    timings: dict[str, float] = {}
 
     stage = time.perf_counter()
     base_features = loaded.content_vec.extract(audio_16k)

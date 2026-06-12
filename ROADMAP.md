@@ -112,13 +112,23 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   for a 2 s clip (CPU ~320 ms) — realtime-viable. *Note:* first fake-synth
   attempt was rejected at review; the smoke script is now the permanent
   anti-fake gate for this code.
-- [ ] **P6R.2 — Realtime session.** `sounddevice` duplex stream (ring buffer +
-  worker thread), chunked pipeline with SOLA/crossfade, monitor output ("hear
-  myself") with its own gain, pass-through/PTT, per-stage timings + VU metrics
-  into `/status`, and the **voice lane**: session start frees the arbiter
-  resident and parks GPU jobs (same contract the worker already checks via
-  `voice_lane_active()`). Latency target: report measured round-trip at 3 chunk
-  sizes.
+- [~] **P6R.2 — Realtime session.** *Backend shipped:* `realtime.py` —
+  `ChunkProcessor` (rolling 16 k context capped at 8 s, shared
+  `pipeline.convert_audio` core, SOLA seam alignment + equal-power crossfade)
+  and `RealtimeSession` (sounddevice duplex stream, lock-guarded sample rings,
+  worker thread, separate monitor OutputStream with its own gain, pass-through,
+  per-chunk VU/timings/over-underrun metrics, bounded input queue); engine
+  gained the realtime knobs (`server_audio_sample_rate`, `server_read_chunk_
+  size`, `cross_fade_overlap_size`, `extra_convert_size`, `pass_through` —
+  settings apply per-chunk without restart); API `session/start` (409 on busy
+  GPU, frees the arbiter resident) / `session/stop` / `live`+`metrics` in
+  `/status`; the worker's voice lane now parks GPU jobs for EITHER the native
+  session or the legacy w-okada lane. Stub session + 3 tests incl. an
+  integration test proving a queued image job parks while live and runs after
+  stop (129 backend tests green). Also fixed: the test suite now pins
+  `HFAB_API_TOKEN`/`HFAB_HOST` so a developer's real `.env` can't leak 401s
+  into it. *Remaining:* `scripts/voice_realtime_bench.py` latency numbers at
+  chunk 96/133/192 (cpu + cuda) and real-device validation (P6R.4).
 - [ ] **P6R.3 — UI rewire to the native engine.** Point the Voice tab's
   `api/client.ts` calls at `/api/voice/engine/*`; the guided flow, device
   pickers, monitor toggle, and auto-apply stay — "Engine" step becomes asset +

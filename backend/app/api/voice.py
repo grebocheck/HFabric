@@ -435,7 +435,13 @@ async def voice_status() -> dict:
 
 
 async def voice_lane_active() -> bool:
-    """Used by the worker to keep HFabric GPU jobs queued during live voice."""
+    """Used by the worker to keep HFabric GPU jobs queued during live voice.
+    Both lanes count: the native realtime session (P6R.2) and the legacy
+    w-okada server-audio mode (until P6R.4 removes it)."""
+    from ..services.voice_engine import realtime  # noqa: PLC0415
+
+    if realtime.session_active():
+        return True
     if _session_active:
         return True
     info = await _wokada_get("/info", timeout=0.25)

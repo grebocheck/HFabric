@@ -40,6 +40,18 @@ def _validate_f0_detector(value: str) -> str:
     return value
 
 
+def _clamp_sample_rate(value: int) -> int:
+    return max(8_000, min(192_000, int(value)))
+
+
+def _clamp_chunk_size(value: int) -> int:
+    return max(1, min(1_024, int(value)))
+
+
+def _clamp_seconds(value: float, *, min_value: float, max_value: float) -> float:
+    return max(min_value, min(max_value, float(value)))
+
+
 @dataclass
 class ConvertParams:
     pitch: int
@@ -69,6 +81,12 @@ class VoiceEngine:
         self.server_input_gain = 1.0
         self.server_output_gain = 1.0
         self.server_monitor_gain = 1.0
+        # Realtime session knobs (P6R.2); w-okada conventions kept for UI parity.
+        self.server_audio_sample_rate = 48_000
+        self.server_read_chunk_size = 133
+        self.cross_fade_overlap_size = 0.05
+        self.extra_convert_size = 2.0
+        self.pass_through = False
         self._lock = asyncio.Lock()
         self._loaded_model_id: str | None = None
         self._loaded_model = None
@@ -89,6 +107,11 @@ class VoiceEngine:
             "server_input_gain": self.server_input_gain,
             "server_output_gain": self.server_output_gain,
             "server_monitor_gain": self.server_monitor_gain,
+            "server_audio_sample_rate": self.server_audio_sample_rate,
+            "server_read_chunk_size": self.server_read_chunk_size,
+            "cross_fade_overlap_size": self.cross_fade_overlap_size,
+            "extra_convert_size": self.extra_convert_size,
+            "pass_through": self.pass_through,
         }
 
     def update_settings(self, data: dict) -> None:
@@ -115,6 +138,20 @@ class VoiceEngine:
             self.server_output_gain = _clamp_gain(data["server_output_gain"])
         if data.get("server_monitor_gain") is not None:
             self.server_monitor_gain = _clamp_gain(data["server_monitor_gain"])
+        if data.get("server_audio_sample_rate") is not None:
+            self.server_audio_sample_rate = _clamp_sample_rate(data["server_audio_sample_rate"])
+        if data.get("server_read_chunk_size") is not None:
+            self.server_read_chunk_size = _clamp_chunk_size(data["server_read_chunk_size"])
+        if data.get("cross_fade_overlap_size") is not None:
+            self.cross_fade_overlap_size = _clamp_seconds(
+                data["cross_fade_overlap_size"], min_value=0.0, max_value=1.0
+            )
+        if data.get("extra_convert_size") is not None:
+            self.extra_convert_size = _clamp_seconds(
+                data["extra_convert_size"], min_value=0.0, max_value=20.0
+            )
+        if data.get("pass_through") is not None:
+            self.pass_through = bool(data["pass_through"])
 
     def models(self) -> list[dict]:
         models = slots.discover_slots()
@@ -266,6 +303,16 @@ class VoiceEngine:
             "model_id": model_id,
             "params": params.public(),
         }
+
+    def load_model_sync(self, model_id: str):
+        """Blocking model load for the realtime session (worker-thread side).
+        In stub mode there is nothing to load — return the slot dict."""
+        if settings.stub_mode:
+            slot = self.get_model(model_id)
+            if slot is None:
+                raise FileNotFoundError("voice model not found")
+            return slot
+        return self._load_real_model(model_id)
 
     def _load_real_model(self, model_id: str):
         if self._loaded_model_id == model_id and self._loaded_model is not None:
