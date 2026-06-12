@@ -1,4 +1,4 @@
-import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceSettingsUpdate, VoiceStatus } from "../types";
+import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEngineSettingsUpdate, VoiceEngineStatus, VoiceSettingsUpdate, VoiceStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -264,6 +264,21 @@ export const api = {
   voiceStartSession: (body: VoiceSettingsUpdate) =>
     fetch("/api/voice/session/start", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }).then(j<VoiceStatus>),
   voiceStopSession: () => fetch("/api/voice/session/stop", { method: "POST" }).then(j<VoiceStatus>),
+  voiceEngineStatus: () => fetch("/api/voice/engine/status").then(j<VoiceEngineStatus>),
+  voiceEngineSettings: (body: VoiceEngineSettingsUpdate) =>
+    fetch("/api/voice/engine/settings", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<VoiceEngineStatus>),
+  voiceEngineSessionStart: (modelId: string) =>
+    fetch("/api/voice/engine/session/start", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ model_id: modelId }),
+    }).then(j<VoiceEngineStatus>),
+  voiceEngineSessionStop: () => fetch("/api/voice/engine/session/stop", { method: "POST" }).then(j<VoiceEngineStatus>),
+  voiceEngineConvert: (form: FormData) =>
+    fetch("/api/voice/engine/convert", { method: "POST", body: form })
+      .then(j<VoiceEngineConvertResult>)
+      .then((res) => ({ ...res, url: apiAssetUrl(res.url) })),
   analyzeVision: (body: { file: File; prompt: string; model_id: string; projector_id: string }) => {
     const form = new FormData();
     form.append("file", body.file);

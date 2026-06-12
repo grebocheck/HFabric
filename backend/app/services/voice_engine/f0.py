@@ -47,5 +47,15 @@ class F0Extractor:
         return np.asarray(f0, dtype=np.float32)
 
 
+_EXTRACTOR_CACHE: dict[tuple[str, str, str], F0Extractor] = {}
+
+
 def create_f0_extractor(detector: str, model_path: Path, device: str) -> F0Extractor:
-    return F0Extractor(detector, model_path, device)
+    """Memoized: the RMVPE checkpoint is ~180 MB, and the realtime path calls
+    this once per chunk — reloading it from disk each time costs ~0.5 s/chunk
+    and was the difference between realtime and not."""
+    key = (detector, str(model_path), device)
+    cached = _EXTRACTOR_CACHE.get(key)
+    if cached is None:
+        cached = _EXTRACTOR_CACHE[key] = F0Extractor(detector, model_path, device)
+    return cached

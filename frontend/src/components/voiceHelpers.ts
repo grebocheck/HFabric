@@ -1,4 +1,4 @@
-import type { VoiceAudioDevice, VoiceModel, VoiceSettingsUpdate } from "../types";
+import type { VoiceAudioDevice, VoiceEngineSettings, VoiceEngineSettingsUpdate, VoiceModel, VoiceSettingsUpdate } from "../types";
 
 export const f0Options = [
   { value: "rmvpe_onnx", label: "RMVPE ONNX" },
@@ -95,6 +95,62 @@ export function routingSettingsPatch(state: VoiceRoutingState): VoiceSettingsUpd
     server_output_gain: state.outputGain,
     server_monitor_gain: state.monitorGain,
   };
+}
+
+export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceEngineSettings, unknown>>): VoiceControlState {
+  const f0 = String(settings.f0_detector ?? "rmvpe");
+  return {
+    pitch: num(settings.pitch, 0),
+    formantShift: 0,
+    indexRatio: num(settings.index_ratio, 1),
+    protect: num(settings.protect, 0.5),
+    f0Detector: f0Options.some((o) => o.value === f0) ? f0 : "rmvpe",
+    passThrough: Boolean(settings.pass_through),
+    inputDeviceId: settings.server_input_device_id == null ? -1 : num(settings.server_input_device_id, -1),
+    outputDeviceId: settings.server_output_device_id == null ? -1 : num(settings.server_output_device_id, -1),
+    monitorDeviceId: settings.server_monitor_device_id == null ? -1 : num(settings.server_monitor_device_id, -1),
+    sampleRate: num(settings.server_audio_sample_rate, 48000),
+    readChunkSize: num(settings.server_read_chunk_size, 133),
+    crossFadeOverlap: num(settings.cross_fade_overlap_size, 0.05),
+    extraConvert: num(settings.extra_convert_size, 2),
+    inputGain: num(settings.server_input_gain, 1),
+    outputGain: num(settings.server_output_gain, 1),
+    monitorGain: num(settings.server_monitor_gain, 1),
+  };
+}
+
+export function nativeRoutingSettingsPatch(state: VoiceRoutingState): VoiceEngineSettingsUpdate {
+  return {
+    server_input_device_id: state.inputDeviceId >= 0 ? state.inputDeviceId : null,
+    server_output_device_id: state.outputDeviceId >= 0 ? state.outputDeviceId : null,
+    server_monitor_device_id: state.monitorDeviceId,
+    server_audio_sample_rate: state.sampleRate,
+    server_read_chunk_size: state.readChunkSize,
+    cross_fade_overlap_size: state.crossFadeOverlap,
+    extra_convert_size: state.extraConvert,
+    server_input_gain: state.inputGain,
+    server_output_gain: state.outputGain,
+    server_monitor_gain: state.monitorGain,
+  };
+}
+
+export function nativeTuningSettingsPatch(state: Pick<
+  VoiceControlState,
+  "pitch" | "indexRatio" | "protect" | "f0Detector" | "passThrough"
+>): VoiceEngineSettingsUpdate {
+  return {
+    pitch: state.pitch,
+    index_ratio: state.indexRatio,
+    protect: state.protect,
+    f0_detector: state.f0Detector,
+    pass_through: state.passThrough,
+  };
+}
+
+export function selectedNativeModelId(models: VoiceModel[], current: string, loaded: string | null | undefined): string {
+  if (current && models.some((m) => m.id === current)) return current;
+  if (loaded && models.some((m) => m.id === loaded)) return loaded;
+  return models[0]?.id ?? "";
 }
 
 export function selectedModelId(models: VoiceModel[], selectedSlot: string | null): string {

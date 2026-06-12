@@ -1,4 +1,4 @@
-import type { VoiceStatus } from "../types";
+import type { VoiceEngineStatus, VoiceStatus } from "../types";
 import { formatMs, meter, timingLabels, waveformSlots } from "./voiceHelpers";
 
 export type MeterSample = {
@@ -59,11 +59,29 @@ export function WaveformMonitor({ samples }: { samples: MeterSample[] }) {
   );
 }
 
-export function PerformanceBreakdown({ metrics }: { metrics?: VoiceStatus["metrics"] }) {
-  const timings = (metrics?.timings_ms ?? []).filter((value) => Number.isFinite(value)).slice(0, 6);
+type VoiceMetrics = VoiceStatus["metrics"] | VoiceEngineStatus["metrics"];
+
+function timingEntries(metrics?: VoiceMetrics): { label: string; value: number }[] {
+  const raw = metrics?.timings_ms;
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((value) => Number.isFinite(value))
+      .slice(0, 6)
+      .map((value, index) => ({ label: timingLabels[index] ?? `stage ${index + 1}`, value }));
+  }
+  return Object.entries(raw ?? {})
+    .filter(([, value]) => Number.isFinite(value))
+    .slice(0, 6)
+    .map(([label, value]) => ({ label, value: Number(value) }));
+}
+
+export function PerformanceBreakdown({ metrics }: { metrics?: VoiceMetrics }) {
+  const timings = timingEntries(metrics);
   const total = metrics?.total_ms ?? null;
   const chunk = metrics?.chunk_ms ?? null;
-  const max = Math.max(1, Number(total ?? 0), Number(chunk ?? 0), ...timings);
+  const max = Math.max(1, Number(total ?? 0), Number(chunk ?? 0), ...timings.map((entry) => entry.value));
+  const overruns = "overruns" in (metrics ?? {}) ? Number((metrics as VoiceEngineStatus["metrics"]).overruns ?? 0) : 0;
+  const underruns = "underruns" in (metrics ?? {}) ? Number((metrics as VoiceEngineStatus["metrics"]).underruns ?? 0) : 0;
 
   return (
     <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
@@ -74,15 +92,17 @@ export function PerformanceBreakdown({ metrics }: { metrics?: VoiceStatus["metri
       <div className="mt-3 grid grid-cols-2 gap-2">
         <MetricPill label="chunk" value={formatMs(chunk)} />
         <MetricPill label="total" value={formatMs(total)} />
+        <MetricPill label="overruns" value={String(overruns)} />
+        <MetricPill label="underruns" value={String(underruns)} />
       </div>
       <div className="mt-3 flex flex-col gap-2">
         {timings.length === 0 ? (
           <div className="rounded border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white/35">waiting for stages</div>
         ) : (
-          timings.map((value, index) => (
-            <div key={`${index}-${value}`} className="min-w-0">
+          timings.map(({ label, value }) => (
+            <div key={`${label}-${value}`} className="min-w-0">
               <div className="flex items-center justify-between gap-3 text-[11px]">
-                <span className="truncate uppercase tracking-wide text-white/35">{timingLabels[index] ?? `stage ${index + 1}`}</span>
+                <span className="truncate uppercase tracking-wide text-white/35">{label}</span>
                 <span className="shrink-0 font-mono text-white/55">{formatMs(value)}</span>
               </div>
               <div className="mt-1 h-1 rounded-full bg-white/10">

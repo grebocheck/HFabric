@@ -7,10 +7,14 @@ import {
   formatMs,
   latencyPresets,
   meter,
+  nativeRoutingSettingsPatch,
+  nativeSettingsToVoiceState,
+  nativeTuningSettingsPatch,
   num,
   perfSummary,
   resolveMonitorDeviceId,
   routingSettingsPatch,
+  selectedNativeModelId,
   selectedModelId,
   settingsToVoiceState,
 } from "./voiceHelpers";
@@ -113,6 +117,78 @@ describe("settings coercion", () => {
     });
   });
 
+  it("maps native snake_case settings and preserves unselected input/output devices as null patches", () => {
+    expect(nativeSettingsToVoiceState({
+      pitch: "2",
+      index_ratio: "0.25",
+      protect: "0.4",
+      f0_detector: "rmvpe",
+      pass_through: true,
+      server_input_device_id: null,
+      server_output_device_id: 5,
+      server_monitor_device_id: -1,
+      server_audio_sample_rate: 48000,
+      server_read_chunk_size: 192,
+      cross_fade_overlap_size: 0.08,
+      extra_convert_size: 2,
+      server_input_gain: 1.1,
+      server_output_gain: 0.8,
+      server_monitor_gain: 0.6,
+    })).toMatchObject({
+      pitch: 2,
+      formantShift: 0,
+      indexRatio: 0.25,
+      protect: 0.4,
+      f0Detector: "rmvpe",
+      passThrough: true,
+      inputDeviceId: -1,
+      outputDeviceId: 5,
+      monitorDeviceId: -1,
+      readChunkSize: 192,
+      extraConvert: 2,
+    });
+
+    expect(nativeRoutingSettingsPatch({
+      inputDeviceId: -1,
+      outputDeviceId: -1,
+      monitorDeviceId: -1,
+      sampleRate: 48000,
+      readChunkSize: 133,
+      crossFadeOverlap: 0.05,
+      extraConvert: 2,
+      inputGain: 1,
+      outputGain: 1,
+      monitorGain: 0.5,
+    })).toEqual({
+      server_input_device_id: null,
+      server_output_device_id: null,
+      server_monitor_device_id: -1,
+      server_audio_sample_rate: 48000,
+      server_read_chunk_size: 133,
+      cross_fade_overlap_size: 0.05,
+      extra_convert_size: 2,
+      server_input_gain: 1,
+      server_output_gain: 1,
+      server_monitor_gain: 0.5,
+    });
+  });
+
+  it("builds a native tuning settings patch", () => {
+    expect(nativeTuningSettingsPatch({
+      pitch: -3,
+      indexRatio: 0.4,
+      protect: 0.2,
+      f0Detector: "rmvpe",
+      passThrough: false,
+    })).toEqual({
+      pitch: -3,
+      index_ratio: 0.4,
+      protect: 0.2,
+      f0_detector: "rmvpe",
+      pass_through: false,
+    });
+  });
+
   it("num returns finite numbers only", () => {
     expect(num("4", 0)).toBe(4);
     expect(num("no", 7)).toBe(7);
@@ -148,6 +224,9 @@ describe("formatters and constants", () => {
     expect(selectedModelId([model({ id: "a", slot: "1" }), model({ id: "b", slot: "2" })], "2")).toBe("b");
     expect(selectedModelId([model({ id: "a", slot: "1" })], "missing")).toBe("a");
     expect(selectedModelId([], null)).toBe("");
+    expect(selectedNativeModelId([model({ id: "a" }), model({ id: "b" })], "b", "a")).toBe("b");
+    expect(selectedNativeModelId([model({ id: "a" }), model({ id: "b" })], "missing", "b")).toBe("b");
+    expect(selectedNativeModelId([], "", "b")).toBe("");
   });
 
   it("summarizes performance and formats sizes/timings/meters", () => {

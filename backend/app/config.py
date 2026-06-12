@@ -159,10 +159,12 @@ class Settings(BaseSettings):
     vision_gpu_layers: int = 0
     vision_timeout_seconds: int = 900
     vision_max_upload_mb: int = 64
-    # Voice changer (P6, RVC w-okada-style). CPU-first by default so an offline
-    # conversion does not bypass the shared GPU arbiter; realtime (P6.2) will get
-    # its own coordinated voice lane.
-    voice_device: str = "cpu"
+    # Voice changer (P6R, native RVC). CUDA by default: the realtime session is
+    # arbiter-coordinated (frees the resident + parks GPU jobs via the voice
+    # lane), and the P6R.2 bench shows CPU only sustains realtime at chunk 192
+    # while CUDA has ~2.7x headroom at chunk 133. The synthesizer itself is
+    # tiny (~60 MB VRAM); ContentVec stays on onnxruntime-CPU either way.
+    voice_device: str = "cuda"
     voice_timeout_seconds: int = 600
     voice_max_upload_mb: int = 64
     voice_pitch: int = 0

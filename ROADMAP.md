@@ -112,7 +112,7 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   for a 2 s clip (CPU ~320 ms) — realtime-viable. *Note:* first fake-synth
   attempt was rejected at review; the smoke script is now the permanent
   anti-fake gate for this code.
-- [~] **P6R.2 — Realtime session.** *Backend shipped:* `realtime.py` —
+- [x] **P6R.2 — Realtime session.** *Backend shipped:* `realtime.py` —
   `ChunkProcessor` (rolling 16 k context capped at 8 s, shared
   `pipeline.convert_audio` core, SOLA seam alignment + equal-power crossfade)
   and `RealtimeSession` (sounddevice duplex stream, lock-guarded sample rings,
@@ -127,13 +127,28 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   integration test proving a queued image job parks while live and runs after
   stop (129 backend tests green). Also fixed: the test suite now pins
   `HFAB_API_TOKEN`/`HFAB_HOST` so a developer's real `.env` can't leak 401s
-  into it. *Remaining:* `scripts/voice_realtime_bench.py` latency numbers at
-  chunk 96/133/192 (cpu + cuda) and real-device validation (P6R.4).
-- [ ] **P6R.3 — UI rewire to the native engine.** Point the Voice tab's
-  `api/client.ts` calls at `/api/voice/engine/*`; the guided flow, device
-  pickers, monitor toggle, and auto-apply stay — "Engine" step becomes asset +
-  model readiness (no external server to start), "Open w-okada UI" disappears.
-  voiceHelpers tests updated.
+  into it. *Validation 2026-06-12:* `scripts/voice_realtime_bench.py` loads the
+  real `chocola_yagiyukiv2` model and feeds 20 synthetic 48 kHz chunks through
+  `ChunkProcessor`; stitched output was finite, exact-length, and within 30% RMS
+  of one-shot offline `pipeline.convert_audio` for every run. The first bench
+  exposed a per-chunk hot-path bug — `create_f0_extractor` reloaded the ~180 MB
+  RMVPE checkpoint from disk **every chunk** (~0.5 s/chunk); it is now memoized
+  per (detector, path, device). After the fix, **CUDA is realtime at every
+  chunk size**: 96/133/192 → mean/p95 **224.6/374.7**, **129.3/140.8**,
+  **125.5/141.4** ms vs chunk **256.0/354.7/512.0** ms (chunk 133 has ~2.7×
+  headroom). CPU is realtime only at chunk 192 (**478.9/514.5** ms vs 512 ms);
+  use CUDA (`HFAB_VOICE_DEVICE=cuda`) for live sessions. *Remaining:*
+  real-device validation with a mic lives in P6R.4.
+- [x] **P6R.3 — UI rewire to the native engine.** Shipped 2026-06-12: Voice tab
+  now calls `/api/voice/engine/*`; Engine step shows native readiness, assets,
+  loaded model and cpu/cuda device; device pickers use native sounddevice
+  enumeration; live toggle starts/stops the native session and surfaces
+  `session_error` + metrics; tuning/audio controls map to native snake_case
+  settings; offline convert has file picker, voice/pitch controls, inline player,
+  download link and timings. Verification: `frontend/ npx.cmd tsc -b`,
+  `frontend/ npm.cmd test`, `backend/ .venv\Scripts\python.exe -m pytest -p
+  no:cacheprovider` (workspace temp root), and `backend/ ruff check app tests`
+  are green.
 - [ ] **P6R.4 — Live validation + w-okada removal (gates the phase).** With a
   real mic: confirm conversion + monitor output, measure round-trip latency at
   2–3 chunk sizes, confirm a queued image job parks during the session and

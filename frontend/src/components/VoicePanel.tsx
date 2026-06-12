@@ -22,22 +22,26 @@ import {
   formatMs,
   latencyPresets,
   meter,
+  nativeRoutingSettingsPatch,
+  nativeSettingsToVoiceState,
+  nativeTuningSettingsPatch,
   num,
-  perfSummary,
   resolveMonitorDeviceId,
-  routingSettingsPatch,
   sampleRates,
-  selectedModelId,
-  settingsToVoiceState,
+  selectedNativeModelId,
   waveformSlots,
 } from "./voiceHelpers";
-import type { VoiceSettingsUpdate, VoiceStatus } from "../types";
+import type { VoiceEngineAsset, VoiceEngineConvertResult, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const field = "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm outline-none focus:border-accent";
+const assetSearchHint = "Searched models/voice/pretrain first, then D:\\MMVCServerSIO\\pretrain.";
+const modelDirHint = "models/voice plus D:\\MMVCServerSIO\\model_dir fallback";
 
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
+const nativeF0Options = f0Options.map((option) => (
+  option.value === "rmvpe"
+    ? option
+    : { ...option, disabled: true, hint: "not available in native mode" }
+));
 
 function focusIsTextEntry(): boolean {
   const el = document.activeElement;
@@ -45,20 +49,47 @@ function focusIsTextEntry(): boolean {
   return ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable;
 }
 
-function routingKey(body: VoiceSettingsUpdate): string {
+function routingKey(body: VoiceEngineSettingsUpdate): string {
   return JSON.stringify(body);
 }
 
+function parseApiError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const match = raw.match(/^(\d{3})\s+([\s\S]*)$/);
+  const status = match?.[1] ?? "";
+  let detail = match?.[2] ?? raw;
+  try {
+    const parsed = JSON.parse(detail) as { detail?: unknown };
+    if (parsed.detail) detail = String(parsed.detail);
+  } catch {
+    // Keep the plain response text.
+  }
+  if (status === "415") return `Unsupported audio file: ${detail}`;
+  if (status === "503") return `Voice engine is not ready: ${detail}`;
+  if (status === "413") return `Audio file is too large: ${detail}`;
+  return detail || raw;
+}
+
+function assetTitle(asset: VoiceEngineAsset): string {
+  return asset.found ? (asset.path ?? asset.name) : assetSearchHint;
+}
+
+function timingsLine(timings: Record<string, number>): string {
+  const parts = Object.entries(timings)
+    .filter(([, value]) => Number.isFinite(value))
+    .map(([key, value]) => `${key} ${formatMs(value)}`);
+  return parts.join(" / ") || "timings unavailable";
+}
+
 export function VoicePanel() {
-  const [status, setStatus] = useState<VoiceStatus | null>(null);
+  const [status, setStatus] = useState<VoiceEngineStatus | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [modelId, setModelId] = useState("");
   const [pitch, setPitch] = useState(0);
-  const [formantShift, setFormantShift] = useState(0);
   const [indexRatio, setIndexRatio] = useState(1);
   const [protect, setProtect] = useState(0.5);
-  const [f0Detector, setF0Detector] = useState("rmvpe_onnx");
+  const [f0Detector, setF0Detector] = useState("rmvpe");
   const [passThrough, setPassThrough] = useState(false);
   const [ptt, setPtt] = useState(false);
   const [inputDeviceId, setInputDeviceId] = useState(-1);
@@ -67,24 +98,30 @@ export function VoicePanel() {
   const [sampleRate, setSampleRate] = useState(48000);
   const [readChunkSize, setReadChunkSize] = useState(133);
   const [crossFadeOverlap, setCrossFadeOverlap] = useState(0.05);
-  const [extraConvert, setExtraConvert] = useState(5);
+  const [extraConvert, setExtraConvert] = useState(2);
   const [inputGain, setInputGain] = useState(1);
   const [outputGain, setOutputGain] = useState(1);
   const [monitorGain, setMonitorGain] = useState(1);
   const [meterHistory, setMeterHistory] = useState<MeterSample[]>([]);
   const [voicesOpen, setVoicesOpen] = useState(false);
   const [routingApplyState, setRoutingApplyState] = useState<RoutingApplyState>("idle");
+  const [offlineFile, setOfflineFile] = useState<File | null>(null);
+  const [offlineModelId, setOfflineModelId] = useState("");
+  const [offlinePitch, setOfflinePitch] = useState(0);
+  const [offlineBusy, setOfflineBusy] = useState(false);
+  const [offlineError, setOfflineError] = useState("");
+  const [offlineResult, setOfflineResult] = useState<VoiceEngineConvertResult | null>(null);
   const lastAppliedRoutingKeyRef = useRef("");
   const routingApplySeq = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
-      const next = await api.voiceStatus();
+      const next = await api.voiceEngineStatus();
       setStatus(next);
       setError("");
       return next;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to load status");
+      setError(parseApiError(err) || "failed to load native voice status");
       return null;
     }
   }, []);
@@ -93,13 +130,18 @@ export function VoicePanel() {
   const inputDevices = status?.audio_devices.inputs ?? [];
   const outputDevices = status?.audio_devices.outputs ?? [];
   const selected = useMemo(() => models.find((m) => m.id === modelId), [models, modelId]);
-  const canReach = Boolean(status?.server_reachable);
-  const canControl = canReach && models.length > 0 && !busy;
-  const live = Boolean(status?.server_audio_enabled || status?.voice_lane_active);
-  const streamStarted = Boolean(status?.server_audio_started);
+  const loadedModel = useMemo(
+    () => models.find((m) => m.id === status?.loaded_model),
+    [models, status?.loaded_model],
+  );
+  const statusLoaded = Boolean(status);
+  const ready = Boolean(status?.ready);
+  const live = Boolean(status?.live);
   const monitorOn = monitorDeviceId >= 0;
+  const canApply = statusLoaded && !busy;
+  const canGoLive = ready && Boolean(modelId) && !busy;
 
-  const routingPatch = useMemo(() => routingSettingsPatch({
+  const routingPatch = useMemo(() => nativeRoutingSettingsPatch({
     inputDeviceId,
     outputDeviceId,
     monitorDeviceId,
@@ -127,19 +169,21 @@ export function VoicePanel() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
-    if (!status?.server_reachable || !live) return;
+    if (!live) return;
     const id = window.setInterval(() => {
       void refresh();
     }, 750);
     return () => window.clearInterval(id);
-  }, [live, refresh, status?.server_reachable]);
+  }, [live, refresh]);
 
   useEffect(() => {
     if (!status) return;
-    setModelId((prev) => selectedModelId(status.models, status.selected_model_slot) || prev);
-    const next = settingsToVoiceState(status.settings);
+    const nextModelId = selectedNativeModelId(status.models, modelId, status.loaded_model);
+    setModelId(nextModelId);
+    setOfflineModelId((prev) => selectedNativeModelId(status.models, prev || nextModelId, status.loaded_model) || prev);
+    const next = nativeSettingsToVoiceState(status.settings);
     setPitch(next.pitch);
-    setFormantShift(next.formantShift);
+    setOfflinePitch(next.pitch);
     setIndexRatio(next.indexRatio);
     setProtect(next.protect);
     setF0Detector(next.f0Detector);
@@ -154,8 +198,8 @@ export function VoicePanel() {
     setInputGain(next.inputGain);
     setOutputGain(next.outputGain);
     setMonitorGain(next.monitorGain);
-    lastAppliedRoutingKeyRef.current = routingKey(routingSettingsPatch(next));
-  }, [status]);
+    lastAppliedRoutingKeyRef.current = routingKey(nativeRoutingSettingsPatch(next));
+  }, [modelId, status]);
 
   useEffect(() => {
     if (!status) return;
@@ -167,7 +211,7 @@ export function VoicePanel() {
   }, [status]);
 
   useEffect(() => {
-    if (!canReach) {
+    if (!statusLoaded) {
       setRoutingApplyState("idle");
       return;
     }
@@ -189,7 +233,7 @@ export function VoicePanel() {
       setRoutingApplyState("applying");
       setError("");
       try {
-        const next = await api.voiceApplySettings(routingPatch);
+        const next = await api.voiceEngineSettings(routingPatch);
         if (seq !== routingApplySeq.current) return;
         lastAppliedRoutingKeyRef.current = requestKey;
         setStatus(next);
@@ -197,66 +241,48 @@ export function VoicePanel() {
       } catch (err) {
         if (seq !== routingApplySeq.current) return;
         setRoutingApplyState("error");
-        setError(err instanceof Error ? err.message : String(err));
+        setError(parseApiError(err));
       }
     }, 400);
     return () => window.clearTimeout(id);
-  }, [canReach, currentRoutingKey, routingPatch]);
+  }, [currentRoutingKey, routingPatch, statusLoaded]);
 
-  const body = (): VoiceSettingsUpdate => ({
-    model_id: modelId || null,
+  const tuningPatch = (): VoiceEngineSettingsUpdate => nativeTuningSettingsPatch({
     pitch,
-    formant_shift: formantShift,
-    index_ratio: indexRatio,
+    indexRatio,
     protect,
-    f0_detector: f0Detector,
-    pass_through: passThrough,
+    f0Detector,
+    passThrough,
+  });
+
+  const fullSettingsPatch = (): VoiceEngineSettingsUpdate => ({
+    ...tuningPatch(),
     ...routingPatch,
   });
 
-  async function pollForServer() {
-    for (let i = 0; i < 20; i += 1) {
-      const next = await api.voiceStatus();
-      setStatus(next);
-      if (next.server_reachable) return next;
-      await delay(1000);
-    }
-    return api.voiceStatus().then((next) => {
-      setStatus(next);
-      return next;
-    });
-  }
-
-  async function run(label: string, fn: () => Promise<VoiceStatus | null | void>) {
+  async function run(label: string, fn: () => Promise<VoiceEngineStatus | null | void>) {
     setBusy(label);
     setError("");
     try {
       const next = await fn();
       if (next) setStatus(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(parseApiError(err));
     } finally {
       setBusy("");
     }
   }
 
-  const onStartServer = () => run("start-server", async () => {
-    await api.voiceStartServer();
-    return pollForServer();
+  const onApply = () => run("apply", () => api.voiceEngineSettings(fullSettingsPatch()));
+
+  const applyPatch = (label: string, patch: VoiceEngineSettingsUpdate) => run(label, () => api.voiceEngineSettings(patch));
+
+  const onLive = (next: boolean) => run(next ? "live-on" : "live-off", async () => {
+    if (!next) return api.voiceEngineSessionStop();
+    if (!modelId) throw new Error("Select a voice model before starting live mode");
+    await api.voiceEngineSettings(fullSettingsPatch());
+    return api.voiceEngineSessionStart(modelId);
   });
-
-  const onStopServer = () => run("stop-server", async () => {
-    await api.voiceStopServer();
-    return refresh();
-  });
-
-  const onApply = () => run("apply", () => api.voiceApplySettings(body()));
-
-  const applyPatch = (label: string, patch: VoiceSettingsUpdate) => run(label, () => api.voiceApplySettings(patch));
-
-  const onLive = (next: boolean) => run(next ? "live-on" : "live-off", () => (
-    next ? api.voiceStartSession(body()) : api.voiceStopSession()
-  ));
 
   const onMonitor = (next: boolean) => {
     if (!next) {
@@ -273,12 +299,12 @@ export function VoicePanel() {
 
   const onBypass = (next: boolean) => {
     setPassThrough(next);
-    if (canReach) void applyPatch("bypass", { pass_through: next });
+    if (statusLoaded) void applyPatch("bypass", { pass_through: next });
   };
 
   const onPtt = (next: boolean) => {
     setPtt(next);
-    if (!canReach) return;
+    if (!statusLoaded) return;
     if (next) {
       setPassThrough(true);
       void applyPatch("ptt", { pass_through: true });
@@ -293,17 +319,42 @@ export function VoicePanel() {
     setExtraConvert(preset.extra);
   };
 
+  const onOfflineConvert = async () => {
+    if (!offlineFile) {
+      setOfflineError("Choose a WAV, FLAC, or OGG file first");
+      return;
+    }
+    if (!offlineModelId) {
+      setOfflineError("Choose a voice model first");
+      return;
+    }
+    const form = new FormData();
+    form.append("file", offlineFile);
+    form.append("model_id", offlineModelId);
+    form.append("pitch", String(offlinePitch));
+    setOfflineBusy(true);
+    setOfflineError("");
+    setOfflineResult(null);
+    try {
+      setOfflineResult(await api.voiceEngineConvert(form));
+    } catch (err) {
+      setOfflineError(parseApiError(err));
+    } finally {
+      setOfflineBusy(false);
+    }
+  };
+
   useEffect(() => {
-    if (!ptt || !canReach) return;
+    if (!ptt || !statusLoaded) return;
     const onDown = (event: KeyboardEvent) => {
       if (event.code !== "Space" || focusIsTextEntry() || event.repeat) return;
       event.preventDefault();
-      void api.voiceApplySettings({ pass_through: false }).then(setStatus).catch(() => {});
+      void api.voiceEngineSettings({ pass_through: false }).then(setStatus).catch(() => {});
     };
     const onUp = (event: KeyboardEvent) => {
       if (event.code !== "Space" || focusIsTextEntry()) return;
       event.preventDefault();
-      void api.voiceApplySettings({ pass_through: true }).then(setStatus).catch(() => {});
+      void api.voiceEngineSettings({ pass_through: true }).then(setStatus).catch(() => {});
     };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
@@ -311,7 +362,7 @@ export function VoicePanel() {
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
     };
-  }, [canReach, ptt]);
+  }, [ptt, statusLoaded]);
 
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-y-auto p-1">
@@ -319,7 +370,7 @@ export function VoicePanel() {
         <div>
           <h2 className="text-lg font-semibold text-white/85">Voice changer</h2>
           <p className="mt-1 text-sm text-white/45">
-            w-okada / MMVCServerSIO <span className="text-white/25">|</span> {live ? "live voice lane active" : "voice lane idle"}
+            native RVC engine <span className="text-white/25">|</span> {live ? "live voice lane active" : "voice lane idle"}
           </p>
         </div>
         <button
@@ -335,60 +386,57 @@ export function VoicePanel() {
         <div className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-200">{error}</div>
       ) : null}
 
-      <div className="grid gap-3 xl:grid-cols-[0.9fr_1.15fr_2fr_1.8fr]">
+      <div className="grid gap-3 xl:grid-cols-[1.15fr_1.05fr_2fr_1.8fr]">
         <SetupStep step="1" title="Engine" aside={(
-          <Badge color={canReach ? "bg-emerald-700/55 text-emerald-100" : "bg-white/10 text-white/55"}>
-            {canReach ? "reachable" : "offline"}
+          <Badge color={ready ? "bg-emerald-700/55 text-emerald-100" : "bg-amber-600/40 text-amber-100"}>
+            {ready ? "ready" : "missing"}
           </Badge>
         )}>
           <div className="flex flex-wrap gap-1.5">
-            <Badge color={status?.wokada_installed ? "bg-emerald-700/55 text-emerald-100" : "bg-amber-600/40 text-amber-100"}>
-              {status?.wokada_installed ? "installed" : "missing"}
+            <Badge color={status?.stub ? "bg-sky-700/50 text-sky-100" : "bg-accent/50 text-accent-fg"}>
+              {status?.stub ? "stub" : "real"}
             </Badge>
-            {status?.server_running ? <Badge color="bg-sky-700/50 text-sky-100">managed</Badge> : null}
+            <Badge>{status?.engine ?? "native-rvc"}</Badge>
           </div>
           <div className="mt-3 grid gap-1.5 text-sm">
-            <Row label="Executable" value={status?.executable ?? "not found"} ok={status?.wokada_installed} mono />
-            <Row label="Server" value={status?.server_url ?? "..."} ok={canReach} mono />
+            <Row label="Device" value={status?.device ?? "..."} ok={Boolean(status?.device)} mono />
+            <Row label="Loaded" value={loadedModel?.name ?? status?.loaded_model ?? "not loaded"} ok={Boolean(status?.loaded_model)} />
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              onClick={onStartServer}
-              disabled={!status?.wokada_installed || canReach || Boolean(busy)}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-30 disabled:hover:bg-emerald-600"
-            >
-              {busy === "start-server" ? "Starting..." : "Start server"}
-            </button>
-            <button
-              onClick={onStopServer}
-              disabled={!status?.server_running || Boolean(busy)}
-              className="rounded-md border border-red-400/35 px-3 py-1.5 text-sm font-medium text-red-100 hover:bg-red-400/10 disabled:opacity-30"
-            >
-              {busy === "stop-server" ? "Stopping..." : "Stop server"}
-            </button>
-            {canReach ? (
-              <a
-                href={status?.server_url}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-md border border-white/15 px-3 py-1.5 text-sm text-white/75 transition hover:bg-white/10 hover:text-white"
+          <div className="mt-3 grid gap-1.5">
+            {(status?.assets ?? []).map((asset) => (
+              <div
+                key={asset.name}
+                title={assetTitle(asset)}
+                className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-black/20 px-2.5 py-1.5"
               >
-                Open UI
-              </a>
-            ) : null}
+                <span className="min-w-0 truncate text-sm text-white/75">{asset.name}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <Badge color={asset.found ? "bg-emerald-700/55 text-emerald-100" : "bg-amber-600/40 text-amber-100"}>
+                    {asset.found ? "found" : "missing"}
+                  </Badge>
+                  {asset.source ? <Badge>{asset.source}</Badge> : null}
+                </span>
+              </div>
+            ))}
+            {!status?.assets?.length ? <div className="text-sm text-white/40">Loading native assets...</div> : null}
           </div>
+          {!ready ? <p className="mt-2 text-xs leading-5 text-amber-100/70">{assetSearchHint}</p> : null}
         </SetupStep>
 
         <SetupStep step="2" title="Voice" aside={<Badge>{models.length}</Badge>}>
           <Select
             value={modelId}
-            onChange={setModelId}
+            onChange={(value) => {
+              setModelId(value);
+              setOfflineModelId(value);
+            }}
             placeholder="no voices"
-            options={models.map((m) => ({ value: m.id, label: m.name, hint: `#${m.slot}` }))}
+            options={models.map((m) => ({ value: m.id, label: m.name, hint: `${m.source ?? "native"} #${m.slot}` }))}
           />
           <div className="mt-3 grid gap-1.5 text-sm">
-            <Row label="Selected" value={selected?.name ?? (status?.selected_model_slot ? `slot ${status.selected_model_slot}` : "none")} />
-            <Row label="Performance" value={perfSummary(status?.performance ?? null)} />
+            <Row label="Selected" value={selected?.name ?? "none"} />
+            <Row label="Model" value={selected ? `${selected.type}${selected.version ? ` ${selected.version}` : ""}` : "none"} />
+            <Row label="Index" value={selected?.has_index ? "available" : "none"} ok={selected?.has_index} />
           </div>
           <button
             type="button"
@@ -398,62 +446,70 @@ export function VoicePanel() {
             Voice slots
           </button>
           {voicesOpen ? (
-            <VoiceSlotList models={models} modelId={modelId} modelDir={status?.model_dir} onSelect={setModelId} />
+            <VoiceSlotList models={models} modelId={modelId} modelDir={modelDirHint} onSelect={setModelId} />
           ) : null}
         </SetupStep>
 
         <SetupStep step="3" title="Audio devices" aside={(
-          <RoutingApplyHint canReach={canReach} state={routingApplyState} />
+          <RoutingApplyHint canReach={statusLoaded} state={routingApplyState} />
         )}>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-white/40">
-            {canReach ? `${inputDevices.length} inputs / ${outputDevices.length} outputs` : "Start the engine to list devices"}
+            {statusLoaded ? `${inputDevices.length} inputs / ${outputDevices.length} outputs` : "Loading native device list"}
           </div>
           <div className="grid gap-3 md:grid-cols-3">
-            {canReach ? (
-              <>
-                <DeviceSelect
-                  label="Input"
-                  value={inputDeviceId}
-                  devices={inputDevices}
-                  fallback="No input selected"
-                  onChange={setInputDeviceId}
-                />
-                <DeviceSelect
-                  label="Output"
-                  value={outputDeviceId}
-                  devices={outputDevices}
-                  fallback="No output selected"
-                  onChange={setOutputDeviceId}
-                />
-                <MonitorSelect
-                  value={monitorDeviceId}
-                  devices={outputDevices}
-                  onChange={setMonitorDeviceId}
-                />
-              </>
+            {inputDevices.length ? (
+              <DeviceSelect
+                label="Input"
+                value={inputDeviceId}
+                devices={inputDevices}
+                fallback="No input selected"
+                onChange={setInputDeviceId}
+              />
             ) : (
-              <>
-                <OfflineDevice label="Input" />
-                <OfflineDevice label="Output" />
-                <OfflineDevice label="Monitor" />
-              </>
+              <OfflineDevice label="Input" message={statusLoaded ? "No input devices reported" : "Loading devices"} />
+            )}
+            {outputDevices.length ? (
+              <DeviceSelect
+                label="Output"
+                value={outputDeviceId}
+                devices={outputDevices}
+                fallback="No output selected"
+                onChange={setOutputDeviceId}
+              />
+            ) : (
+              <OfflineDevice label="Output" message={statusLoaded ? "No output devices reported" : "Loading devices"} />
+            )}
+            {outputDevices.length ? (
+              <MonitorSelect
+                value={monitorDeviceId}
+                devices={outputDevices}
+                onChange={setMonitorDeviceId}
+              />
+            ) : (
+              <OfflineDevice label="Monitor" message={statusLoaded ? "No output device for monitor" : "Loading devices"} />
             )}
           </div>
         </SetupStep>
 
         <SetupStep step="4" title="Go live" aside={(
-          <Badge color={streamStarted ? "bg-emerald-700/55 text-emerald-100" : live ? "bg-sky-700/50 text-sky-100" : "bg-white/10 text-white/55"}>
-            {streamStarted ? "streaming" : live ? "armed" : "off"}
+          <Badge color={live ? "bg-emerald-700/55 text-emerald-100" : "bg-white/10 text-white/55"}>
+            {live ? "live" : "off"}
           </Badge>
         )}>
           <div className="grid gap-3">
+            {status?.session_error ? (
+              <div className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-200">
+                {status.session_error}
+              </div>
+            ) : null}
+
             <div className={`rounded-md border px-3 py-2 ${live ? "border-emerald-400/30 bg-emerald-400/10" : "border-white/10 bg-black/20"}`}>
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium text-white/80">{live ? "Live voice active" : "Live voice off"}</div>
-                  <div className="mt-0.5 text-xs text-white/35">{canReach ? "server API ready" : "engine offline"}</div>
+                  <div className="mt-0.5 text-xs text-white/35">{ready ? "native engine ready" : "missing assets or voice model"}</div>
                 </div>
-                <Toggle checked={live} onChange={onLive} disabled={!canControl && !live} ariaLabel="Toggle live voice" />
+                <Toggle checked={live} onChange={onLive} disabled={!canGoLive && !live} ariaLabel="Toggle live voice" />
               </div>
             </div>
 
@@ -470,7 +526,7 @@ export function VoicePanel() {
                     {deviceName(outputDevices, monitorDeviceId, "Off")}
                   </div>
                 </div>
-                <Toggle checked={monitorOn} onChange={onMonitor} disabled={!canReach} ariaLabel="Toggle monitor" />
+                <Toggle checked={monitorOn} onChange={onMonitor} disabled={!statusLoaded || outputDevices.length === 0} ariaLabel="Toggle monitor" />
               </div>
               <div className="mt-2">
                 <div className="text-xs uppercase tracking-wide text-white/40">Monitor gain</div>
@@ -482,6 +538,11 @@ export function VoicePanel() {
               <Meter label="Input" value={meter(status?.metrics.input_vu ?? 0)} />
               <Meter label={monitorOn ? "Output / monitor" : "Output"} value={meter(status?.metrics.output_vu ?? 0)} tone="sky" />
               <LatencyMeter value={status?.metrics.total_ms ?? status?.metrics.chunk_ms} />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Badge>overruns {status?.metrics.overruns ?? 0}</Badge>
+              <Badge>underruns {status?.metrics.underruns ?? 0}</Badge>
+              <Badge>chunk {formatMs(status?.metrics.chunk_ms)}</Badge>
             </div>
           </div>
         </SetupStep>
@@ -495,7 +556,7 @@ export function VoicePanel() {
           </div>
           <button
             onClick={onApply}
-            disabled={!canControl}
+            disabled={!canApply}
             className="rounded-md border border-white/15 px-3 py-1.5 text-sm font-medium text-white/75 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
           >
             {busy === "apply" ? "Applying..." : "Apply tuning"}
@@ -505,7 +566,8 @@ export function VoicePanel() {
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label>
             <div className="text-xs uppercase tracking-wide text-white/40">F0 detector</div>
-            <Select value={f0Detector} onChange={setF0Detector} className="mt-1" options={f0Options} />
+            <Select value={f0Detector} onChange={setF0Detector} className="mt-1" options={nativeF0Options} />
+            <div className="mt-1 text-[11px] text-white/35">Only RMVPE is implemented in native mode.</div>
           </label>
 
           <label>
@@ -520,11 +582,6 @@ export function VoicePanel() {
               className={`${field} mt-1`}
             />
           </label>
-
-          <div>
-            <div className="text-xs uppercase tracking-wide text-white/40">Formant</div>
-            <Slider value={formantShift} min={-2} max={2} step={0.01} onChange={setFormantShift} />
-          </div>
 
           <div>
             <div className="text-xs uppercase tracking-wide text-white/40">Index ratio</div>
@@ -548,11 +605,11 @@ export function VoicePanel() {
 
           <div className="flex items-end justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
             <label className="flex items-center gap-2 text-xs text-white/55">
-              <Toggle checked={passThrough} onChange={onBypass} disabled={!canReach || Boolean(busy)} />
+              <Toggle checked={passThrough} onChange={onBypass} disabled={!statusLoaded || Boolean(busy)} />
               Bypass
             </label>
             <label className="flex items-center gap-2 text-xs text-white/55">
-              <Toggle checked={ptt} onChange={onPtt} disabled={!canReach} />
+              <Toggle checked={ptt} onChange={onPtt} disabled={!statusLoaded} />
               PTT
             </label>
           </div>
@@ -565,7 +622,7 @@ export function VoicePanel() {
               <button
                 key={preset.id}
                 onClick={() => onPreset(preset)}
-                disabled={!canReach || Boolean(busy)}
+                disabled={!statusLoaded || Boolean(busy)}
                 className={`rounded border px-2 py-1 text-xs transition disabled:opacity-30 ${
                   readChunkSize === preset.chunk && crossFadeOverlap === preset.crossFade && extraConvert === preset.extra
                     ? "border-accent/40 bg-accent/15 text-white"
@@ -584,11 +641,11 @@ export function VoicePanel() {
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-white/40">Audio engine</div>
             <div className="mt-1 text-xs text-white/35">
-              <RoutingApplyHint canReach={canReach} state={routingApplyState} />
+              <RoutingApplyHint canReach={statusLoaded} state={routingApplyState} />
             </div>
           </div>
-          <Badge color={streamStarted ? "bg-emerald-700/55 text-emerald-100" : "bg-white/10 text-white/55"}>
-            {streamStarted ? "streaming" : "stopped"}
+          <Badge color={live ? "bg-emerald-700/55 text-emerald-100" : "bg-white/10 text-white/55"}>
+            {live ? "live" : "stopped"}
           </Badge>
         </div>
 
@@ -627,11 +684,89 @@ export function VoicePanel() {
             <Slider value={crossFadeOverlap} min={0} max={0.2} step={0.01} onChange={setCrossFadeOverlap} />
           </div>
           <div className="grid gap-2 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm md:grid-cols-3">
-            <Row label="Input" value={canReach ? deviceName(inputDevices, inputDeviceId, "None") : "offline"} />
-            <Row label="Output" value={canReach ? deviceName(outputDevices, outputDeviceId, "None") : "offline"} />
-            <Row label="Monitor" value={canReach ? deviceName(outputDevices, monitorDeviceId, "Off") : "offline"} />
+            <Row label="Input" value={deviceName(inputDevices, inputDeviceId, "None")} />
+            <Row label="Output" value={deviceName(outputDevices, outputDeviceId, "None")} />
+            <Row label="Monitor" value={deviceName(outputDevices, monitorDeviceId, "Off")} />
           </div>
         </div>
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-surface p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-white/40">Offline convert</div>
+            <div className="mt-1 text-xs text-white/35">WAV, FLAC, or OGG through the native RVC pipeline</div>
+          </div>
+          <Badge color={ready ? "bg-emerald-700/55 text-emerald-100" : "bg-amber-600/40 text-amber-100"}>
+            {ready ? "ready" : "not ready"}
+          </Badge>
+        </div>
+
+        {offlineError ? (
+          <div className="mb-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-200">{offlineError}</div>
+        ) : null}
+
+        <div className="grid gap-3 md:grid-cols-[1.3fr_1fr_0.5fr_auto]">
+          <label>
+            <div className="text-xs uppercase tracking-wide text-white/40">Audio file</div>
+            <input
+              type="file"
+              accept=".wav,.flac,.ogg,audio/wav,audio/flac,audio/ogg"
+              onChange={(event) => setOfflineFile(event.target.files?.[0] ?? null)}
+              className={`${field} mt-1 file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white/70`}
+            />
+          </label>
+          <label>
+            <div className="text-xs uppercase tracking-wide text-white/40">Voice</div>
+            <Select
+              value={offlineModelId}
+              onChange={setOfflineModelId}
+              placeholder="no voices"
+              className="mt-1"
+              options={models.map((m) => ({ value: m.id, label: m.name, hint: m.source ?? "" }))}
+            />
+          </label>
+          <label>
+            <div className="text-xs uppercase tracking-wide text-white/40">Pitch</div>
+            <input
+              type="number"
+              min={-24}
+              max={24}
+              step={1}
+              value={offlinePitch}
+              onChange={(event) => setOfflinePitch(Number(event.target.value))}
+              className={`${field} mt-1`}
+            />
+          </label>
+          <div className="flex items-end">
+            <button
+              onClick={() => void onOfflineConvert()}
+              disabled={!ready || !offlineFile || !offlineModelId || offlineBusy}
+              className="w-full rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-30 disabled:hover:bg-emerald-600"
+            >
+              {offlineBusy ? "Converting..." : "Convert"}
+            </button>
+          </div>
+        </div>
+
+        {offlineResult ? (
+          <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
+            <audio controls src={offlineResult.url} className="w-full" />
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+              <a
+                href={offlineResult.url}
+                download
+                className="rounded-md border border-white/15 px-3 py-1.5 text-white/75 transition hover:bg-white/10 hover:text-white"
+              >
+                Download WAV
+              </a>
+              <span className="text-xs text-white/45">
+                {offlineResult.sample_rate} Hz / {offlineResult.duration_s.toFixed(2)} s / pitch {offlineResult.params.pitch}
+              </span>
+            </div>
+            <div className="mt-2 text-xs text-white/40">{timingsLine(offlineResult.timings_ms)}</div>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-white/10 bg-surface p-4">

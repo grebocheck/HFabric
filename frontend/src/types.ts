@@ -451,6 +451,7 @@ export interface VoiceModel {
   f0: boolean;
   has_index: boolean;
   size_bytes: number;
+  source?: string;
 }
 
 export interface VoiceAudioDevice {
@@ -516,6 +517,92 @@ export interface VoiceSettingsUpdate {
   server_input_gain?: number | null;
   server_output_gain?: number | null;
   server_monitor_gain?: number | null;
+}
+
+export interface VoiceEngineAsset {
+  name: string;
+  path: string | null;
+  found: boolean;
+  source: string | null;
+}
+
+export interface VoiceEngineSettings {
+  pitch: number;
+  index_ratio: number;
+  protect: number;
+  f0_detector: string;
+  server_input_device_id: number | null;
+  server_output_device_id: number | null;
+  server_monitor_device_id: number | null;
+  server_input_gain: number;
+  server_output_gain: number;
+  server_monitor_gain: number;
+  server_audio_sample_rate: number;
+  server_read_chunk_size: number;
+  cross_fade_overlap_size: number;
+  extra_convert_size: number;
+  pass_through: boolean;
+}
+
+export interface VoiceEngineSettingsUpdate {
+  pitch?: number | null;
+  index_ratio?: number | null;
+  protect?: number | null;
+  f0_detector?: string | null;
+  server_input_device_id?: number | null;
+  server_output_device_id?: number | null;
+  server_monitor_device_id?: number | null;
+  server_input_gain?: number | null;
+  server_output_gain?: number | null;
+  server_monitor_gain?: number | null;
+  server_audio_sample_rate?: number | null;
+  server_read_chunk_size?: number | null;
+  cross_fade_overlap_size?: number | null;
+  extra_convert_size?: number | null;
+  pass_through?: boolean | null;
+}
+
+export interface VoiceEngineMetrics {
+  input_vu: number;
+  output_vu: number;
+  timings_ms: Record<string, number>;
+  total_ms: number | null;
+  chunk_ms: number | null;
+  overruns: number;
+  underruns: number;
+}
+
+export interface VoiceEngineStatus {
+  engine: string;
+  stub: boolean;
+  ready: boolean;
+  assets: VoiceEngineAsset[];
+  models: VoiceModel[];
+  audio_devices: {
+    inputs: VoiceAudioDevice[];
+    outputs: VoiceAudioDevice[];
+  };
+  device: string;
+  settings: VoiceEngineSettings;
+  loaded_model: string | null;
+  live: boolean;
+  session_error: string | null;
+  metrics: VoiceEngineMetrics;
+}
+
+export interface VoiceEngineConvertResult {
+  token: string;
+  url: string;
+  duration_s: number;
+  sample_rate: number;
+  timings_ms: Record<string, number>;
+  model_id: string;
+  params: {
+    pitch: number;
+    index_ratio: number;
+    protect: number;
+    f0_detector: string;
+  };
 }
 
 export interface CodeFile {

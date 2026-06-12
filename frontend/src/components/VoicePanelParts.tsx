@@ -24,7 +24,7 @@ export function SetupStep({ step, title, aside, children }: { step: string; titl
 }
 
 export function RoutingApplyHint({ canReach, state }: { canReach: boolean; state: RoutingApplyState }) {
-  if (!canReach) return <span className="text-amber-200/70">Start the engine to list devices</span>;
+  if (!canReach) return <span className="text-amber-200/70">waiting for native status</span>;
   if (state === "pending") return <span className="text-white/45">pending...</span>;
   if (state === "applying") return <span className="text-sky-200/75">applying...</span>;
   if (state === "applied") return <span className="text-emerald-200/75">applied</span>;
@@ -90,12 +90,12 @@ export function MonitorSelect({ value, devices, onChange }: { value: number; dev
   );
 }
 
-export function OfflineDevice({ label }: { label: string }) {
+export function OfflineDevice({ label, message = "No devices reported" }: { label: string; message?: string }) {
   return (
     <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
       <div className="text-xs uppercase tracking-wide text-white/40">{label}</div>
       <div className="mt-2 rounded border border-amber-300/20 bg-amber-300/10 px-2 py-1.5 text-sm text-amber-100/75">
-        Start the engine to list devices
+        {message}
       </div>
     </div>
   );
@@ -151,6 +151,7 @@ export function VoiceSlotList({
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
             <Badge color="bg-accent/50 text-accent-fg">{m.type}{m.version ? ` ${m.version}` : ""}</Badge>
+            {m.source ? <Badge>{m.source}</Badge> : null}
             {m.f0 ? <Badge color="bg-sky-700/50 text-sky-100">f0</Badge> : null}
             {m.has_index ? <Badge color="bg-emerald-700/55 text-emerald-100">index</Badge> : <Badge>no index</Badge>}
             <span className="font-mono text-xs text-white/35">{formatBytes(m.size_bytes)}</span>
