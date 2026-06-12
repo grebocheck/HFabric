@@ -10,6 +10,7 @@ import {
   nativeRoutingSettingsPatch,
   nativeSettingsToVoiceState,
   nativeTuningSettingsPatch,
+  nativeVoicePresetSettingsPatch,
   num,
   recommendedVoicePreset,
   resolveMonitorDeviceId,
@@ -57,6 +58,8 @@ describe("settings coercion", () => {
       silence_hold_ms: "400",
       index_ratio: "0.25",
       protect: "0.4",
+      noise_scale: "0.33",
+      f0_smoothing: "0.2",
       f0_detector: "rmvpe",
       pass_through: true,
       server_input_device_id: null,
@@ -79,6 +82,8 @@ describe("settings coercion", () => {
       silenceHoldMs: 400,
       indexRatio: 0.25,
       protect: 0.4,
+      noiseScale: 0.33,
+      f0Smoothing: 0.2,
       f0Detector: "rmvpe",
       passThrough: true,
       inputDeviceId: -1,
@@ -124,6 +129,8 @@ describe("settings coercion", () => {
       silenceHoldMs: 250,
       indexRatio: 0.4,
       protect: 0.2,
+      noiseScale: 0.5,
+      f0Smoothing: 0.1,
       f0Detector: "rmvpe",
       passThrough: false,
     })).toEqual({
@@ -136,8 +143,56 @@ describe("settings coercion", () => {
       silence_hold_ms: 250,
       index_ratio: 0.4,
       protect: 0.2,
+      noise_scale: 0.5,
+      f0_smoothing: 0.1,
       f0_detector: "rmvpe",
       pass_through: false,
+    });
+  });
+
+  it("builds a voice preset settings patch without device ids", () => {
+    expect(nativeVoicePresetSettingsPatch({
+      pitch: 12,
+      speakerId: 0,
+      formantShift: 0,
+      inputGateDb: -90,
+      inputHighpassHz: 80,
+      inputDenoise: "off",
+      silenceThresholdDb: -72,
+      silenceHoldMs: 250,
+      indexRatio: 0.33,
+      protect: 0.5,
+      noiseScale: 0.66666,
+      f0Smoothing: 0,
+      f0Detector: "rmvpe",
+      sampleRate: 48000,
+      readChunkSize: 192,
+      crossFadeOverlap: 0.05,
+      extraConvert: 5,
+      inputGain: 1,
+      outputGain: 1,
+      monitorGain: 0.5,
+    })).toEqual({
+      pitch: 12,
+      speaker_id: 0,
+      input_formant: 0,
+      input_gate_db: -90,
+      input_highpass_hz: 80,
+      input_denoise: "off",
+      silence_threshold_db: -72,
+      silence_hold_ms: 250,
+      index_ratio: 0.33,
+      protect: 0.5,
+      noise_scale: 0.66666,
+      f0_smoothing: 0,
+      f0_detector: "rmvpe",
+      server_audio_sample_rate: 48000,
+      server_read_chunk_size: 192,
+      cross_fade_overlap_size: 0.05,
+      extra_convert_size: 5,
+      server_input_gain: 1,
+      server_output_gain: 1,
+      server_monitor_gain: 0.5,
     });
   });
 
@@ -195,11 +250,20 @@ describe("formatters and constants", () => {
     expect(recommendedVoicePreset).toMatchObject({
       inputDenoise: "dtln",
       inputGateDb: -90,
-      silenceThresholdDb: -48,
-      silenceHoldMs: 400,
-      indexRatio: 0.75,
+      silenceThresholdDb: -72,
+      silenceHoldMs: 250,
+      indexRatio: 0.5,
+      protect: 0.33,
+      noiseScale: 0.66666,
+      f0Smoothing: 0,
+      readChunkSize: 133,
+      crossFadeOverlap: 0.06,
+      extraConvert: 2,
       sampleRate: 48000,
     });
     expect("pitch" in recommendedVoicePreset).toBe(false);
+    // protect 0.5 would disable RVC consonant protection; quality presets must
+    // keep it strictly below 0.5 so sibilants stay crisp.
+    expect(recommendedVoicePreset.protect).toBeLessThan(0.5);
   });
 });

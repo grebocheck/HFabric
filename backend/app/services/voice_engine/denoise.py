@@ -33,6 +33,7 @@ class DtlnDenoiser:
         self._session_2: Any = None
         self._io_1: tuple[str, str, str, str] | None = None
         self._io_2: tuple[str, str, str, str] | None = None
+        self._primed = False
         self._state_1 = None
         self._state_2 = None
         self._state_1_shape = self.state_shape
@@ -47,6 +48,8 @@ class DtlnDenoiser:
         self._ola_buffer = np.zeros(self.frame_size, dtype=np.float32)
         self._pending_input = np.zeros(0, dtype=np.float32)
         self._pending_output = np.zeros(0, dtype=np.float32)
+        self._stream_drop = 0
+        self._primed = False
         self._state_1 = np.zeros(self._state_1_shape, dtype=np.float32)
         self._state_2 = np.zeros(self._state_2_shape, dtype=np.float32)
 
@@ -56,6 +59,56 @@ class DtlnDenoiser:
         import numpy as np  # noqa: PLC0415
 
         audio = np.asarray(audio_16k, dtype=np.float32).reshape(-1)
+        target_len = int(audio.size)
+        if target_len == 0:
+            return np.zeros(0, dtype=np.float32)
+
+        if not self._primed:
+            self._primed = True
+            warmup = self._warmup_audio(audio)
+            if warmup.size:
+                out = self._process_samples(np.concatenate([warmup, audio]))
+                return out[warmup.size : warmup.size + target_len].astype(np.float32, copy=False)
+
+        return self._process_samples(audio)
+
+    def process_stream(self, audio_16k):
+        """Streaming variant for the realtime chain: returns only the samples
+        actually produced so far (length may differ from the input) and never
+        inserts zero padding mid-stream. ``process`` keeps the same-length
+        contract for offline files; mixing both modes on one instance without a
+        ``reset`` is not supported."""
+        self._load()
+        import numpy as np  # noqa: PLC0415
+
+        audio = np.asarray(audio_16k, dtype=np.float32).reshape(-1)
+        if audio.size == 0:
+            return np.zeros(0, dtype=np.float32)
+
+        if not self._primed:
+            self._primed = True
+            warmup = self._warmup_audio(audio)
+            self._stream_drop = int(warmup.size)
+            if warmup.size:
+                audio = np.concatenate([warmup, audio])
+
+        self._pending_input = np.concatenate([self._pending_input, audio])
+        chunks: list[Any] = []
+        while self._pending_input.size >= self.hop_size:
+            hop = self._pending_input[: self.hop_size]
+            self._pending_input = self._pending_input[self.hop_size :]
+            chunks.append(self._process_hop(hop))
+        out = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+        if self._stream_drop > 0:
+            drop = min(self._stream_drop, out.size)
+            out = out[drop:]
+            self._stream_drop -= drop
+        return out.astype(np.float32, copy=False)
+
+    def _process_samples(self, audio):
+        import numpy as np  # noqa: PLC0415
+
+        audio = np.asarray(audio, dtype=np.float32).reshape(-1)
         target_len = int(audio.size)
         if target_len == 0:
             return np.zeros(0, dtype=np.float32)
@@ -82,6 +135,18 @@ class DtlnDenoiser:
         )
         self._pending_output = self._pending_output[:0]
         return out.astype(np.float32, copy=False)
+
+    def _warmup_audio(self, audio):
+        """Prime DTLN's STFT/LSTM state so first speech attacks are not muted."""
+        import numpy as np  # noqa: PLC0415
+
+        source = np.asarray(audio, dtype=np.float32).reshape(-1)
+        if source.size == 0:
+            return np.zeros(0, dtype=np.float32)
+        if source.size >= self.frame_size:
+            return source[: self.frame_size].copy()
+        reps = int(np.ceil(self.frame_size / max(1, source.size)))
+        return np.tile(source, reps)[: self.frame_size].astype(np.float32, copy=False)
 
     def _load(self) -> None:
         if self._session_1 is not None and self._session_2 is not None:

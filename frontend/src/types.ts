@@ -480,6 +480,7 @@ export interface VoiceModel {
   version: string;
   sampling_rate: number | null;
   f0: boolean;
+  speaker_id?: number | null;
   has_index: boolean;
   size_bytes: number;
   source?: string;
@@ -505,8 +506,11 @@ export interface VoiceEngineAsset {
 
 export interface VoiceEngineSettings {
   pitch: number;
+  speaker_id: number;
   index_ratio: number;
   protect: number;
+  noise_scale: number;
+  f0_smoothing: number;
   f0_detector: string;
   input_highpass_hz: number;
   input_gate_db: number;
@@ -534,8 +538,11 @@ export interface VoiceEngineSettings {
 
 export interface VoiceEngineSettingsUpdate {
   pitch?: number | null;
+  speaker_id?: number | null;
   index_ratio?: number | null;
   protect?: number | null;
+  noise_scale?: number | null;
+  f0_smoothing?: number | null;
   f0_detector?: string | null;
   input_highpass_hz?: number | string | null;
   input_gate_db?: number | string | null;
@@ -554,6 +561,14 @@ export interface VoiceEngineSettingsUpdate {
   cross_fade_overlap_size?: number | null;
   extra_convert_size?: number | null;
   pass_through?: boolean | null;
+}
+
+export interface VoiceEnginePreset {
+  id: string;
+  name: string;
+  settings: VoiceEngineSettingsUpdate;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface VoiceEngineMetrics {
@@ -575,6 +590,22 @@ export interface VoiceEngineSessionConfig {
   server_read_chunk_size: number;
 }
 
+export interface VoiceEngineRecordingStatus {
+  active: boolean;
+  duration_s: number;
+  samples: number;
+  sample_rate: number | null;
+}
+
+export interface VoiceEngineRecordingResult {
+  token: string;
+  url: string;
+  mp3_url: string;
+  duration_s: number;
+  sample_rate: number;
+  samples: number;
+}
+
 export interface VoiceEngineStatus {
   engine: string;
   stub: boolean;
@@ -591,20 +622,26 @@ export interface VoiceEngineStatus {
   live: boolean;
   session_config: VoiceEngineSessionConfig | null;
   session_error: string | null;
+  recording: VoiceEngineRecordingStatus;
+  recording_result?: VoiceEngineRecordingResult;
   metrics: VoiceEngineMetrics;
 }
 
 export interface VoiceEngineConvertResult {
   token: string;
   url: string;
+  mp3_url: string;
   duration_s: number;
   sample_rate: number;
   timings_ms: Record<string, number>;
   model_id: string;
   params: {
     pitch: number;
+    speaker_id: number;
     index_ratio: number;
     protect: number;
+    noise_scale: number;
+    f0_smoothing: number;
     f0_detector: string;
     input_highpass_hz: number;
     input_gate_db: number;

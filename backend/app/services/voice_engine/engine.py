@@ -24,7 +24,15 @@ def _clamp_pitch(value: int) -> int:
     return max(-24, min(24, int(value)))
 
 
+def _clamp_speaker_id(value: int) -> int:
+    return max(0, min(255, int(value)))
+
+
 def _clamp_ratio(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _clamp_noise_scale(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
@@ -69,8 +77,11 @@ def _clamp_seconds(value: float, *, min_value: float, max_value: float) -> float
 @dataclass
 class ConvertParams:
     pitch: int
+    speaker_id: int
     index_ratio: float
     protect: float
+    noise_scale: float
+    f0_smoothing: float
     f0_detector: str
     input_highpass_hz: int
     input_gate_db: float
@@ -80,8 +91,11 @@ class ConvertParams:
     def public(self) -> dict[str, float | int | str]:
         return {
             "pitch": self.pitch,
+            "speaker_id": self.speaker_id,
             "index_ratio": self.index_ratio,
             "protect": self.protect,
+            "noise_scale": self.noise_scale,
+            "f0_smoothing": self.f0_smoothing,
             "f0_detector": self.f0_detector,
             "input_highpass_hz": self.input_highpass_hz,
             "input_gate_db": self.input_gate_db,
@@ -101,8 +115,11 @@ class VoiceEngine:
 
     def _set_default_settings(self) -> None:
         self.pitch = _clamp_pitch(settings.voice_pitch)
+        self.speaker_id = _clamp_speaker_id(settings.voice_speaker_id)
         self.index_ratio = _clamp_ratio(settings.voice_index_ratio)
         self.protect = _clamp_ratio(settings.voice_protect)
+        self.noise_scale = _clamp_noise_scale(settings.voice_noise_scale)
+        self.f0_smoothing = _clamp_ratio(settings.voice_f0_smoothing)
         self.f0_detector = _validate_f0_detector(settings.voice_f0_detector)
         self.input_highpass_hz = dsp.clamp_input_highpass_hz(settings.voice_input_highpass_hz)
         self.input_gate_db = dsp.clamp_input_gate_db(settings.voice_input_gate_db)
@@ -168,8 +185,11 @@ class VoiceEngine:
     def settings_payload(self) -> dict:
         return {
             "pitch": self.pitch,
+            "speaker_id": self.speaker_id,
             "index_ratio": self.index_ratio,
             "protect": self.protect,
+            "noise_scale": self.noise_scale,
+            "f0_smoothing": self.f0_smoothing,
             "f0_detector": self.f0_detector,
             "input_highpass_hz": self.input_highpass_hz,
             "input_gate_db": self.input_gate_db,
@@ -197,10 +217,16 @@ class VoiceEngine:
     def _apply_settings(self, data: dict) -> None:
         if data.get("pitch") is not None:
             self.pitch = _clamp_pitch(data["pitch"])
+        if data.get("speaker_id") is not None:
+            self.speaker_id = _clamp_speaker_id(data["speaker_id"])
         if data.get("index_ratio") is not None:
             self.index_ratio = _clamp_ratio(data["index_ratio"])
         if data.get("protect") is not None:
             self.protect = _clamp_ratio(data["protect"])
+        if data.get("noise_scale") is not None:
+            self.noise_scale = _clamp_noise_scale(data["noise_scale"])
+        if data.get("f0_smoothing") is not None:
+            self.f0_smoothing = _clamp_ratio(data["f0_smoothing"])
         if data.get("f0_detector") is not None:
             self.f0_detector = _validate_f0_detector(str(data["f0_detector"]))
         if data.get("input_highpass_hz") is not None:
@@ -304,9 +330,12 @@ class VoiceEngine:
 
     def _params(
         self,
-        pitch: int | None,
-        index_ratio: float | None,
-        protect: float | None,
+        pitch: int | None = None,
+        speaker_id: int | None = None,
+        index_ratio: float | None = None,
+        protect: float | None = None,
+        noise_scale: float | None = None,
+        f0_smoothing: float | None = None,
         input_highpass_hz: int | str | None = None,
         input_gate_db: float | str | None = None,
         input_formant: float | None = None,
@@ -314,8 +343,11 @@ class VoiceEngine:
     ) -> ConvertParams:
         return ConvertParams(
             pitch=self.pitch if pitch is None else _clamp_pitch(pitch),
+            speaker_id=self.speaker_id if speaker_id is None else _clamp_speaker_id(speaker_id),
             index_ratio=self.index_ratio if index_ratio is None else _clamp_ratio(index_ratio),
             protect=self.protect if protect is None else _clamp_ratio(protect),
+            noise_scale=self.noise_scale if noise_scale is None else _clamp_noise_scale(noise_scale),
+            f0_smoothing=self.f0_smoothing if f0_smoothing is None else _clamp_ratio(f0_smoothing),
             f0_detector=self.f0_detector,
             input_highpass_hz=(
                 self.input_highpass_hz
@@ -350,14 +382,28 @@ class VoiceEngine:
         model_id: str,
         *,
         pitch: int | None = None,
+        speaker_id: int | None = None,
         index_ratio: float | None = None,
         protect: float | None = None,
+        noise_scale: float | None = None,
+        f0_smoothing: float | None = None,
         input_highpass_hz: int | str | None = None,
         input_gate_db: float | str | None = None,
         input_formant: float | None = None,
         input_denoise: str | None = None,
     ) -> dict:
-        params = self._params(pitch, index_ratio, protect, input_highpass_hz, input_gate_db, input_formant, input_denoise)
+        params = self._params(
+            pitch,
+            speaker_id,
+            index_ratio,
+            protect,
+            noise_scale,
+            f0_smoothing,
+            input_highpass_hz,
+            input_gate_db,
+            input_formant,
+            input_denoise,
+        )
         async with self._lock:
             if settings.stub_mode:
                 return await asyncio.to_thread(
@@ -480,8 +526,11 @@ class VoiceEngine:
             input_path,
             loaded,
             pitch=params.pitch,
+            speaker_id=params.speaker_id,
             index_ratio=params.index_ratio,
             protect=params.protect,
+            noise_scale=params.noise_scale,
+            f0_smoothing=params.f0_smoothing,
             f0_detector=params.f0_detector,
             input_highpass_hz=params.input_highpass_hz,
             input_gate_db=params.input_gate_db,

@@ -24,10 +24,19 @@ class ContentVec:
             return
         import onnxruntime as ort  # noqa: PLC0415
 
-        self._session = ort.InferenceSession(
-            str(self.model_path),
-            providers=["CPUExecutionProvider"],
-        )
+        # ContentVec dominates the realtime per-chunk budget; use the CUDA
+        # execution provider when the installed onnxruntime ships it (the
+        # plain CPU wheel does not) and fall back to CPU otherwise.
+        providers = ["CPUExecutionProvider"]
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        try:
+            self._session = ort.InferenceSession(str(self.model_path), providers=providers)
+        except Exception:  # noqa: BLE001 - missing CUDA DLLs must not break voice
+            self._session = ort.InferenceSession(
+                str(self.model_path),
+                providers=["CPUExecutionProvider"],
+            )
         input_meta = self._session.get_inputs()[0]
         outputs = self._session.get_outputs()
         output_meta = next(

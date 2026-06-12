@@ -21,6 +21,7 @@ class VoiceSlot:
     version: str
     sampling_rate: int | str | None
     f0: bool | None
+    speaker_id: int | None
     has_index: bool
     size_bytes: int
     source: str
@@ -37,6 +38,7 @@ class VoiceSlot:
             "version": self.version,
             "sampling_rate": self.sampling_rate,
             "f0": self.f0,
+            "speaker_id": self.speaker_id,
             "has_index": self.has_index,
             "size_bytes": self.size_bytes,
             "source": self.source,
@@ -93,6 +95,17 @@ def _f0(meta: dict[str, Any]) -> bool | None:
     return bool(meta.get("f0"))
 
 
+def _speaker_id(meta: dict[str, Any]) -> int | None:
+    for key in ("speakerId", "speaker_id", "sid"):
+        if key not in meta:
+            continue
+        try:
+            return max(0, int(meta[key]))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def _slot_from_dir(slot: Path, source: str, seen: set[str]) -> VoiceSlot | None:
     if slot.name.lower().endswith(".zip"):
         return None
@@ -114,6 +127,7 @@ def _slot_from_dir(slot: Path, source: str, seen: set[str]) -> VoiceSlot | None:
         version=str(meta.get("version") or ""),
         sampling_rate=_sampling_rate(meta),
         f0=_f0(meta),
+        speaker_id=_speaker_id(meta),
         has_index=index_file is not None,
         size_bytes=_dir_size(slot),
         source=source,

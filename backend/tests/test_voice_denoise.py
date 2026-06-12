@@ -57,3 +57,24 @@ def test_dtln_denoises_noisy_tone_and_keeps_stream_seam():
     second = denoiser.process(noisy[8000:])
     assert len(first) + len(second) == len(noisy)
     assert abs(float(second[0] - first[-1])) <= 0.5
+
+
+@pytest.mark.skipif(
+    not (MODEL_1.is_file() and MODEL_2.is_file() and find_spec("onnxruntime") is not None),
+    reason="local DTLN ONNX files or onnxruntime are not available",
+)
+def test_dtln_warmup_preserves_initial_attack():
+    import numpy as np
+
+    from app.services.voice_engine.denoise import DtlnDenoiser
+
+    sr = 16_000
+    t = np.arange(sr // 2, dtype=np.float32) / sr
+    tone = (0.12 * np.sin(2.0 * np.pi * 220.0 * t)).astype(np.float32)
+
+    out = DtlnDenoiser(MODEL_1, MODEL_2).process(tone)
+
+    n = int(sr * 0.016)
+    in_rms = float(np.sqrt(np.mean(np.square(tone[:n]))))
+    out_rms = float(np.sqrt(np.mean(np.square(out[:n]))))
+    assert out_rms / max(in_rms, 1e-12) >= 0.70

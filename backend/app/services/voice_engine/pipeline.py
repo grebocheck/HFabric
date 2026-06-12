@@ -56,19 +56,60 @@ def _resize_1d(values, target: int):
     return np.interp(new, old, arr).astype(np.float32)
 
 
+def _median_filter(values, width: int):
+    import numpy as np  # noqa: PLC0415
+
+    arr = np.asarray(values, dtype=np.float32).reshape(-1)
+    if width <= 1 or arr.size < width:
+        return arr.astype(np.float32, copy=True)
+    pad = width // 2
+    padded = np.pad(arr, (pad, pad), mode="edge")
+    out = np.empty_like(arr)
+    for idx in range(arr.size):
+        out[idx] = np.median(padded[idx : idx + width])
+    return out.astype(np.float32, copy=False)
+
+
+def _smooth_f0(f0, amount: float):
+    """Smooth voiced islands only so consonants stay unvoiced and crisp."""
+    import numpy as np  # noqa: PLC0415
+
+    arr = np.asarray(f0, dtype=np.float32).reshape(-1)
+    amount = max(0.0, min(1.0, float(amount)))
+    if amount <= 0.0 or arr.size < 3:
+        return arr.astype(np.float32, copy=True)
+
+    out = arr.astype(np.float32, copy=True)
+    voiced = out > 0.0
+    width = 3 if amount < 0.5 else 5
+    idx = 0
+    while idx < out.size:
+        if not voiced[idx]:
+            idx += 1
+            continue
+        start = idx
+        while idx < out.size and voiced[idx]:
+            idx += 1
+        end = idx
+        if end - start < 3:
+            continue
+        run = out[start:end]
+        median = _median_filter(run, width)
+        out[start:end] = run * (1.0 - amount) + median * amount
+    return out.astype(np.float32, copy=False)
+
+
 def _upsample_features(features):
     import numpy as np  # noqa: PLC0415
 
     feats = np.asarray(features, dtype=np.float32)
     if feats.ndim != 2:
         raise ValueError(f"ContentVec output must be [T, 768], got {feats.shape}")
-    target = max(1, feats.shape[0] * 2)
-    old = np.linspace(0.0, 1.0, num=feats.shape[0], endpoint=True)
-    new = np.linspace(0.0, 1.0, num=target, endpoint=True)
-    out = np.empty((target, feats.shape[1]), dtype=np.float32)
-    for dim in range(feats.shape[1]):
-        out[:, dim] = np.interp(new, old, feats[:, dim])
-    return out
+    # Frame-repeat, exactly like upstream RVC's F.interpolate(scale_factor=2)
+    # with the default nearest mode. The synthesizer was trained on repeated
+    # frames; linear interpolation smears consonant transients and audibly
+    # softens sibilants.
+    return np.repeat(feats, 2, axis=0)
 
 
 def _index_mix(features, index_state: dict[str, Any] | None, index_ratio: float):
@@ -125,9 +166,42 @@ class LoadedVoiceModel:
     version: str
     f0: bool
     sample_rate: int
+    speaker_count: int
+    default_speaker_id: int
     content_vec: ContentVec
     f0_model_path: Path
     index_state: dict[str, Any] | None
+
+
+def _clamp_speaker_id(value: object, speaker_count: int) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = 0
+    upper = max(0, int(speaker_count) - 1)
+    return max(0, min(upper, n))
+
+
+def _checkpoint_speaker_id(checkpoint: dict[str, Any]) -> int | None:
+    # `speakers_id` in some exports is the speaker count, not the target id.
+    # Only trust explicit sid-style fields for the default inference id.
+    for key in ("speaker_id", "speakerId", "sid"):
+        if key in checkpoint:
+            try:
+                return int(checkpoint[key])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _slot_speaker_id(slot: dict[str, Any]) -> int | None:
+    for key in ("speaker_id", "speakerId", "sid"):
+        if key in slot and slot[key] is not None:
+            try:
+                return int(slot[key])
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def load_model(slot: dict[str, Any], assets: dict[str, str], device: str) -> LoadedVoiceModel:
@@ -146,6 +220,7 @@ def load_model(slot: dict[str, Any], assets: dict[str, str], device: str) -> Loa
         f0 = bool(checkpoint.get("f0", 1))
         version = str(checkpoint.get("version") or "v1")
         sample_rate = _sample_rate(checkpoint.get("sr") or (config[-1] if config else None))
+        checkpoint_sid = _checkpoint_speaker_id(checkpoint)
     elif model_path.suffix.lower() == ".safetensors":
         from safetensors.torch import load_file  # noqa: PLC0415
 
@@ -154,6 +229,7 @@ def load_model(slot: dict[str, Any], assets: dict[str, str], device: str) -> Loa
         f0 = bool(slot.get("f0", True))
         version = str(slot.get("version") or "v2")
         sample_rate = _sample_rate(slot.get("sampling_rate"))
+        checkpoint_sid = None
     else:
         raise ValueError(f"unsupported RVC model file: {model_path.suffix}")
 
@@ -174,6 +250,11 @@ def load_model(slot: dict[str, Any], assets: dict[str, str], device: str) -> Loa
         )
     synthesizer.remove_weight_norm()
     synthesizer.eval().to(device)
+    speaker_count = int(getattr(synthesizer, "spk_embed_dim", 1) or 1)
+    default_sid = _slot_speaker_id(slot)
+    if default_sid is None:
+        default_sid = checkpoint_sid
+    default_sid = _clamp_speaker_id(0 if default_sid is None else default_sid, speaker_count)
 
     return LoadedVoiceModel(
         slot=slot,
@@ -181,6 +262,8 @@ def load_model(slot: dict[str, Any], assets: dict[str, str], device: str) -> Loa
         version=version,
         f0=f0,
         sample_rate=sample_rate,
+        speaker_count=speaker_count,
+        default_speaker_id=default_sid,
         content_vec=ContentVec(Path(assets["content_vec"])),
         f0_model_path=Path(assets["rmvpe"]),
         index_state=_load_index(slot.get("index_path")),
@@ -199,6 +282,9 @@ def convert(
     input_highpass_hz: int = dsp.DEFAULT_INPUT_HIGHPASS_HZ,
     input_gate_db: float = dsp.DEFAULT_INPUT_GATE_DB,
     input_formant: float = dsp.DEFAULT_INPUT_FORMANT,
+    speaker_id: int | None = None,
+    noise_scale: float = 0.66666,
+    f0_smoothing: float = 0.0,
     denoiser: Any | None = None,
 ):
     import numpy as np  # noqa: PLC0415
@@ -226,6 +312,9 @@ def convert(
         input_highpass_hz=input_highpass_hz,
         input_gate_db=input_gate_db,
         input_formant=input_formant,
+        speaker_id=speaker_id,
+        noise_scale=noise_scale,
+        f0_smoothing=f0_smoothing,
         denoiser=denoiser,
         device=device,
     )
@@ -245,11 +334,26 @@ def convert_audio(
     input_highpass_hz: int = dsp.DEFAULT_INPUT_HIGHPASS_HZ,
     input_gate_db: float = dsp.DEFAULT_INPUT_GATE_DB,
     input_formant: float = dsp.DEFAULT_INPUT_FORMANT,
+    speaker_id: int | None = None,
+    noise_scale: float = 0.66666,
+    f0_smoothing: float = 0.0,
     denoiser: Any | None = None,
+    external_formant_factor: float | None = None,
+    compensate_duration: bool = True,
+    latent_noise: Any | None = None,
 ):
     """Shared conversion core: 16 kHz mono float32 array -> (audio @ model sr,
     sr, per-stage timings). The offline file path and the realtime chunk
-    processor both run through here so their outputs can never diverge."""
+    processor both run through here so their outputs can never diverge.
+
+    The realtime chunk processor pre-cleans its stream (DTLN/HPF/formant run
+    statefully on each new piece exactly once): it passes
+    ``external_formant_factor`` so this core skips ``dsp.process_input`` but
+    still compensates f0 for the analysis-side shift, sets
+    ``compensate_duration=False`` because it corrects duration in its streaming
+    output resampler, and supplies ``latent_noise`` ([channels, frames], newest
+    frame last) so overlapping context re-synthesizes identically each chunk.
+    """
     import numpy as np  # noqa: PLC0415
     import torch  # noqa: PLC0415
 
@@ -261,14 +365,18 @@ def convert_audio(
         audio = denoiser.process(audio)
         timings["input_denoise"] = _ms(stage)
 
-    stage = time.perf_counter()
-    analysis_audio, formant_factor = dsp.process_input(
-        audio,
-        input_highpass_hz=input_highpass_hz,
-        input_gate_db=input_gate_db,
-        input_formant=input_formant,
-    )
-    timings["input_dsp"] = _ms(stage)
+    if external_formant_factor is None:
+        stage = time.perf_counter()
+        analysis_audio, formant_factor = dsp.process_input(
+            audio,
+            input_highpass_hz=input_highpass_hz,
+            input_gate_db=input_gate_db,
+            input_formant=input_formant,
+        )
+        timings["input_dsp"] = _ms(stage)
+    else:
+        analysis_audio = audio
+        formant_factor = float(external_formant_factor)
 
     stage = time.perf_counter()
     base_features = loaded.content_vec.extract(analysis_audio)
@@ -293,6 +401,7 @@ def convert_audio(
         f0 = dsp.compensate_f0_for_input_formant(f0, formant_factor)
         if pitch:
             f0 = f0 * (2.0 ** (float(pitch) / 12.0))
+        f0 = _smooth_f0(f0, f0_smoothing)
         pitch_coarse = f0_to_coarse(f0)
     timings["f0"] = _ms(stage)
 
@@ -305,7 +414,12 @@ def convert_audio(
     stage = time.perf_counter()
     phone = torch.from_numpy(features[None, :, :]).to(device=device, dtype=torch.float32)
     phone_lengths = torch.tensor([features.shape[0]], device=device, dtype=torch.long)
-    sid = torch.tensor([0], device=device, dtype=torch.long)
+    sid_value = loaded.default_speaker_id if speaker_id is None else _clamp_speaker_id(speaker_id, loaded.speaker_count)
+    sid = torch.tensor([sid_value], device=device, dtype=torch.long)
+    latent_tensor = None
+    if latent_noise is not None:
+        latent_array = np.ascontiguousarray(np.asarray(latent_noise, dtype=np.float32))
+        latent_tensor = torch.from_numpy(latent_array)[None, :, :].to(device=device, dtype=torch.float32)
     with torch.no_grad():
         if loaded.f0:
             assert pitch_coarse is not None and f0 is not None
@@ -317,18 +431,27 @@ def convert_audio(
                 pitch_tensor,
                 f0_tensor,
                 sid,
+                noise_scale=float(noise_scale),
+                latent_noise=latent_tensor,
             )[0]
         else:
-            output = loaded.synthesizer.infer(phone, phone_lengths, sid)[0]
+            output = loaded.synthesizer.infer(
+                phone,
+                phone_lengths,
+                sid,
+                noise_scale=float(noise_scale),
+                latent_noise=latent_tensor,
+            )[0]
     timings["synth"] = _ms(stage)
 
     stage = time.perf_counter()
     out = output.detach().cpu().numpy().reshape(-1).astype(np.float32)
-    out = dsp.compensate_output_duration_for_input_formant(
-        out,
-        formant_factor,
-        sample_rate=loaded.sample_rate,
-    )
+    if compensate_duration:
+        out = dsp.compensate_output_duration_for_input_formant(
+            out,
+            formant_factor,
+            sample_rate=loaded.sample_rate,
+        )
     peak = float(np.max(np.abs(out))) if out.size else 0.0
     if peak > 1.0:
         out = out / peak

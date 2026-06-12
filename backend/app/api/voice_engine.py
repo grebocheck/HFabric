@@ -18,20 +18,23 @@ from ..core.enums import EventType
 from ..core.events import EventBus
 from ..core.scheduler import Worker
 from ..services.voice_engine import assets as asset_discovery
-from ..services.voice_engine import devices, realtime, storage
+from ..services.voice_engine import devices, presets, realtime, storage
 from ..services.voice_engine.engine import get_engine
 from ..util import uploads as uploads_util
 from .deps import get_arbiter, get_bus, get_worker
 
 router = APIRouter(prefix="/api/voice/engine", tags=["voice-engine"])
 
-ALLOWED_EXTS = {".wav", ".flac", ".ogg"}
+ALLOWED_EXTS = {".wav", ".flac", ".ogg", ".mp3"}
 
 
 class VoiceEngineSettingsUpdate(BaseModel):
     pitch: int | None = None
+    speaker_id: int | None = None
     index_ratio: float | None = None
     protect: float | None = None
+    noise_scale: float | None = None
+    f0_smoothing: float | None = None
     f0_detector: str | None = None
     input_highpass_hz: int | str | None = None
     input_gate_db: float | str | None = None
@@ -50,6 +53,11 @@ class VoiceEngineSettingsUpdate(BaseModel):
     cross_fade_overlap_size: float | None = None
     extra_convert_size: float | None = None
     pass_through: bool | None = None
+
+
+class VoiceEnginePresetCreate(BaseModel):
+    name: str
+    settings: VoiceEngineSettingsUpdate
 
 
 class VoiceSessionStart(BaseModel):
@@ -126,6 +134,7 @@ def _status_payload() -> dict[str, Any]:
         "live": session is not None,
         "session_config": session.session_config() if session is not None else None,
         "session_error": session.error if session is not None else None,
+        "recording": realtime.recording_status(),
         "metrics": session.metrics() if session is not None else {
             "input_vu": 0.0,
             "output_vu": 0.0,
@@ -142,6 +151,32 @@ def _status_payload() -> dict[str, Any]:
 def _safe_ext(filename: str | None) -> str:
     ext = Path(filename or "").suffix.lower()
     return ext if ext in ALLOWED_EXTS else ""
+
+
+def _mp3_url(token: str) -> str:
+    return f"/api/voice/engine/file/{token}/mp3"
+
+
+def _wav_url(token: str) -> str:
+    return f"/api/voice/engine/file/{token}"
+
+
+def _ensure_mp3(token: str) -> Path:
+    wav_path = storage.resolve_output(token)
+    mp3_path = storage.resolve_mp3(token)
+    if wav_path is None or mp3_path is None or not wav_path.exists():
+        raise HTTPException(404, "voice output not found")
+    if mp3_path.exists() and mp3_path.stat().st_mtime >= wav_path.stat().st_mtime:
+        return mp3_path
+    try:
+        import soundfile as sf  # noqa: PLC0415
+
+        audio, sr = sf.read(str(wav_path), dtype="float32", always_2d=False)
+        sf.write(str(mp3_path), audio, sr, format="MP3")
+    except Exception as exc:  # noqa: BLE001 - surface local codec failures clearly
+        mp3_path.unlink(missing_ok=True)
+        raise HTTPException(503, f"MP3 export is not available in this runtime: {exc}") from exc
+    return mp3_path
 
 
 async def _write_upload_to_temp(file: UploadFile, ext: str) -> Path:
@@ -181,13 +216,37 @@ async def voice_engine_settings(body: VoiceEngineSettingsUpdate) -> dict[str, An
     return _status_payload()
 
 
+@router.get("/presets")
+async def voice_engine_presets() -> list[dict[str, Any]]:
+    return presets.list_presets()
+
+
+@router.post("/presets")
+async def voice_engine_preset_create(body: VoiceEnginePresetCreate) -> dict[str, Any]:
+    try:
+        preset = presets.create_preset(body.name, body.settings.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return preset
+
+
+@router.delete("/presets/{preset_id}")
+async def voice_engine_preset_delete(preset_id: str) -> dict[str, str]:
+    if not presets.delete_preset(preset_id):
+        raise HTTPException(404, "voice preset not found")
+    return {"deleted": preset_id}
+
+
 @router.post("/convert")
 async def voice_engine_convert(
     file: UploadFile = File(...),
     model_id: str = Form(...),
     pitch: int | None = Form(None),
+    speaker_id: int | None = Form(None),
     index_ratio: float | None = Form(None),
     protect: float | None = Form(None),
+    noise_scale: float | None = Form(None),
+    f0_smoothing: float | None = Form(None),
     input_highpass_hz: str | None = Form(None),
     input_gate_db: str | None = Form(None),
     input_formant: float | None = Form(None),
@@ -199,7 +258,7 @@ async def voice_engine_convert(
 
     ext = _safe_ext(file.filename)
     if not ext:
-        raise HTTPException(415, "unsupported audio container; use wav, flac, or ogg")
+        raise HTTPException(415, "unsupported audio container; use wav, flac, ogg, or mp3")
 
     missing = _asset_error(input_denoise)
     if missing is not None:
@@ -216,8 +275,11 @@ async def voice_engine_convert(
                 output_path,
                 model_id,
                 pitch=pitch,
+                speaker_id=speaker_id,
                 index_ratio=index_ratio,
                 protect=protect,
+                noise_scale=noise_scale,
+                f0_smoothing=f0_smoothing,
                 input_highpass_hz=input_highpass_hz,
                 input_gate_db=input_gate_db,
                 input_formant=input_formant,
@@ -236,7 +298,8 @@ async def voice_engine_convert(
 
     return {
         "token": token,
-        "url": f"/api/voice/engine/file/{token}",
+        "url": _wav_url(token),
+        "mp3_url": _mp3_url(token),
         **result,
     }
 
@@ -288,9 +351,40 @@ async def voice_engine_session_stop(
     return _status_payload()
 
 
+@router.post("/recording/start")
+async def voice_engine_recording_start() -> dict[str, Any]:
+    if not realtime.session_active():
+        raise HTTPException(409, "start a live voice session before recording")
+    try:
+        await asyncio.to_thread(realtime.start_recording)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _status_payload()
+
+
+@router.post("/recording/stop")
+async def voice_engine_recording_stop() -> dict[str, Any]:
+    if not realtime.session_active():
+        raise HTTPException(409, "start a live voice session before recording")
+    try:
+        result = await asyncio.to_thread(realtime.stop_recording)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {
+        **_status_payload(),
+        "recording_result": {**result, "mp3_url": _mp3_url(str(result["token"]))},
+    }
+
+
+@router.get("/file/{token}/mp3")
+async def voice_engine_mp3_file(token: str) -> FileResponse:
+    path = _ensure_mp3(token)
+    return FileResponse(path, media_type="audio/mpeg", filename=f"{token}.mp3")
+
+
 @router.get("/file/{token}")
 async def voice_engine_file(token: str) -> FileResponse:
     path = storage.resolve_output(token)
     if path is None or not path.exists():
         raise HTTPException(404, "voice output not found")
-    return FileResponse(path, media_type="audio/wav")
+    return FileResponse(path, media_type="audio/wav", filename=f"{token}.wav")

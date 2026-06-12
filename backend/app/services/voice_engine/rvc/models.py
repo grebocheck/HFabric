@@ -257,6 +257,7 @@ class SineGen(nn.Module):
         self.dim = self.harmonic_num + 1
         self.sampling_rate = samp_rate
         self.voiced_threshold = voiced_threshold
+        self._rand_ini: Optional[torch.Tensor] = None
 
     def _f02uv(self, f0):
         uv = torch.ones_like(f0)
@@ -276,9 +277,17 @@ class SineGen(nn.Module):
             1, 1, -1
         )
         rad *= b
-        rand_ini = torch.rand(1, 1, self.dim, device=f0.device)
-        rand_ini[..., 0] = 0
-        rad += rand_ini
+        # Deterministic per-instance harmonic phase offsets. Upstream draws
+        # fresh random offsets on every call, which makes the realtime path
+        # re-synthesize overlapping context with a different phase each chunk
+        # (audible warble at the SOLA seams) without adding anything musically.
+        if self._rand_ini is None or self._rand_ini.device != f0.device:
+            generator = torch.Generator()
+            generator.manual_seed(0x5F0_F0)
+            rand_ini = torch.rand(1, 1, self.dim, generator=generator)
+            rand_ini[..., 0] = 0
+            self._rand_ini = rand_ini.to(device=f0.device)
+        rad += self._rand_ini.to(dtype=f0.dtype)
         return torch.sin(2 * np.pi * rad)
 
     def forward(self, f0: torch.Tensor, upp: int):
@@ -555,6 +564,8 @@ class SynthesizerTrnMs768NSFsid(_BaseSynthesizer):
         skip_head: int = 0,
         return_length: Optional[int] = None,
         formant_length: Optional[int] = None,
+        noise_scale: float = 0.66666,
+        latent_noise: Optional[torch.Tensor] = None,
     ):
         if return_length is None:
             return_length = int(phone_lengths.reshape(-1)[0].item()) - int(skip_head)
@@ -562,7 +573,17 @@ class SynthesizerTrnMs768NSFsid(_BaseSynthesizer):
         flow_head = max(int(skip_head) - 24, 0)
         dec_head = int(skip_head) - flow_head
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        scale = max(0.0, float(noise_scale))
+        if scale <= 0.0:
+            latent = torch.zeros_like(m_p)
+        elif latent_noise is not None:
+            # Realtime passes a noise buffer pinned to absolute frame positions
+            # (newest frame last) so re-synthesizing the overlapping context
+            # uses the same latent sample for the same audio frame each chunk.
+            latent = latent_noise[:, :, -m_p.size(-1) :].to(dtype=m_p.dtype) * scale
+        else:
+            latent = torch.randn_like(m_p) * scale
+        z_p = (m_p + torch.exp(logs_p) * latent) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         z = z[:, :, dec_head : dec_head + return_length]
         x_mask = x_mask[:, :, dec_head : dec_head + return_length]
@@ -588,6 +609,8 @@ class SynthesizerTrnMs768NSFsid_nono(_BaseSynthesizer):
         skip_head: int = 0,
         return_length: Optional[int] = None,
         formant_length: Optional[int] = None,
+        noise_scale: float = 0.66666,
+        latent_noise: Optional[torch.Tensor] = None,
     ):
         if return_length is None:
             return_length = int(phone_lengths.reshape(-1)[0].item()) - int(skip_head)
@@ -595,7 +618,14 @@ class SynthesizerTrnMs768NSFsid_nono(_BaseSynthesizer):
         flow_head = max(int(skip_head) - 24, 0)
         dec_head = int(skip_head) - flow_head
         m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths, flow_head)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        scale = max(0.0, float(noise_scale))
+        if scale <= 0.0:
+            latent = torch.zeros_like(m_p)
+        elif latent_noise is not None:
+            latent = latent_noise[:, :, -m_p.size(-1) :].to(dtype=m_p.dtype) * scale
+        else:
+            latent = torch.randn_like(m_p) * scale
+        z_p = (m_p + torch.exp(logs_p) * latent) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         z = z[:, :, dec_head : dec_head + return_length]
         x_mask = x_mask[:, :, dec_head : dec_head + return_length]

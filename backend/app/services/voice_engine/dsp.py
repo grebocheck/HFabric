@@ -8,13 +8,12 @@ from __future__ import annotations
 
 INPUT_SAMPLE_RATE = 16_000
 DEFAULT_INPUT_HIGHPASS_HZ = 80
-DEFAULT_INPUT_GATE_DB = -60.0
+DEFAULT_INPUT_GATE_DB = GATE_OFF_DB = -90.0
 DEFAULT_INPUT_FORMANT = 0.0
-GATE_OFF_DB = -90.0
-DEFAULT_SILENCE_THRESHOLD_DB = -48.0
-DEFAULT_SILENCE_HOLD_MS = 400.0
+DEFAULT_SILENCE_THRESHOLD_DB = -72.0
+DEFAULT_SILENCE_HOLD_MS = 250.0
 SQUELCH_OFF_DB = -90.0
-SQUELCH_OPEN_HYSTERESIS_DB = 6.0
+SQUELCH_CLOSE_HYSTERESIS_DB = 6.0
 
 
 def clamp_input_highpass_hz(value: object) -> int:
@@ -77,8 +76,8 @@ class SquelchGate:
     """Realtime silence gate with open hysteresis and close hangover.
 
     ``update`` returns True while the gate is closed and the caller should emit
-    silence. It opens immediately above threshold + 6 dB and closes only after
-    continuous time below threshold reaches the configured hold time.
+    silence. It opens immediately above threshold and closes only after
+    continuous time below threshold - 6 dB reaches the configured hold time.
     """
 
     def __init__(
@@ -134,13 +133,13 @@ class SquelchGate:
             self._below_ms = 0.0
             return False
 
-        if float(rms_db) > self.threshold_db + SQUELCH_OPEN_HYSTERESIS_DB:
+        if float(rms_db) >= self.threshold_db:
             self._open = True
             self._below_ms = 0.0
             return False
 
         if self._open:
-            if float(rms_db) < self.threshold_db:
+            if float(rms_db) < self.threshold_db - SQUELCH_CLOSE_HYSTERESIS_DB:
                 self._below_ms += max(0.0, float(duration_ms))
                 if self._below_ms >= self.hold_ms:
                     self._open = False
@@ -149,6 +148,81 @@ class SquelchGate:
                 self._below_ms = 0.0
 
         return not self._open
+
+
+class StreamingHighpass:
+    """Causal 2nd-order Butterworth high-pass with persistent filter state.
+
+    The realtime chunk processor filters each newly captured piece exactly once
+    and appends it to its rolling context. A stateful IIR keeps the stream
+    gapless; the FFT-based ``apply_highpass`` is only safe for whole files
+    because its circular convolution changes both edges of a sliding window on
+    every call.
+    """
+
+    def __init__(self, cutoff_hz: object = DEFAULT_INPUT_HIGHPASS_HZ, *, sample_rate: int = INPUT_SAMPLE_RATE) -> None:
+        self.sample_rate = int(sample_rate)
+        self.cutoff_hz = -1
+        self._coeffs: tuple[float, float, float, float, float] | None = None
+        self._zi = None
+        self.configure(cutoff_hz)
+
+    def configure(self, cutoff_hz: object) -> None:
+        cutoff = clamp_input_highpass_hz(cutoff_hz)
+        if cutoff == self.cutoff_hz:
+            return
+        self.cutoff_hz = cutoff
+        if cutoff <= 0:
+            self._coeffs = None
+            self._zi = None
+            return
+        import numpy as np  # noqa: PLC0415
+
+        # RBJ cookbook high-pass biquad, Q = 1/sqrt(2) (Butterworth).
+        w0 = 2.0 * np.pi * float(cutoff) / float(self.sample_rate)
+        cos_w0 = float(np.cos(w0))
+        q = 2.0 ** -0.5
+        alpha = float(np.sin(w0)) / (2.0 * q)
+        a0 = 1.0 + alpha
+        self._coeffs = (
+            (1.0 + cos_w0) / 2.0 / a0,   # b0
+            -(1.0 + cos_w0) / a0,        # b1
+            (1.0 + cos_w0) / 2.0 / a0,   # b2
+            -2.0 * cos_w0 / a0,          # a1
+            (1.0 - alpha) / a0,          # a2
+        )
+        # Filter state survives a cutoff change: a brief coefficient blend
+        # transient beats a hard discontinuity in a live stream.
+        if self._zi is None:
+            self._zi = np.zeros(2, dtype=np.float64)
+
+    def process(self, audio, cutoff_hz: object | None = None):
+        import numpy as np  # noqa: PLC0415
+
+        if cutoff_hz is not None:
+            self.configure(cutoff_hz)
+        block = _as_float32(audio)
+        if self._coeffs is None or block.size == 0:
+            return block.astype(np.float32, copy=True)
+        b0, b1, b2, a1, a2 = self._coeffs
+        try:
+            from scipy.signal import lfilter  # noqa: PLC0415
+
+            out, self._zi = lfilter(
+                [b0, b1, b2], [1.0, a1, a2], block.astype(np.float64), zi=self._zi
+            )
+            return out.astype(np.float32)
+        except ImportError:
+            out = np.empty(block.size, dtype=np.float64)
+            z1, z2 = float(self._zi[0]), float(self._zi[1])
+            for i in range(block.size):
+                x = float(block[i])
+                y = b0 * x + z1
+                z1 = b1 * x - a1 * y + z2
+                z2 = b2 * x - a2 * y
+                out[i] = y
+            self._zi[0], self._zi[1] = z1, z2
+            return out.astype(np.float32)
 
 
 def input_formant_factor(input_formant: float) -> float:

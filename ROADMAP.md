@@ -172,6 +172,37 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   segment fed five silent chunks between voiced chunks: **4/5** silence chunks
   squelched after hold, max squelched time **0.190 ms**, and the first voiced
   chunk after silence converted in **129.0 ms** with RMS **0.101110**.
+- [x] **P6R polish - Realtime pipeline rebuild for seam/sibilance quality
+  (2026-06-13).** The live path was re-architected after persistent reports of
+  stutter ("дьоргання") and lisping ("шипелявість"): (1) every per-chunk
+  one-shot `soxr.resample` was replaced with stateful `soxr.ResampleStream`s
+  (in: stream->16k, out: model->stream) so filter edges are never baked into
+  the stream; (2) the conversion context now advances in blocks that are a
+  multiple of 640 (LCM of the ContentVec hop 320 and DTLN hop 128) over a
+  fixed-length window, keeping the feature/f0 frame grid aligned between
+  conversions; (3) the SOLA stitch moved to the model sample rate and now
+  stores the *aligned* continuation of the emitted audio as the next seam
+  reference (the old code stored the unaligned tail, repeating/skipping up to
+  10 ms at every seam); (4) the synthesizer's latent noise is pinned per
+  absolute frame via a noise ring passed through `convert_audio` ->
+  `infer(latent_noise=...)`, and SineGen's per-call random harmonic phase is
+  now a deterministic per-instance constant, so overlapping context
+  re-synthesizes identically; (5) HPF became a streaming biquad
+  (`dsp.StreamingHighpass`), the noise gate was dropped from the realtime
+  chain (squelch + DTLN cover it; gate remains offline), the input formant is
+  a streaming resampler stage, and DTLN gained a gapless `process_stream` (the
+  old same-length contract inserted ~2.7 ms zero gaps at chunk boundaries);
+  (6) feature upsampling switched from linear interp to frame-repeat to match
+  RVC training (crisper consonants), and `voice_protect` default fixed
+  0.5 -> 0.33 (0.5 disables consonant protection entirely); (7) UI quality
+  presets were retuned (extra 5 s -> 2 s — ContentVec is CPU-bound and 5 s
+  context overran the chunk budget; Feminine preset is now a full profile:
+  +12 st, +0.5 input formant, index 0.5, protect 0.33, DTLN). *Validation
+  2026-06-13:* root `.venv` CUDA bench with real `chocola_yagiyukiv2`
+  (pitch +12, index 0.5, protect 0.33, DTLN on, extra 2.0): 96/133/192
+  mean/p95 **254.0/364.7**, **145.4/165.5**, **145.0/159.9** ms vs chunk
+  **256.0/354.7/512.0** ms; stitched vs offline RMS within 5%; squelch emits
+  pure zeros in ≤12 ms (input chain only) and voice resumes in 148 ms.
 - [~] **P6R.4 — Live validation + legacy voice removal (gates the phase).** Code
   part done 2026-06-12: deleted the old wrapper router, launch path, settings,
   pidfile reap hook, discovery fallbacks, frontend legacy client/types/helpers,

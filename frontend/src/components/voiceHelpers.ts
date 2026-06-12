@@ -24,22 +24,85 @@ export const denoiseOptions = [
   { value: "dtln", label: "DTLN (neural)" },
 ];
 
+// extra (conversion context) is capped low on purpose: ContentVec runs on the
+// CPU and must finish well inside one chunk; 5+ s contexts overshoot the
+// budget and cause constant underruns (audible stutter).
 export const latencyPresets = [
-  { id: "fast", label: "Fast", chunk: 96, crossFade: 0.03, extra: 3 },
-  { id: "balanced", label: "Balanced", chunk: 133, crossFade: 0.05, extra: 5 },
-  { id: "quality", label: "Quality", chunk: 192, crossFade: 0.08, extra: 7 },
+  { id: "fast", label: "Fast", chunk: 96, crossFade: 0.04, extra: 1 },
+  { id: "balanced", label: "Balanced", chunk: 133, crossFade: 0.06, extra: 2 },
+  { id: "quality", label: "Quality", chunk: 192, crossFade: 0.08, extra: 3 },
 ] as const;
 
+// protect 0.5 turns consonant protection OFF in RVC; 0.25-0.35 keeps unvoiced
+// frames close to the source so sibilants stay crisp.
 export const recommendedVoicePreset = {
   inputDenoise: "dtln" as const,
   inputHighpassHz: 80,
   inputGateDb: -90,
-  silenceThresholdDb: -48,
-  silenceHoldMs: 400,
-  indexRatio: 0.75,
-  protect: 0.5,
+  silenceThresholdDb: -72,
+  silenceHoldMs: 250,
+  formantShift: 0,
+  indexRatio: 0.5,
+  protect: 0.33,
+  noiseScale: 0.66666,
+  f0Smoothing: 0,
   readChunkSize: 133,
-  crossFadeOverlap: 0.05,
+  crossFadeOverlap: 0.06,
+  extraConvert: 2,
+  sampleRate: 48000,
+} as const;
+
+export const clearVoicePreset = {
+  inputDenoise: "off" as const,
+  inputHighpassHz: 80,
+  inputGateDb: -90,
+  silenceThresholdDb: -78,
+  silenceHoldMs: 300,
+  formantShift: 0,
+  indexRatio: 0.25,
+  protect: 0.33,
+  noiseScale: 0.45,
+  f0Smoothing: 0,
+  readChunkSize: 133,
+  crossFadeOverlap: 0.06,
+  extraConvert: 2,
+  sampleRate: 48000,
+} as const;
+
+export const smoothVoicePreset = {
+  inputDenoise: "off" as const,
+  inputHighpassHz: 80,
+  inputGateDb: -90,
+  silenceThresholdDb: -72,
+  silenceHoldMs: 250,
+  formantShift: 0,
+  indexRatio: 0.4,
+  protect: 0.25,
+  noiseScale: 0.3,
+  f0Smoothing: 0.35,
+  readChunkSize: 192,
+  crossFadeOverlap: 0.08,
+  extraConvert: 2,
+  sampleRate: 48000,
+} as const;
+
+// Male speaker -> female RVC model: +12 semitones, a slight input-side
+// brightness lift so consonants read feminine, mild f0 smoothing against
+// octave flips at the higher register.
+export const feminineVoicePreset = {
+  pitch: 12,
+  formantShift: 0.5,
+  inputDenoise: "dtln" as const,
+  inputHighpassHz: 80,
+  indexRatio: 0.5,
+  protect: 0.33,
+  noiseScale: 0.66666,
+  f0Smoothing: 0.15,
+  inputGateDb: -90,
+  silenceThresholdDb: -72,
+  silenceHoldMs: 250,
+  readChunkSize: 133,
+  crossFadeOverlap: 0.06,
   extraConvert: 2,
   sampleRate: 48000,
 } as const;
@@ -49,6 +112,7 @@ export const timingLabels = ["prep", "f0", "infer", "post", "io", "mix"];
 
 export type VoiceControlState = {
   pitch: number;
+  speakerId: number;
   formantShift: number;
   inputGateDb: number;
   inputHighpassHz: number;
@@ -57,6 +121,8 @@ export type VoiceControlState = {
   silenceHoldMs: number;
   indexRatio: number;
   protect: number;
+  noiseScale: number;
+  f0Smoothing: number;
   f0Detector: string;
   passThrough: boolean;
   inputDeviceId: number;
@@ -94,14 +160,17 @@ export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceE
   const f0 = String(settings.f0_detector ?? "rmvpe");
   return {
     pitch: num(settings.pitch, 0),
+    speakerId: num(settings.speaker_id, 0),
     formantShift: num(settings.input_formant, 0),
-    inputGateDb: num(settings.input_gate_db, -60),
+    inputGateDb: num(settings.input_gate_db, -90),
     inputHighpassHz: num(settings.input_highpass_hz, 80),
     inputDenoise: settings.input_denoise === "dtln" ? "dtln" : "off",
-    silenceThresholdDb: num(settings.silence_threshold_db, -48),
-    silenceHoldMs: num(settings.silence_hold_ms, 400),
-    indexRatio: num(settings.index_ratio, 0.75),
+    silenceThresholdDb: num(settings.silence_threshold_db, -72),
+    silenceHoldMs: num(settings.silence_hold_ms, 250),
+    indexRatio: num(settings.index_ratio, 0.55),
     protect: num(settings.protect, 0.5),
+    noiseScale: num(settings.noise_scale, 0.66666),
+    f0Smoothing: num(settings.f0_smoothing, 0),
     f0Detector: f0Options.some((o) => o.value === f0) ? f0 : "rmvpe",
     passThrough: Boolean(settings.pass_through),
     inputDeviceId: settings.server_input_device_id == null ? -1 : num(settings.server_input_device_id, -1),
@@ -135,6 +204,7 @@ export function nativeRoutingSettingsPatch(state: VoiceRoutingState): VoiceEngin
 export function nativeTuningSettingsPatch(state: Pick<
   VoiceControlState,
   | "pitch"
+  | "speakerId"
   | "formantShift"
   | "inputGateDb"
   | "inputHighpassHz"
@@ -143,11 +213,14 @@ export function nativeTuningSettingsPatch(state: Pick<
   | "silenceHoldMs"
   | "indexRatio"
   | "protect"
+  | "noiseScale"
+  | "f0Smoothing"
   | "f0Detector"
   | "passThrough"
 >): VoiceEngineSettingsUpdate {
   return {
     pitch: state.pitch,
+    speaker_id: state.speakerId,
     input_formant: state.formantShift,
     input_gate_db: state.inputGateDb,
     input_highpass_hz: state.inputHighpassHz,
@@ -156,8 +229,57 @@ export function nativeTuningSettingsPatch(state: Pick<
     silence_hold_ms: state.silenceHoldMs,
     index_ratio: state.indexRatio,
     protect: state.protect,
+    noise_scale: state.noiseScale,
+    f0_smoothing: state.f0Smoothing,
     f0_detector: state.f0Detector,
     pass_through: state.passThrough,
+  };
+}
+
+export function nativeVoicePresetSettingsPatch(state: Pick<
+  VoiceControlState,
+  | "pitch"
+  | "speakerId"
+  | "formantShift"
+  | "inputGateDb"
+  | "inputHighpassHz"
+  | "inputDenoise"
+  | "silenceThresholdDb"
+  | "silenceHoldMs"
+  | "indexRatio"
+  | "protect"
+  | "noiseScale"
+  | "f0Smoothing"
+  | "f0Detector"
+  | "sampleRate"
+  | "readChunkSize"
+  | "crossFadeOverlap"
+  | "extraConvert"
+  | "inputGain"
+  | "outputGain"
+  | "monitorGain"
+>): VoiceEngineSettingsUpdate {
+  return {
+    pitch: state.pitch,
+    speaker_id: state.speakerId,
+    input_formant: state.formantShift,
+    input_gate_db: state.inputGateDb,
+    input_highpass_hz: state.inputHighpassHz,
+    input_denoise: state.inputDenoise,
+    silence_threshold_db: state.silenceThresholdDb,
+    silence_hold_ms: state.silenceHoldMs,
+    index_ratio: state.indexRatio,
+    protect: state.protect,
+    noise_scale: state.noiseScale,
+    f0_smoothing: state.f0Smoothing,
+    f0_detector: state.f0Detector,
+    server_audio_sample_rate: state.sampleRate,
+    server_read_chunk_size: state.readChunkSize,
+    cross_fade_overlap_size: state.crossFadeOverlap,
+    extra_convert_size: state.extraConvert,
+    server_input_gain: state.inputGain,
+    server_output_gain: state.outputGain,
+    server_monitor_gain: state.monitorGain,
   };
 }
 

@@ -18,8 +18,10 @@ import {
 } from "./VoicePanelParts";
 import {
   deviceName,
+  clearVoicePreset,
   denoiseOptions,
   f0Options,
+  feminineVoicePreset,
   formatMs,
   inputHighpassOptions,
   latencyPresets,
@@ -27,14 +29,23 @@ import {
   nativeRoutingSettingsPatch,
   nativeSettingsToVoiceState,
   nativeTuningSettingsPatch,
+  nativeVoicePresetSettingsPatch,
   num,
   recommendedVoicePreset,
   resolveMonitorDeviceId,
   sampleRates,
   selectedNativeModelId,
+  smoothVoicePreset,
   waveformSlots,
 } from "./voiceHelpers";
-import type { VoiceEngineAsset, VoiceEngineConvertResult, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type {
+  VoiceEngineAsset,
+  VoiceEngineConvertResult,
+  VoiceEnginePreset,
+  VoiceEngineRecordingResult,
+  VoiceEngineSettingsUpdate,
+  VoiceEngineStatus,
+} from "../types";
 
 const field = "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm outline-none focus:border-accent";
 const assetSearchHint = "Place content_vec_500.onnx and rmvpe.pt in models/voice/pretrain.";
@@ -92,14 +103,17 @@ export function VoicePanel() {
   const [busy, setBusy] = useState("");
   const [modelId, setModelId] = useState("");
   const [pitch, setPitch] = useState(0);
+  const [speakerId, setSpeakerId] = useState(0);
   const [formantShift, setFormantShift] = useState(0);
-  const [inputGateDb, setInputGateDb] = useState(-60);
+  const [inputGateDb, setInputGateDb] = useState(-90);
   const [inputHighpassHz, setInputHighpassHz] = useState(80);
   const [inputDenoise, setInputDenoise] = useState<"off" | "dtln">("off");
-  const [silenceThresholdDb, setSilenceThresholdDb] = useState(-48);
-  const [silenceHoldMs, setSilenceHoldMs] = useState(400);
-  const [indexRatio, setIndexRatio] = useState(0.75);
+  const [silenceThresholdDb, setSilenceThresholdDb] = useState(-72);
+  const [silenceHoldMs, setSilenceHoldMs] = useState(250);
+  const [indexRatio, setIndexRatio] = useState(0.55);
   const [protect, setProtect] = useState(0.5);
+  const [noiseScale, setNoiseScale] = useState(0.66666);
+  const [f0Smoothing, setF0Smoothing] = useState(0);
   const [f0Detector, setF0Detector] = useState("rmvpe");
   const [passThrough, setPassThrough] = useState(false);
   const [ptt, setPtt] = useState(false);
@@ -123,6 +137,10 @@ export function VoicePanel() {
   const [offlineBusy, setOfflineBusy] = useState(false);
   const [offlineError, setOfflineError] = useState("");
   const [offlineResult, setOfflineResult] = useState<VoiceEngineConvertResult | null>(null);
+  const [recordingResult, setRecordingResult] = useState<VoiceEngineRecordingResult | null>(null);
+  const [voicePresets, setVoicePresets] = useState<VoiceEnginePreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [presetName, setPresetName] = useState("");
   const lastAppliedRoutingKeyRef = useRef("");
   const routingApplySeq = useRef(0);
 
@@ -138,6 +156,16 @@ export function VoicePanel() {
     }
   }, []);
 
+  const refreshPresets = useCallback(async () => {
+    try {
+      const next = await api.voiceEnginePresets();
+      setVoicePresets(next);
+      setSelectedPresetId((current) => (current && next.some((preset) => preset.id === current) ? current : next[0]?.id ?? ""));
+    } catch {
+      setVoicePresets([]);
+    }
+  }, []);
+
   const models = useMemo(() => status?.models ?? [], [status]);
   const inputDevices = status?.audio_devices.inputs ?? [];
   const outputDevices = status?.audio_devices.outputs ?? [];
@@ -150,8 +178,13 @@ export function VoicePanel() {
   const ready = Boolean(status?.ready);
   const live = Boolean(status?.live);
   const monitorOn = monitorDeviceId >= 0;
+  const recording = Boolean(status?.recording.active);
   const canApply = statusLoaded && !busy;
   const canGoLive = ready && Boolean(modelId) && !busy;
+  const selectedPreset = useMemo(
+    () => voicePresets.find((preset) => preset.id === selectedPresetId) ?? null,
+    [selectedPresetId, voicePresets],
+  );
   const sessionConfig = status?.session_config ?? null;
   const deviceMissing = status?.settings.device_missing ?? { input: false, output: false, monitor: false };
   const inputRestartPending = Boolean(
@@ -199,7 +232,10 @@ export function VoicePanel() {
   ]);
   const currentRoutingKey = useMemo(() => routingKey(routingPatch), [routingPatch]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    void refreshPresets();
+  }, [refresh, refreshPresets]);
 
   useEffect(() => {
     if (!live) return;
@@ -217,6 +253,7 @@ export function VoicePanel() {
     const next = nativeSettingsToVoiceState(status.settings);
     setPitch(next.pitch);
     setOfflinePitch(next.pitch);
+    setSpeakerId(next.speakerId);
     setFormantShift(next.formantShift);
     setOfflineFormant(next.formantShift);
     setInputGateDb(next.inputGateDb);
@@ -226,6 +263,8 @@ export function VoicePanel() {
     setSilenceHoldMs(next.silenceHoldMs);
     setIndexRatio(next.indexRatio);
     setProtect(next.protect);
+    setNoiseScale(next.noiseScale);
+    setF0Smoothing(next.f0Smoothing);
     setF0Detector(next.f0Detector);
     setPassThrough(next.passThrough);
     setInputDeviceId(next.inputDeviceId);
@@ -289,6 +328,7 @@ export function VoicePanel() {
 
   const tuningPatch = (): VoiceEngineSettingsUpdate => nativeTuningSettingsPatch({
     pitch,
+    speakerId,
     formantShift,
     inputGateDb,
     inputHighpassHz,
@@ -297,6 +337,8 @@ export function VoicePanel() {
     silenceHoldMs,
     indexRatio,
     protect,
+    noiseScale,
+    f0Smoothing,
     f0Detector,
     passThrough,
   });
@@ -304,6 +346,29 @@ export function VoicePanel() {
   const fullSettingsPatch = (): VoiceEngineSettingsUpdate => ({
     ...tuningPatch(),
     ...routingPatch,
+  });
+
+  const presetSettingsPatch = (): VoiceEngineSettingsUpdate => nativeVoicePresetSettingsPatch({
+    pitch,
+    speakerId,
+    formantShift,
+    inputGateDb,
+    inputHighpassHz,
+    inputDenoise,
+    silenceThresholdDb,
+    silenceHoldMs,
+    indexRatio,
+    protect,
+    noiseScale,
+    f0Smoothing,
+    f0Detector,
+    sampleRate,
+    readChunkSize,
+    crossFadeOverlap,
+    extraConvert,
+    inputGain,
+    outputGain,
+    monitorGain,
   });
 
   async function run(label: string, fn: () => Promise<VoiceEngineStatus | null | void>) {
@@ -373,36 +438,94 @@ export function VoicePanel() {
     setExtraConvert(preset.extra);
   };
 
-  const onRecommended = () => {
-    setInputDenoise(recommendedVoicePreset.inputDenoise);
-    setInputHighpassHz(recommendedVoicePreset.inputHighpassHz);
-    setInputGateDb(recommendedVoicePreset.inputGateDb);
-    setSilenceThresholdDb(recommendedVoicePreset.silenceThresholdDb);
-    setSilenceHoldMs(recommendedVoicePreset.silenceHoldMs);
-    setIndexRatio(recommendedVoicePreset.indexRatio);
-    setProtect(recommendedVoicePreset.protect);
-    setReadChunkSize(recommendedVoicePreset.readChunkSize);
-    setCrossFadeOverlap(recommendedVoicePreset.crossFadeOverlap);
-    setExtraConvert(recommendedVoicePreset.extraConvert);
-    setSampleRate(recommendedVoicePreset.sampleRate);
-    void applyPatch("recommended", {
-      input_denoise: recommendedVoicePreset.inputDenoise,
-      input_highpass_hz: recommendedVoicePreset.inputHighpassHz,
-      input_gate_db: recommendedVoicePreset.inputGateDb,
-      silence_threshold_db: recommendedVoicePreset.silenceThresholdDb,
-      silence_hold_ms: recommendedVoicePreset.silenceHoldMs,
-      index_ratio: recommendedVoicePreset.indexRatio,
-      protect: recommendedVoicePreset.protect,
-      server_read_chunk_size: recommendedVoicePreset.readChunkSize,
-      cross_fade_overlap_size: recommendedVoicePreset.crossFadeOverlap,
-      extra_convert_size: recommendedVoicePreset.extraConvert,
-      server_audio_sample_rate: recommendedVoicePreset.sampleRate,
+  const applyQualityProfile = (
+    label: string,
+    profile:
+      | typeof recommendedVoicePreset
+      | typeof clearVoicePreset
+      | typeof smoothVoicePreset
+      | typeof feminineVoicePreset,
+    pitchOverride?: number,
+  ) => {
+    const nextPitch = pitchOverride ?? pitch;
+    setPitch(nextPitch);
+    setOfflinePitch(nextPitch);
+    setFormantShift(profile.formantShift);
+    setOfflineFormant(profile.formantShift);
+    setInputDenoise(profile.inputDenoise);
+    setInputHighpassHz(profile.inputHighpassHz);
+    setInputGateDb(profile.inputGateDb);
+    setSilenceThresholdDb(profile.silenceThresholdDb);
+    setSilenceHoldMs(profile.silenceHoldMs);
+    setIndexRatio(profile.indexRatio);
+    setProtect(profile.protect);
+    setNoiseScale(profile.noiseScale);
+    setF0Smoothing(profile.f0Smoothing);
+    setReadChunkSize(profile.readChunkSize);
+    setCrossFadeOverlap(profile.crossFadeOverlap);
+    setExtraConvert(profile.extraConvert);
+    setSampleRate(profile.sampleRate);
+    void applyPatch(label, {
+      pitch: nextPitch,
+      input_formant: profile.formantShift,
+      input_denoise: profile.inputDenoise,
+      input_highpass_hz: profile.inputHighpassHz,
+      input_gate_db: profile.inputGateDb,
+      silence_threshold_db: profile.silenceThresholdDb,
+      silence_hold_ms: profile.silenceHoldMs,
+      index_ratio: profile.indexRatio,
+      protect: profile.protect,
+      noise_scale: profile.noiseScale,
+      f0_smoothing: profile.f0Smoothing,
+      server_read_chunk_size: profile.readChunkSize,
+      cross_fade_overlap_size: profile.crossFadeOverlap,
+      extra_convert_size: profile.extraConvert,
+      server_audio_sample_rate: profile.sampleRate,
     });
   };
 
+  const onRecommended = () => applyQualityProfile("recommended", recommendedVoicePreset);
+  const onClear = () => applyQualityProfile("clear-preset", clearVoicePreset);
+  const onSmooth = () => applyQualityProfile("smooth-preset", smoothVoicePreset);
+  const onFeminine = () => applyQualityProfile("female-preset", feminineVoicePreset, feminineVoicePreset.pitch);
+
+  const onSaveVoicePreset = () => run("preset-save", async () => {
+    const saved = await api.voiceEnginePresetCreate({
+      name: presetName,
+      settings: presetSettingsPatch(),
+    });
+    const next = await api.voiceEnginePresets();
+    setVoicePresets(next);
+    setSelectedPresetId(saved.id);
+    setPresetName("");
+    return null;
+  });
+
+  const onApplyVoicePreset = () => run("preset-apply", async () => {
+    if (!selectedPreset) throw new Error("Choose a saved preset first");
+    return api.voiceEngineSettings(selectedPreset.settings);
+  });
+
+  const onDeleteVoicePreset = () => run("preset-delete", async () => {
+    if (!selectedPreset) throw new Error("Choose a saved preset first");
+    await api.voiceEnginePresetDelete(selectedPreset.id);
+    await refreshPresets();
+    return null;
+  });
+
+  const onRecording = (next: boolean) => run(next ? "record-on" : "record-off", async () => {
+    if (next) {
+      setRecordingResult(null);
+      return api.voiceEngineRecordingStart();
+    }
+    const updated = await api.voiceEngineRecordingStop();
+    setRecordingResult(updated.recording_result ?? null);
+    return updated;
+  });
+
   const onOfflineConvert = async () => {
     if (!offlineFile) {
-      setOfflineError("Choose a WAV, FLAC, or OGG file first");
+      setOfflineError("Choose a WAV, FLAC, OGG, or MP3 file first");
       return;
     }
     if (!offlineModelId) {
@@ -413,6 +536,13 @@ export function VoicePanel() {
     form.append("file", offlineFile);
     form.append("model_id", offlineModelId);
     form.append("pitch", String(offlinePitch));
+    form.append("speaker_id", String(speakerId));
+    form.append("index_ratio", String(indexRatio));
+    form.append("protect", String(protect));
+    form.append("noise_scale", String(noiseScale));
+    form.append("f0_smoothing", String(f0Smoothing));
+    form.append("input_highpass_hz", String(inputHighpassHz));
+    form.append("input_gate_db", String(inputGateDb));
     form.append("input_formant", String(offlineFormant));
     form.append("input_denoise", inputDenoise);
     setOfflineBusy(true);
@@ -607,14 +737,14 @@ export function VoicePanel() {
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <button
                     onClick={() => onLive(false)}
-                    disabled={Boolean(busy)}
+                    disabled={Boolean(busy) || recording}
                     className="rounded-md bg-red-600/90 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-40"
                   >
                     {busy === "live-off" ? "Stopping..." : "Stop live voice"}
                   </button>
                   <button
                     onClick={onRestartLive}
-                    disabled={Boolean(busy)}
+                    disabled={Boolean(busy) || recording}
                     className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2.5 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/15 disabled:opacity-40"
                   >
                     {busy === "live-restart" ? "Restarting..." : "Restart session"}
@@ -638,6 +768,54 @@ export function VoicePanel() {
                       : !modelId
                         ? "select a voice in step 2 first"
                         : "cannot start right now"}
+                </div>
+              ) : null}
+            </div>
+
+            <div className={`rounded-md border px-3 py-2 ${recording ? "border-red-300/35 bg-red-400/10" : "border-white/10 bg-black/20"}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-white/80">Phrase recorder</span>
+                    <Badge color={recording ? "bg-red-600/60 text-red-50" : "bg-white/10 text-white/55"}>
+                      {recording ? `${(status?.recording.duration_s ?? 0).toFixed(1)} s` : "ready"}
+                    </Badge>
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-white/35">
+                    {recordingResult ? `${recordingResult.sample_rate} Hz / ${recordingResult.duration_s.toFixed(2)} s` : "converted live output"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onRecording(!recording)}
+                  disabled={!live || Boolean(busy)}
+                  className={`shrink-0 rounded-md px-3 py-1.5 text-sm font-semibold transition disabled:opacity-35 ${
+                    recording
+                      ? "bg-red-600/90 text-white hover:bg-red-500"
+                      : "border border-white/15 text-white/75 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {busy === "record-on" ? "Starting..." : busy === "record-off" ? "Saving..." : recording ? "Stop & save" : "Record"}
+                </button>
+              </div>
+              {recordingResult ? (
+                <div className="mt-3 rounded border border-white/10 bg-black/25 p-2">
+                  <audio controls src={recordingResult.url} className="w-full" />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <a
+                      href={recordingResult.url}
+                      download
+                      className="rounded border border-white/15 px-2 py-1 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+                    >
+                      WAV
+                    </a>
+                    <a
+                      href={recordingResult.mp3_url}
+                      download
+                      className="rounded border border-white/15 px-2 py-1 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+                    >
+                      MP3
+                    </a>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -691,10 +869,37 @@ export function VoicePanel() {
               type="button"
               onClick={onRecommended}
               disabled={!canApply}
-              title="Tuned for DTLN live voice. Pitch is voice-specific and is not changed."
+              title="RVC-style baseline with minimal local processing."
               className="rounded border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-medium text-emerald-100 transition hover:bg-emerald-300/15 disabled:opacity-30"
             >
-              {busy === "recommended" ? "Applying..." : "Recommended"}
+              {busy === "recommended" ? "Applying..." : "Baseline"}
+            </button>
+            <button
+              type="button"
+              onClick={onClear}
+              disabled={!canApply}
+              title="Lower index and no f0 smoothing for speech clarity."
+              className="rounded border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-xs font-medium text-cyan-100 transition hover:bg-cyan-300/15 disabled:opacity-30"
+            >
+              {busy === "clear-preset" ? "Applying..." : "Clear"}
+            </button>
+            <button
+              type="button"
+              onClick={onSmooth}
+              disabled={!canApply}
+              title="Lower latent noise and light f0 smoothing for steadier live output."
+              className="rounded border border-violet-300/25 bg-violet-300/10 px-2 py-1 text-xs font-medium text-violet-100 transition hover:bg-violet-300/15 disabled:opacity-30"
+            >
+              {busy === "smooth-preset" ? "Applying..." : "Smooth"}
+            </button>
+            <button
+              type="button"
+              onClick={onFeminine}
+              disabled={!canApply}
+              title="Baseline plus +12 pitch."
+              className="rounded border border-sky-300/25 bg-sky-300/10 px-2 py-1 text-xs font-medium text-sky-100 transition hover:bg-sky-300/15 disabled:opacity-30"
+            >
+              {busy === "female-preset" ? "Applying..." : "Female +12"}
             </button>
             <button
               onClick={onApply}
@@ -706,7 +911,50 @@ export function VoicePanel() {
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-4 grid gap-2 rounded-md border border-white/10 bg-black/20 p-3 md:grid-cols-[1fr_auto]">
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <input
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+              placeholder="Preset name"
+              className={field}
+            />
+            <Select
+              value={selectedPresetId}
+              onChange={setSelectedPresetId}
+              className="w-full"
+              options={voicePresets.map((preset) => ({ value: preset.id, label: preset.name }))}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={onSaveVoicePreset}
+              disabled={!canApply || !presetName.trim()}
+              className="rounded border border-white/10 px-2 py-1 text-xs text-white/70 transition hover:bg-white/10 disabled:opacity-30"
+            >
+              {busy === "preset-save" ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={onApplyVoicePreset}
+              disabled={!canApply || !selectedPreset}
+              className="rounded border border-white/10 px-2 py-1 text-xs text-white/70 transition hover:bg-white/10 disabled:opacity-30"
+            >
+              {busy === "preset-apply" ? "Applying..." : "Apply"}
+            </button>
+            <button
+              type="button"
+              onClick={onDeleteVoicePreset}
+              disabled={!canApply || !selectedPreset}
+              className="rounded border border-red-300/20 px-2 py-1 text-xs text-red-100/80 transition hover:bg-red-400/10 disabled:opacity-30"
+            >
+              {busy === "preset-delete" ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <label>
             <div className="text-xs uppercase tracking-wide text-white/40">F0 detector</div>
             <Select value={f0Detector} onChange={setF0Detector} className="mt-1" options={nativeF0Options} />
@@ -726,6 +974,19 @@ export function VoicePanel() {
             />
           </label>
 
+          <label>
+            <div className="text-xs uppercase tracking-wide text-white/40">Speaker ID</div>
+            <input
+              type="number"
+              min={0}
+              max={255}
+              step={1}
+              value={speakerId}
+              onChange={(e) => setSpeakerId(Number(e.target.value))}
+              className={`${field} mt-1`}
+            />
+          </label>
+
           <div>
             <div className="text-xs uppercase tracking-wide text-white/40">Index ratio</div>
             <Slider value={indexRatio} min={0} max={1} step={0.01} onChange={setIndexRatio} />
@@ -736,7 +997,23 @@ export function VoicePanel() {
             <Slider value={protect} min={0} max={1} step={0.01} onChange={setProtect} />
           </div>
 
-          <div className="md:col-span-2 xl:col-span-4">
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs uppercase tracking-wide text-white/40">Noise scale</div>
+              <div className="font-mono text-xs text-white/45">{noiseScale.toFixed(2)}</div>
+            </div>
+            <Slider value={noiseScale} min={0} max={1} step={0.01} onChange={setNoiseScale} />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs uppercase tracking-wide text-white/40">F0 smooth</div>
+              <div className="font-mono text-xs text-white/45">{f0Smoothing.toFixed(2)}</div>
+            </div>
+            <Slider value={f0Smoothing} min={0} max={1} step={0.01} onChange={setF0Smoothing} />
+          </div>
+
+          <div className="md:col-span-2 xl:col-span-7">
             <div className="text-xs uppercase tracking-wide text-white/40">Input clean-up & character</div>
             <div className="mt-2 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
               <label>
@@ -906,7 +1183,7 @@ export function VoicePanel() {
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-white/40">Offline convert</div>
-            <div className="mt-1 text-xs text-white/35">WAV, FLAC, or OGG through the native RVC pipeline</div>
+            <div className="mt-1 text-xs text-white/35">WAV, FLAC, OGG, or MP3 through the native RVC pipeline</div>
           </div>
           <Badge color={ready ? "bg-emerald-700/55 text-emerald-100" : "bg-amber-600/40 text-amber-100"}>
             {ready ? "ready" : "not ready"}
@@ -922,7 +1199,7 @@ export function VoicePanel() {
             <div className="text-xs uppercase tracking-wide text-white/40">Audio file</div>
             <input
               type="file"
-              accept=".wav,.flac,.ogg,audio/wav,audio/flac,audio/ogg"
+              accept=".wav,.flac,.ogg,.mp3,audio/wav,audio/flac,audio/ogg,audio/mpeg"
               onChange={(event) => setOfflineFile(event.target.files?.[0] ?? null)}
               className={`${field} mt-1 file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white/70`}
             />
@@ -976,13 +1253,22 @@ export function VoicePanel() {
           <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
             <audio controls src={offlineResult.url} className="w-full" />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
-              <a
-                href={offlineResult.url}
-                download
-                className="rounded-md border border-white/15 px-3 py-1.5 text-white/75 transition hover:bg-white/10 hover:text-white"
-              >
-                Download WAV
-              </a>
+              <span className="flex gap-2">
+                <a
+                  href={offlineResult.url}
+                  download
+                  className="rounded-md border border-white/15 px-3 py-1.5 text-white/75 transition hover:bg-white/10 hover:text-white"
+                >
+                  WAV
+                </a>
+                <a
+                  href={offlineResult.mp3_url}
+                  download
+                  className="rounded-md border border-white/15 px-3 py-1.5 text-white/75 transition hover:bg-white/10 hover:text-white"
+                >
+                  MP3
+                </a>
+              </span>
               <span className="text-xs text-white/45">
                 {offlineResult.sample_rate} Hz / {offlineResult.duration_s.toFixed(2)} s / pitch {offlineResult.params.pitch}
                 {" / "}formant {offlineResult.params.input_formant.toFixed(2)}

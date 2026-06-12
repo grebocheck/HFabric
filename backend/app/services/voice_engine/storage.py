@@ -1,4 +1,4 @@
-"""Opaque-token storage for native voice-engine WAV outputs."""
+"""Opaque-token storage for native voice-engine audio outputs."""
 
 from __future__ import annotations
 
@@ -25,3 +25,9 @@ def resolve_output(token: str) -> Path | None:
     if not isinstance(token, str) or not _TOKEN_RE.match(token):
         return None
     return output_dir() / f"{token}.wav"
+
+
+def resolve_mp3(token: str) -> Path | None:
+    if not isinstance(token, str) or not _TOKEN_RE.match(token):
+        return None
+    return output_dir() / f"{token}.mp3"

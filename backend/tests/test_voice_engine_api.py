@@ -70,8 +70,11 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
         "/api/voice/engine/settings",
         json={
             "pitch": 99,
+            "speaker_id": 999,
             "index_ratio": 3,
             "protect": -1,
+            "noise_scale": 9,
+            "f0_smoothing": -5,
             "input_highpass_hz": 999,
             "input_gate_db": -999,
             "input_formant": 9,
@@ -85,8 +88,11 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
     assert response.status_code == 200
     current = response.json()["settings"]
     assert current["pitch"] == 24
+    assert current["speaker_id"] == 255
     assert current["index_ratio"] == 1.0
     assert current["protect"] == 0.0
+    assert current["noise_scale"] == 1.0
+    assert current["f0_smoothing"] == 0.0
     assert current["input_highpass_hz"] == 300
     assert current["input_gate_db"] == -90.0
     assert current["input_formant"] == 2.0
@@ -117,6 +123,7 @@ async def test_settings_persist_and_fresh_engine_loads_file(client):
         "/api/voice/engine/settings",
         json={
             "pitch": 7,
+            "speaker_id": 2,
             "index_ratio": 0.33,
             "silence_threshold_db": -52,
             "silence_hold_ms": 250,
@@ -128,6 +135,7 @@ async def test_settings_persist_and_fresh_engine_loads_file(client):
     path = settings.data_dir / "voice-settings.json"
     persisted = json.loads(path.read_text(encoding="utf-8"))
     assert persisted["pitch"] == 7
+    assert persisted["speaker_id"] == 2
     assert persisted["index_ratio"] == 0.33
     assert persisted["silence_threshold_db"] == -52.0
     assert persisted["silence_hold_ms"] == 250.0
@@ -135,10 +143,49 @@ async def test_settings_persist_and_fresh_engine_loads_file(client):
     engine_mod._ENGINE = None
     fresh = (await client.get("/api/voice/engine/status")).json()["settings"]
     assert fresh["pitch"] == 7
+    assert fresh["speaker_id"] == 2
     assert fresh["index_ratio"] == 0.33
     assert fresh["silence_threshold_db"] == -52.0
     assert fresh["silence_hold_ms"] == 250.0
     assert fresh["server_input_device_id"] == 1
+
+
+async def test_named_voice_presets_persist_clean_settings(client):
+    empty = await client.get("/api/voice/engine/presets")
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    response = await client.post(
+        "/api/voice/engine/presets",
+        json={
+            "name": "  Clear test  ",
+            "settings": {
+                "pitch": 12,
+                "index_ratio": 0.25,
+                "noise_scale": 0.45,
+                "f0_smoothing": 0.0,
+                "server_input_device_id": 99,
+                "unknown_future_key": "ignored",
+            },
+        },
+    )
+    assert response.status_code == 200
+    saved = response.json()
+    assert saved["name"] == "Clear test"
+    assert saved["settings"] == {
+        "pitch": 12,
+        "index_ratio": 0.25,
+        "noise_scale": 0.45,
+        "f0_smoothing": 0.0,
+    }
+    assert saved["id"]
+
+    listed = (await client.get("/api/voice/engine/presets")).json()
+    assert [item["id"] for item in listed] == [saved["id"]]
+
+    deleted = await client.delete(f"/api/voice/engine/presets/{saved['id']}")
+    assert deleted.status_code == 200
+    assert (await client.get("/api/voice/engine/presets")).json() == []
 
 
 async def test_corrupt_settings_file_falls_back_to_defaults(client):
@@ -151,8 +198,10 @@ async def test_corrupt_settings_file_falls_back_to_defaults(client):
 
     assert current["pitch"] == settings.voice_pitch
     assert current["index_ratio"] == settings.voice_index_ratio
-    assert current["silence_threshold_db"] == -48.0
-    assert current["silence_hold_ms"] == 400.0
+    assert current["noise_scale"] == settings.voice_noise_scale
+    assert current["f0_smoothing"] == settings.voice_f0_smoothing
+    assert current["silence_threshold_db"] == -72.0
+    assert current["silence_hold_ms"] == 250.0
 
 
 async def test_settings_load_clamps_and_flags_missing_devices(client):
@@ -188,8 +237,11 @@ async def test_convert_round_trip_is_deterministic(client):
     data = {
         "model_id": model_id,
         "pitch": "5",
+        "speaker_id": "3",
         "index_ratio": "0.25",
         "protect": "0.3",
+        "noise_scale": "0.05",
+        "f0_smoothing": "0.4",
         "input_highpass_hz": "120",
         "input_gate_db": "-50",
         "input_formant": "1.5",
@@ -212,10 +264,14 @@ async def test_convert_round_trip_is_deterministic(client):
     second_body = second.json()
     assert first_body["token"] != second_body["token"]
     assert first_body["url"].endswith(first_body["token"])
+    assert first_body["mp3_url"].endswith(f"{first_body['token']}/mp3")
     assert first_body["duration_s"] > 0
     assert first_body["sample_rate"] == 16000
     assert first_body["model_id"] == model_id
     assert first_body["params"]["pitch"] == 5
+    assert first_body["params"]["speaker_id"] == 3
+    assert first_body["params"]["noise_scale"] == 0.05
+    assert first_body["params"]["f0_smoothing"] == 0.4
     assert first_body["params"]["input_highpass_hz"] == 120
     assert first_body["params"]["input_gate_db"] == -50.0
     assert first_body["params"]["input_formant"] == 1.5
@@ -225,6 +281,11 @@ async def test_convert_round_trip_is_deterministic(client):
     first_wav = (await client.get(first_body["url"])).content
     second_wav = (await client.get(second_body["url"])).content
     assert first_wav == second_wav
+
+    mp3 = await client.get(first_body["mp3_url"])
+    assert mp3.status_code == 200
+    assert mp3.headers["content-type"].startswith("audio/mpeg")
+    assert len(mp3.content) > 100
 
     with wave.open(io.BytesIO(first_wav), "rb") as reader:
         assert reader.getnchannels() == 1

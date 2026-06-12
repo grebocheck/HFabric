@@ -27,6 +27,97 @@ async def client(monkeypatch, tmp_path):
     monkeypatch.setattr(engine_mod, "_ENGINE", None)
 
 
+def _processor_engine(**overrides):
+    from types import SimpleNamespace
+
+    values = {
+        "cross_fade_overlap_size": 0.0,
+        "extra_convert_size": 0.2,
+        "input_denoise": "off",
+        "silence_threshold_db": -60.0,
+        "silence_hold_ms": 0.0,
+        "pitch": 0,
+        "speaker_id": 0,
+        "index_ratio": 0.0,
+        "protect": 0.33,
+        "noise_scale": 0.15,
+        "f0_smoothing": 0.35,
+        "f0_detector": "rmvpe",
+        "input_highpass_hz": 80,
+        "input_gate_db": -90.0,
+        "input_formant": 0.0,
+        "device": "cpu",
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_chunk_processor_flushes_tail_after_squelch(monkeypatch):
+    import numpy as np
+
+    from app.services.voice_engine import pipeline
+
+    def fake_convert_audio(audio_16k, loaded, **kwargs):  # noqa: ARG001
+        return np.ones(len(audio_16k), dtype=np.float32) * 0.25, 16000, {"fake_convert": 1.0}
+
+    monkeypatch.setattr(pipeline, "convert_audio", fake_convert_audio)
+
+    engine = _processor_engine(silence_threshold_db=-40.0)
+    processor = realtime.ChunkProcessor(engine, loaded=object(), stream_sr=16000)
+    # One conversion block at 16 kHz (chunk 1280 -> block 1280): each call
+    # processes exactly one block, so squelch state is per-call deterministic.
+    # 437.5 Hz fits the block exactly (35 periods), so the voice -> silence
+    # edge does not ring the streaming high-pass above the squelch threshold.
+    n = 1280
+    t = np.arange(n, dtype=np.float32) / 16000.0
+    voice = (0.1 * np.sin(2.0 * np.pi * 437.5 * t)).astype(np.float32)
+    silence = np.zeros(n, dtype=np.float32)
+
+    first = processor.process(voice)
+    assert processor.last_timings["squelched"] is False
+    assert np.max(np.abs(first)) > 0.0
+
+    tail = processor.process(silence)
+    assert processor.last_timings["squelched"] is False
+    assert processor.last_timings["tail_flush"] is True
+    assert np.max(np.abs(tail)) > 0.0
+
+    out = tail
+    for _ in range(8):
+        out = processor.process(silence)
+    assert processor.last_timings["squelched"] is True
+    assert np.allclose(out, 0.0)
+
+
+def test_chunk_processor_output_rate_is_exact(monkeypatch):
+    """Variable-length block outputs must add up to the input duration (the
+    output ring absorbs jitter, but the long-run rate has to be sample-exact
+    modulo the constant stitch/resampler holdback)."""
+    import numpy as np
+
+    from app.services.voice_engine import pipeline
+
+    def fake_convert_audio(audio_16k, loaded, **kwargs):  # noqa: ARG001
+        return np.ones(len(audio_16k), dtype=np.float32) * 0.25, 16000, {"fake_convert": 1.0}
+
+    monkeypatch.setattr(pipeline, "convert_audio", fake_convert_audio)
+
+    engine = _processor_engine(silence_threshold_db=-90.0, cross_fade_overlap_size=0.05)
+    processor = realtime.ChunkProcessor(engine, loaded=object(), stream_sr=48000)
+    rng = np.random.default_rng(7)
+    chunk_samples = 17024  # 133 * 128, not a multiple of any analysis hop
+    total_in = 0
+    total_out = 0
+    for _ in range(20):
+        chunk = (0.1 * rng.standard_normal(chunk_samples)).astype(np.float32)
+        out = processor.process(chunk)
+        assert np.all(np.isfinite(out))
+        total_in += chunk_samples
+        total_out += len(out)
+    # Holdback: SOLA fade+search + resampler delay + up to one block in the FIFO.
+    assert total_in - 2 * chunk_samples <= total_out <= total_in
+
+
 async def test_session_lifecycle_and_metrics(client):
     before = (await client.get("/api/voice/engine/status")).json()
     assert before["live"] is False
@@ -38,6 +129,7 @@ async def test_session_lifecycle_and_metrics(client):
     assert started.status_code == 200
     body = started.json()
     assert body["live"] is True
+    assert body["recording"]["active"] is False
     metrics = body["metrics"]
     assert 0.0 < metrics["input_vu"] <= 1.0
     assert 0.0 < metrics["output_vu"] <= 1.0
@@ -54,6 +146,33 @@ async def test_session_lifecycle_and_metrics(client):
     stopped = await client.post("/api/voice/engine/session/stop")
     assert stopped.status_code == 200
     assert stopped.json()["live"] is False
+
+
+async def test_session_records_live_phrase(client):
+    assert (await client.post("/api/voice/engine/recording/start")).status_code == 409
+
+    start = await client.post("/api/voice/engine/session/start", json={"model_id": "stub-voice"})
+    assert start.status_code == 200
+
+    rec = await client.post("/api/voice/engine/recording/start")
+    assert rec.status_code == 200
+    assert rec.json()["recording"]["active"] is True
+
+    await asyncio.sleep(0.05)
+    done = await client.post("/api/voice/engine/recording/stop")
+    assert done.status_code == 200
+    body = done.json()
+    assert body["recording"]["active"] is False
+    result = body["recording_result"]
+    assert result["duration_s"] > 0
+    assert result["sample_rate"] == body["settings"]["server_audio_sample_rate"]
+
+    wav = await client.get(result["url"])
+    assert wav.status_code == 200
+    assert wav.content.startswith(b"RIFF")
+
+    stopped = await client.post("/api/voice/engine/session/stop")
+    assert stopped.status_code == 200
 
 
 async def test_session_start_unknown_model_404(client):
