@@ -86,9 +86,17 @@ def _index_mix(features, index_state: dict[str, Any] | None, index_ratio: float)
     valid = indices >= 0
     safe_indices = np.where(valid, indices, 0)
     neighbors = big_npy[safe_indices]
+    # Upstream RVC weighting: faiss returns squared-L2 distances and neighbors
+    # are weighted by square(1/d), normalized. The previous exp(-d) collapsed
+    # for typical ContentVec distances (d ~ 60: 74% of frames had every
+    # neighbor clamped, averaging 8 spread-out vectors into ~zero), so at high
+    # index_ratio the synthesizer got empty phones - audible as a pitch-only
+    # "ahh" with no articulation. Measured on the real index: retrieved norm
+    # 0.11 / cos 0.06 (old) vs 6.67 / cos 0.67 (this formula) for query
+    # features of norm 7.4.
     safe_distances = np.asarray(distances, dtype=np.float32)
-    safe_distances = np.where(np.isfinite(safe_distances), np.maximum(safe_distances, 0.0), 50.0)
-    weights = np.exp(-np.minimum(safe_distances, 50.0))
+    safe_distances = np.where(np.isfinite(safe_distances), np.maximum(safe_distances, 1e-8), np.inf)
+    weights = np.square(1.0 / safe_distances)
     weights = np.where(valid, weights, 0.0)
     denom = np.maximum(weights.sum(axis=1, keepdims=True), 1e-8)
     weights = weights / denom
