@@ -23,11 +23,19 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install light deps + test tools
-        run: pip install -r requirements.txt pytest pytest-asyncio ruff
+        run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov ruff
       - name: Lint
         run: ruff check app tests
       - name: Test (stub mode)
-        run: pytest
+        run: |
+          set -o pipefail
+          pytest --cov=app --cov-report=term --cov-report=term-missing:skip-covered --cov-fail-under=63 | tee coverage.txt
+          {
+            echo "### Backend coverage"
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
     name: frontend (tsc + vitest)
@@ -44,6 +52,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install deps
         run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Typecheck
         run: npx tsc -b
       - name: Test

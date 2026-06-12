@@ -126,7 +126,7 @@ export function VoicePanel() {
     }
   }, []);
 
-  const models = status?.models ?? [];
+  const models = useMemo(() => status?.models ?? [], [status]);
   const inputDevices = status?.audio_devices.inputs ?? [];
   const outputDevices = status?.audio_devices.outputs ?? [];
   const selected = useMemo(() => models.find((m) => m.id === modelId), [models, modelId]);

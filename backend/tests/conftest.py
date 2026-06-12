@@ -97,3 +97,35 @@ async def isolated_runtime(monkeypatch, tmp_path):
         await new_engine.dispose()
         db_session.engine = old_engine
         db_session.SessionLocal = old_session_local
+
+
+@pytest.fixture
+async def app_client(isolated_runtime):
+    """Run the full FastAPI lifespan around an ASGI client on an isolated DB."""
+    from httpx import ASGITransport, AsyncClient
+
+    from app.main import app
+
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+
+async def _wait_jobs_done(client, job_ids: list[str], timeout: float = 30.0) -> list[dict]:
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    latest: list[dict] = []
+    while loop.time() < deadline:
+        latest = [(await client.get(f"/api/jobs/{job_id}")).json() for job_id in job_ids]
+        if all(job["status"] in ("done", "error", "cancelled") for job in latest):
+            return latest
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"jobs did not finish in {timeout}s: {latest}")
+
+
+@pytest.fixture
+def wait_jobs_done():
+    return _wait_jobs_done

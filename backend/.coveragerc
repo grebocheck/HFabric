@@ -1,0 +1,17 @@
+[run]
+branch = True
+source = app
+omit =
+    app/backends/image_diffusers.py
+    app/backends/llm_llamacpp.py
+    app/services/voice_engine/realtime.py
+    app/services/voice_engine/rvc/*
+
+[report]
+precision = 1
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == "__main__":

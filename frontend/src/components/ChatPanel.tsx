@@ -364,7 +364,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
     if (imgCmd) await submitImage(imgCmd[1].trim(), cid);
     else await submit(content, cid);
-  }, [input, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage]);
+  }, [input, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage, setInput]);
 
   const stop_ = useCallback(async () => {
     await api.stopLlm().catch(() => {});

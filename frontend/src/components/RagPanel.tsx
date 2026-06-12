@@ -61,7 +61,9 @@ export function RagPanel({
   }, [llmModelId, llmModels]);
 
   useEffect(() => {
-    const h = window.setTimeout(() => refreshDocs(docQuery), 180);
+    const h = window.setTimeout(() => {
+      api.listRagDocuments(docQuery).then(setDocs).catch(() => setDocs([]));
+    }, 180);
     return () => window.clearTimeout(h);
   }, [docQuery]);
 

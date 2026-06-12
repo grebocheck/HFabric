@@ -198,12 +198,16 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > chat/embedding services — have **zero** tests, and CI measures nothing, so
 > holes stay invisible.
 
-- [ ] **P16.1 — Coverage measurement in CI.** Add `pytest-cov` to the backend CI
+- [~] **P16.1 — Coverage measurement in CI.** Add `pytest-cov` to the backend CI
   job, publish the report in the run summary, and set a floor that today's suite
   already passes (start ~55–60% on `app/`, excluding `backends/image_diffusers.py`
   and other GPU-only modules via `.coveragerc`). Ratchet the floor up as P16.2
   lands — never down.
-- [ ] **P16.2 — Router tests for the untested half.** Stub-mode httpx tests per
+  - Phase E: `.coveragerc` added for `app/` with GPU-only omissions, CI installs
+    `pytest-cov`, publishes the terminal report to the run summary, and uses the
+    conservative sandbox floor `--cov-fail-under=60`. Reviewer must install
+    `pytest-cov` and recalibrate to measured coverage minus 3 points.
+- [x] **P16.2 — Router tests for the untested half.** Stub-mode httpx tests per
   router, reusing the `test_stub_integration.py` conftest: chat (conversation
   CRUD, message flow, `/image` bridge, regenerate/edit), rag (ingest → search →
   cited answer path with a fake embed server), notes/presets/code (CRUD +
@@ -211,20 +215,31 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   no-model/no-binary error paths — the subprocess itself can be monkeypatched),
   voice (native status/config/session validation paths). Target: every router
   file imported by `main.py` has a test file.
-- [ ] **P16.3 — Frontend lint in CI (P11.2 tail).** eslint (typescript-eslint +
+  - Phase E: added `test_chat_api.py`, `test_rag_api.py`,
+    `test_notes_presets_code.py`, and `test_tts_transcription_vision.py`; full
+    backend suite is 147 tests green in stub mode.
+- [~] **P16.3 — Frontend lint in CI (P11.2 tail).** eslint (typescript-eslint +
   react-hooks) + prettier, config committed, `npm run lint` wired into
   `.github/workflows/ci.yml`. Auto-fix the initial sweep in its own commit so
   review stays readable.
-- [ ] **P16.4 — Frontend flow tests.** Testing-Library tests for the three
+  - Phase E: flat ESLint config, Prettier config, `npm run lint`, devDependency
+    entries, and CI lint step are added. Sandbox registry access timed out while
+    refreshing `package-lock.json`; `npm run lint` cannot execute until the
+    reviewer installs the new dev dependencies and runs the initial autofix.
+- [x] **P16.4 — Frontend flow tests.** Testing-Library tests for the three
   highest-value flows: ChatPanel (send → streamed reply → thinking panel split),
   Gallery (filter chips combine + bulk select), QueuePanel (job states + cancel).
   Mock `api/client.ts` + the WS hook; no real backend.
-- [ ] **P16.5 — Real-GPU smoke checklist.** One doc (`docs/gpu-smoke.md`)
+  - Phase E: ChatPanel, Gallery, and QueuePanel flow tests added; frontend suite
+    is 49 tests green.
+- [x] **P16.5 — Real-GPU smoke checklist.** One doc (`docs/gpu-smoke.md`)
   consolidating the manual runners (`scripts/swap_leak_test.py`,
   `phase_batch_check.py`, `sdxl_resident_drift_test.py`, `image_live_bench.py`,
   `kv_cache_*.py`) into a 15-minute ordered checklist with expected numbers from
   M1, to run after any torch/diffusers/driver bump. The scripts exist — the
   missing artifact is the checklist with pass criteria.
+  - Phase E: `docs/gpu-smoke.md` added with ordered pass criteria and the M1/P6R
+    image + native voice benchmark numbers.
 
 ### P17 — Code health round 2 (carries P11.1; audit W5, W6, W9)
 
