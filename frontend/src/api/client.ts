@@ -1,4 +1,4 @@
-import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlmConfig, Lora, Model, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlmConfig, Lora, Model, ModelProfile, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -86,7 +86,14 @@ export const api = {
   health: () => globalThis.fetch("/api/health").then(j<HealthStatus>),
   listModels: () => fetch("/api/models").then(j<Model[]>),
   listLoras: () => fetch("/api/loras").then(j<Lora[]>),
+  listModelProfiles: () => fetch("/api/models/profiles").then(j<ModelProfile[]>),
+  resetModelProfile: (id: string) => fetch(`/api/models/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<{ deleted: number }>),
+  resetAllModelProfiles: () => fetch("/api/models/profiles", { method: "DELETE" }).then(j<{ deleted: number }>),
   runtimeSettings: () => fetch("/api/settings").then(j<RuntimeSettings>),
+  settingsOverrides: () => fetch("/api/settings/overrides").then(j<SettingsOverrides>),
+  saveSettingsOverrides: (body: Partial<SettingsOverrides["values"]>) =>
+    fetch("/api/settings/overrides", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(body) })
+      .then(j<SettingsOverrides>),
   gpuStatus: () => fetch("/api/gpu").then(j),
   freeGpu: () => fetch("/api/gpu/free", { method: "POST" }).then(j),
 

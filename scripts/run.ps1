@@ -3,6 +3,7 @@
 
     .\scripts\run.ps1          # REAL mode (real models on the GPU)
     .\scripts\run.ps1 -Stub    # STUB mode (full pipeline, no GPU/ML stack)
+    .\scripts\run.ps1 -Prod    # one-port production mode (serves frontend/dist)
 
   Before starting it frees the backend/frontend ports, killing stale instances
   left over from earlier runs. Those leftovers are the cause of the
@@ -13,6 +14,7 @@
 #>
 param(
     [switch]$Stub,
+    [switch]$Prod,
     [int]$Port = 0,
     [int]$FrontendPort = 0,
     [string]$BindHost = ""
@@ -59,6 +61,45 @@ function Test-Truthy([string]$Value) {
     return @("1", "true", "yes", "on").Contains($Value.ToLowerInvariant())
 }
 
+function Get-NewestWriteUtc([string[]]$Paths) {
+    $latest = [datetime]::MinValue
+    foreach ($path in $Paths) {
+        if (-not (Test-Path $path)) { continue }
+        Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.LastWriteTimeUtc -gt $latest) { $latest = $_.LastWriteTimeUtc }
+        }
+    }
+    return $latest
+}
+
+function Test-DistStale {
+    $frontend = Join-Path $root "frontend"
+    $distIndex = Join-Path $frontend "dist\index.html"
+    if (-not (Test-Path $distIndex)) { return $true }
+    $sourceLatest = Get-NewestWriteUtc @(
+        (Join-Path $frontend "src"),
+        (Join-Path $frontend "public"),
+        (Join-Path $frontend "index.html"),
+        (Join-Path $frontend "package.json"),
+        (Join-Path $frontend "package-lock.json"),
+        (Join-Path $frontend "vite.config.ts"),
+        (Join-Path $frontend "tsconfig.json")
+    )
+    return $sourceLatest -gt (Get-Item $distIndex).LastWriteTimeUtc
+}
+
+function Wait-Health([string]$Url) {
+    $deadline = (Get-Date).AddSeconds(45)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $res = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 2
+            if ($res.StatusCode -eq 200) { return $true }
+        } catch {}
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
 Import-DotEnv (Join-Path $root ".env")
 
 if ($Port -le 0) { $Port = Get-EnvInt "HFAB_PORT" 8260 }
@@ -83,6 +124,13 @@ if ($Stub) {
 } else {
     $env:HFAB_STUB_MODE = "false"
     Write-Host "[mode] REAL - real models on the GPU (use -Stub for no-GPU mode)" -ForegroundColor Green
+}
+
+if ($Prod) {
+    $env:HFAB_SERVE_FRONTEND = "true"
+    Write-Host "[mode] PROD - FastAPI serves frontend/dist on one port" -ForegroundColor Cyan
+} elseif ([string]::IsNullOrWhiteSpace($env:HFAB_SERVE_FRONTEND)) {
+    $env:HFAB_SERVE_FRONTEND = "false"
 }
 
 # --- free ports held by stale instances of this app ---------------------------
@@ -135,9 +183,21 @@ if (-not (Test-Path (Join-Path $root "frontend\node_modules"))) {
     Push-Location frontend; npm install; Pop-Location
 }
 
+if ($Prod -and (Test-DistStale)) {
+    Write-Host "[build] frontend/dist is missing or stale -> npm run build" -ForegroundColor Cyan
+    Push-Location frontend
+    npm run build
+    Pop-Location
+}
+
 Write-Host "[run] backend  -> http://${BindHost}:$Port"       -ForegroundColor Green
-Write-Host "[run] frontend -> http://localhost:$FrontendPort" -ForegroundColor Green
-Write-Host "[run] both run in THIS window; press Ctrl+C to stop.`n" -ForegroundColor Yellow
+if ($Prod) {
+    Write-Host "[run] frontend -> http://localhost:$Port (served by FastAPI)" -ForegroundColor Green
+    Write-Host "[run] one server runs in THIS window; press Ctrl+C to stop.`n" -ForegroundColor Yellow
+} else {
+    Write-Host "[run] frontend -> http://localhost:$FrontendPort" -ForegroundColor Green
+    Write-Host "[run] both run in THIS window; press Ctrl+C to stop.`n" -ForegroundColor Yellow
+}
 
 # Backend shares this console (one window). No --reload -> a single PID to manage.
 $backend = Start-Process -FilePath $venvPy `
@@ -145,18 +205,28 @@ $backend = Start-Process -FilePath $venvPy `
     -WorkingDirectory (Join-Path $root "backend") `
     -NoNewWindow -PassThru
 
-# Open the UI once the servers have had a moment to come up.
-Start-Job -ScriptBlock {
-    param($url)
-    Start-Sleep -Seconds 6
-    Start-Process $url
-} -ArgumentList "http://localhost:$FrontendPort" | Out-Null
-
 try {
-    Push-Location frontend
-    npm run dev          # foreground; blocks until Ctrl+C
+    if ($Prod) {
+        $healthUrl = "http://127.0.0.1:$Port/api/health"
+        if (Wait-Health $healthUrl) {
+            Start-Process "http://localhost:$Port"
+        } else {
+            Write-Host "[warn] backend did not answer $healthUrl before timeout" -ForegroundColor Yellow
+        }
+        Wait-Process -Id $backend.Id
+    } else {
+        # Open the UI once the servers have had a moment to come up.
+        Start-Job -ScriptBlock {
+            param($url)
+            Start-Sleep -Seconds 6
+            Start-Process $url
+        } -ArgumentList "http://localhost:$FrontendPort" | Out-Null
+
+        Push-Location frontend
+        npm run dev          # foreground; blocks until Ctrl+C
+    }
 } finally {
-    Pop-Location
+    if (-not $Prod) { Pop-Location }
     if ($backend -and -not $backend.HasExited) {
         Write-Host "`n[stop] shutting down backend (pid $($backend.Id))..." -ForegroundColor DarkGray
         taskkill /PID $backend.Id /T /F 2>$null | Out-Null

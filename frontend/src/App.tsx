@@ -19,6 +19,7 @@ import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VisionPanel } from "./components/VisionPanel";
 import { VoicePanel } from "./components/VoicePanel";
+import { buildComposerApply } from "./components/imageComposerHelpers";
 import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
 
 const MEM_HISTORY_MAX = 90; // rolling timeline points (~a few minutes at the poll rate)
@@ -209,8 +210,14 @@ export default function App() {
           setArbiterNote({
             reason: String(e.reason ?? ""),
             message: String(e.message ?? ""),
+            model_id: typeof e.model_id === "string" ? e.model_id : undefined,
             model: typeof e.model === "string" ? e.model : undefined,
             family: typeof e.family === "string" ? e.family : undefined,
+            target_model_id: typeof e.target_model_id === "string" ? e.target_model_id : undefined,
+            target_model: typeof e.target_model === "string" ? e.target_model : undefined,
+            target_family: typeof e.target_family === "string" ? e.target_family : undefined,
+            unload_model_id: typeof e.unload_model_id === "string" ? e.unload_model_id : undefined,
+            unload_model: typeof e.unload_model === "string" ? e.unload_model : undefined,
             predicted_gb: typeof e.predicted_gb === "number" ? e.predicted_gb : undefined,
             available_gb: typeof e.available_gb === "number" ? e.available_gb : undefined,
             ts: e.ts,
@@ -249,10 +256,7 @@ export default function App() {
   // model by *name*; resolve it back to a live model id when one matches.
   const onReproduce = useCallback(
     (image: ImageItem, opts: { keepSeed: boolean }) => {
-      const modelName = typeof image.params?.model === "string" ? image.params.model : "";
-      const model = models.find((m) => m.job_type === "image" && m.name === modelName);
-      const params = { ...image.params, seed: opts.keepSeed ? image.seed ?? -1 : -1 };
-      setComposerApply({ model_id: model?.id, params, nonce: Date.now() });
+      setComposerApply(buildComposerApply(image, models, opts));
       setView("images");
       toast.success(opts.keepSeed ? "Loaded into composer" : "Loaded as variation (new seed)");
     },
@@ -317,6 +321,7 @@ export default function App() {
           <ResultPreview
             images={images}
             onOpenHistory={() => setView("history")}
+            onReproduce={onReproduce}
             generating={imageJobs.some((j) => j.status === "running")}
           />
           <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />

@@ -280,35 +280,52 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > The shipped P7/P8/P9 phases each left a small, named remainder. Lower priority
 > than the audit-driven phases above, but kept so they don't get lost.
 
-- [ ] **P12.1 — Learned-profile management.** A UI list of learned
+- [x] **P12.1 — Learned-profile management.** A UI list of learned
   `model_profiles` with a reset control (P7.2 tail), plus capture LLM-subprocess
   VRAM (its `load_report` is currently `None`, so the LLM is the one model with
   no measured figure).
-- [ ] **P12.2 — Per-job arbiter attribution.** Surface the blocking/swap reason
+  - Phase F: System tab lists learned profiles with per-row/all reset; backend
+    has GET/DELETE profile endpoints and clears the sysmon cache. LLM subprocess
+    VRAM capture remains out of scope and is called out in the UI.
+- [x] **P12.2 — Per-job arbiter attribution.** Surface the blocking/swap reason
   on the *exact* queued card (not just the Queue header) and add a
   keep-warm-eviction reason (P7.1 tail).
-- [ ] **P12.3 — Inline previews on the Images tab.** Show the swap-plan preview
+  - Phase F: Queue cards attach matching arbiter notes by model id/target model
+    id; warm-evict notes include target attribution.
+- [x] **P12.3 — Inline previews on the Images tab.** Show the swap-plan preview
   inline on the Images-tab queue (P7.4 tail) and add a quick reproduce/vary
   action on the `ResultPreview` card (P8.3 tail).
-- [ ] **P12.4 — Memory timeline depth.** Optional process-RSS series + hover
+  - Phase F: Images queue shows the predicted plan inline; ResultPreview reuses
+    the History composer-apply path for Reproduce/Vary.
+- [x] **P12.4 — Memory timeline depth.** Optional process-RSS series + hover
   tooltips on the System-tab sparkline (P7.3 tail).
+  - Phase F: System sparkline has an App RSS toggle and hover tooltip with time,
+    RAM, VRAM, and process RSS values.
 
 ### P18 — Distribution & run story (NEW — audit W8)
 
 > Today the app runs as uvicorn + Vite *dev* server on two ports. A production
 > mode simplifies daily use and halves the attack surface P14 protects.
 
-- [ ] **P18.1 — Production serving mode.** `npm run build` output served by
+- [x] **P18.1 — Production serving mode.** `npm run build` output served by
   FastAPI (StaticFiles + SPA fallback) behind `HFAB_SERVE_FRONTEND=true`; one
   port, no Node at runtime. CI builds the frontend to prove the build stays
   green.
-- [ ] **P18.2 — One-command launcher.** `run.bat`/`run.sh` gain a `--prod` path:
+  - Phase G: FastAPI serves frontend/dist behind HFAB_SERVE_FRONTEND=true with
+    SPA fallback, missing-dist 503 guidance, no-cache index, long-cache assets;
+    CI now runs `npm run build`.
+- [x] **P18.2 — One-command launcher.** `run.bat`/`run.sh` gain a `--prod` path:
   build-if-stale, start backend, wait on `/api/health`, open the browser. Stub
   vs. real mode stays an env concern (`HFAB_STUB_MODE`).
-- [ ] **P18.3 — Writable settings (safe subset).** Promote the read-only settings
+  - Phase G: `run.bat`, `scripts/run.ps1`, and `run.sh` support prod mode with
+    stale dist detection, health wait, and browser open on the backend port.
+- [x] **P18.3 — Writable settings (safe subset).** Promote the read-only settings
   drawer: persist a whitelisted subset (defaults for steps/size, keep-warm
   toggle, theme already local) to a `data/settings-overrides.json` loaded at
   startup. Anything memory-safety-related stays env-only by design.
+  - Phase G: GET/PUT `/api/settings/overrides` validates the whitelist, clamps
+    values, persists the file, applies live settings, and the drawer edits only
+    the safe subset while noting memory-safety knobs are env-only.
 - [ ] **P18.4 — Model download manager.** Surface `scripts/fetch_models.py` in
   the UI: a curated list of the verified models (from
   [imagefabric-models](docs) + MODEL_NOTICE.md) with size, license note, target

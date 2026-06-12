@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     api_token: str | None = None
     # Vite dev server origin(s) allowed via CORS.
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    # Production mode serves the Vite build from FastAPI on the backend port.
+    serve_frontend: bool = False
+    frontend_dist_dir: Path = ROOT / "frontend" / "dist"
 
     # --- mode ---
     # STUB mode runs the whole pipeline (queue -> arbiter swap -> progress -> gallery)

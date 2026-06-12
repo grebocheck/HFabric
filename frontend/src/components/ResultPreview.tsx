@@ -5,7 +5,17 @@ import { ZoomableImage } from "./ZoomableImage";
 
 const actionBtn = "rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white";
 
-export function ResultPreview({ images, onOpenHistory, generating = false }: { images: ImageItem[]; onOpenHistory: () => void; generating?: boolean }) {
+export function ResultPreview({
+  images,
+  onOpenHistory,
+  onReproduce,
+  generating = false,
+}: {
+  images: ImageItem[];
+  onOpenHistory: () => void;
+  onReproduce?: (image: ImageItem, opts: { keepSeed: boolean }) => void;
+  generating?: boolean;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState(false);
   const [note, setNote] = useState("");
@@ -119,6 +129,20 @@ export function ResultPreview({ images, onOpenHistory, generating = false }: { i
           <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={copyImage} disabled={!selected} className={`${actionBtn} disabled:opacity-30`}>Copy</button>
             <button onClick={() => setLightbox(true)} disabled={!selected} className={`${actionBtn} disabled:opacity-30`}>Detail</button>
+            <button
+              onClick={() => selected && onReproduce?.(selected, { keepSeed: true })}
+              disabled={!selected || !onReproduce}
+              className={`${actionBtn} disabled:opacity-30`}
+            >
+              Reproduce
+            </button>
+            <button
+              onClick={() => selected && onReproduce?.(selected, { keepSeed: false })}
+              disabled={!selected || !onReproduce}
+              className={`${actionBtn} disabled:opacity-30`}
+            >
+              Vary
+            </button>
             <button onClick={reveal} disabled={!selected} className={`${actionBtn} disabled:opacity-30`}>Folder</button>
             {selected ? (
               <>

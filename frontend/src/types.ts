@@ -100,17 +100,48 @@ export interface QueuePlan {
 export interface ArbiterNote {
   reason: string;
   message: string;
+  model_id?: string;
   model?: string;
   family?: string;
+  target_model_id?: string;
+  target_model?: string;
+  target_family?: string;
+  unload_model_id?: string;
+  unload_model?: string;
   predicted_gb?: number;
   available_gb?: number;
   ts: number;
+}
+
+export interface ModelProfile {
+  model_id: string;
+  model: string;
+  family: string;
+  quant: string | null;
+  ram_gb: number | null;
+  vram_gb: number | null;
+  samples: number;
+  updated_at: string;
+}
+
+export interface SettingsOverrides {
+  values: {
+    default_steps: number;
+    default_guidance: number;
+    default_width: number;
+    default_height: number;
+    keep_warm_models: boolean;
+    keep_warm_max_models: number;
+  };
+  writable_keys: string[];
+  path: string;
 }
 
 export interface RuntimeSettings {
   stub_mode: boolean;
   paths: Record<string, string>;
   memory: Record<string, unknown>;
+  generation_defaults?: Record<string, unknown>;
   acceleration: Record<string, unknown>;
   counts: Record<string, number>;
   gpu: GpuStatus;

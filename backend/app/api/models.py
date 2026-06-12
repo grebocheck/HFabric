@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..backends.registry import ModelRegistry
 from ..config import settings
 from ..core.arbiter import GpuArbiter
 from ..core.enums import ModelFamily
-from ..schemas import GpuStatusOut, LoraOut, ModelOut
+from ..schemas import GpuStatusOut, LoraOut, ModelOut, ModelProfileOut
+from ..services import model_profile_service as mps
+from ..services import settings_overrides
 from ..util import sysmon
-from .deps import get_arbiter, get_registry
+from .deps import get_arbiter, get_registry, get_session
 
 router = APIRouter(prefix="/api", tags=["models"])
 
@@ -50,6 +55,50 @@ async def list_loras(
     ]
 
 
+@router.get("/models/profiles", response_model=list[ModelProfileOut])
+async def list_model_profiles(
+    session: AsyncSession = Depends(get_session),
+    registry: ModelRegistry = Depends(get_registry),
+) -> list[ModelProfileOut]:
+    by_id = {d.id: d for d in registry.descriptors()}
+    rows = await mps.load_all(session)
+    return [
+        ModelProfileOut(
+            model_id=row.model_id,
+            model=by_id.get(row.model_id).name if row.model_id in by_id else row.model_id,
+            family=row.family,
+            quant=row.quant,
+            ram_gb=row.ram_gb,
+            vram_gb=row.vram_gb,
+            samples=row.samples,
+            updated_at=row.updated_at,
+        )
+        for row in rows
+    ]
+
+
+@router.delete("/models/profiles")
+async def reset_all_model_profiles(session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+    deleted = await mps.delete_all(session)
+    sysmon.clear_learned_profiles()
+    return {"deleted": deleted}
+
+
+@router.delete("/models/profiles/{model_id}")
+async def reset_model_profile(
+    model_id: str,
+    all_profiles: bool = Query(False, alias="all"),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, int]:
+    if all_profiles:
+        deleted = await mps.delete_all(session)
+        sysmon.clear_learned_profiles()
+        return {"deleted": deleted}
+    deleted = await mps.delete(session, model_id)
+    sysmon.delete_learned_profile(model_id)
+    return {"deleted": deleted}
+
+
 @router.get("/settings")
 async def runtime_settings(
     registry: ModelRegistry = Depends(get_registry),
@@ -78,6 +127,14 @@ async def runtime_settings(
             "keep_warm_max_models": settings.keep_warm_max_models,
             "keep_warm_min_available_ram_gb": settings.keep_warm_min_available_ram_gb,
             "mem_poll_seconds": settings.mem_poll_seconds,
+        },
+        "generation_defaults": {
+            "default_steps": settings.default_steps,
+            "default_guidance": settings.default_guidance,
+            "default_width": settings.default_width,
+            "default_height": settings.default_height,
+            "keep_warm_models": settings.keep_warm_models,
+            "keep_warm_max_models": settings.keep_warm_max_models,
         },
         "acceleration": {
             "attention_backend": settings.attention_backend,
@@ -139,6 +196,22 @@ async def runtime_settings(
         "gpu": arbiter.status(),
         "mem": sysmon.snapshot(),
     }
+
+
+@router.get("/settings/overrides")
+async def get_settings_overrides() -> dict[str, Any]:
+    return settings_overrides.payload()
+
+
+@router.put("/settings/overrides")
+async def put_settings_overrides(body: dict[str, Any]) -> dict[str, Any]:
+    unknown = sorted(set(body) - settings_overrides.WRITABLE_KEYS)
+    if unknown:
+        raise HTTPException(422, f"settings are env-only or unknown: {', '.join(unknown)}")
+    try:
+        return settings_overrides.save(body)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
 
 
 @router.get("/gpu", response_model=GpuStatusOut)

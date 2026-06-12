@@ -31,6 +31,16 @@ def set_learned_profile(model_id: str, *, ram_gb: float | None = None, vram_gb: 
         cur["vram_gb"] = max(cur.get("vram_gb", 0.0), vram_gb)
 
 
+def delete_learned_profile(model_id: str) -> None:
+    """Remove one persisted measurement from the in-memory budget cache."""
+    _learned.pop(model_id, None)
+
+
+def clear_learned_profiles() -> None:
+    """Remove all persisted measurements from the in-memory budget cache."""
+    _learned.clear()
+
+
 def get_learned_profile(model_id: str | None) -> dict[str, float] | None:
     return _learned.get(model_id) if model_id else None
 

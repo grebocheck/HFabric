@@ -90,6 +90,12 @@ export function ImageComposer({
   const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
   const [promptHistoryOpen, setPromptHistoryOpen] = useState(false);
   const promptHistoryRef = useRef<HTMLDivElement>(null);
+  const writableDefaultsRef = useRef({
+    default_steps: DEFAULT_STEPS,
+    default_guidance: DEFAULT_GUIDANCE,
+    default_width: DEFAULT_SIZE,
+    default_height: DEFAULT_SIZE,
+  });
 
   const selectedImgModel = imgModels.find((m) => m.id === imgModel);
   const selectedFamily = selectedImgModel?.family;
@@ -104,6 +110,26 @@ export function ImageComposer({
   const compatibleLoras = loras
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  const applyWritableDefaults = useCallback(() => {
+    api.settingsOverrides()
+      .then(({ values }) => {
+        const previous = writableDefaultsRef.current;
+        setSteps((value) => isKnownStepDefault(value) || value === previous.default_steps ? values.default_steps : value);
+        setGuidance((value) => isKnownGuidanceDefault(value) || value === previous.default_guidance ? values.default_guidance : value);
+        setWidth((value) => isKnownSizeDefault(value) || value === previous.default_width ? values.default_width : value);
+        setHeight((value) => isKnownSizeDefault(value) || value === previous.default_height ? values.default_height : value);
+        writableDefaultsRef.current = values;
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    applyWritableDefaults();
+    const onDefaultsChanged = () => applyWritableDefaults();
+    window.addEventListener("hfabric:settings-overrides", onDefaultsChanged);
+    return () => window.removeEventListener("hfabric:settings-overrides", onDefaultsChanged);
+  }, [applyWritableDefaults]);
 
   useEffect(() => {
     if (!imgModel || !imgModels.some((m) => m.id === imgModel)) {

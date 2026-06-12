@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
-import type { ArbiterNote, GpuStatus, ImageStats, MemPoint, MemSnapshot, QueuePlan, RuntimeSettings } from "../types";
+import type { ArbiterNote, GpuStatus, ImageStats, MemPoint, MemSnapshot, ModelProfile, QueuePlan, RuntimeSettings } from "../types";
 
 export function SystemPanel({
   gpu,
@@ -21,10 +21,19 @@ export function SystemPanel({
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [plan, setPlan] = useState<QueuePlan | null>(null);
   const [imageStats, setImageStats] = useState<ImageStats | null>(null);
+  const [profiles, setProfiles] = useState<ModelProfile[]>([]);
 
   useEffect(() => {
     api.runtimeSettings().then(setSettings).catch(() => {});
   }, []);
+
+  const refreshProfiles = useCallback(() => {
+    api.listModelProfiles().then(setProfiles).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshProfiles();
+  }, [refreshProfiles]);
 
   // Refetch the swap-plan whenever the queue or the resident model changes.
   useEffect(() => {
@@ -52,6 +61,8 @@ export function SystemPanel({
       <ArbiterStatus note={note} />
 
       <SwapPlan plan={plan} />
+
+      <LearnedProfiles profiles={profiles} onRefresh={refreshProfiles} />
 
       <MemoryTimeline history={history} />
 
@@ -202,6 +213,95 @@ function ArbiterStatus({ note }: { note?: ArbiterNote | null }) {
   );
 }
 
+function LearnedProfiles({ profiles, onRefresh }: { profiles: ModelProfile[]; onRefresh: () => void }) {
+  const [busy, setBusy] = useState("");
+
+  const resetOne = async (id: string) => {
+    setBusy(id);
+    try {
+      await api.resetModelProfile(id);
+      onRefresh();
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const resetAll = async () => {
+    setBusy("__all__");
+    try {
+      await api.resetAllModelProfiles();
+      onRefresh();
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-surface p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white/75">Learned memory profiles</h3>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-white/35">
+            Image models record measured RAM/VRAM after real loads. LLM VRAM is not measured here because
+            llama-server reports no load_report; subprocess VRAM capture is out of scope.
+          </p>
+        </div>
+        <button
+          onClick={resetAll}
+          disabled={!profiles.length || Boolean(busy)}
+          className="shrink-0 rounded-md border border-red-400/25 px-2.5 py-1 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-30"
+        >
+          Reset all
+        </button>
+      </div>
+      {profiles.length === 0 ? (
+        <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-white/30">
+          No learned profiles yet.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-xs">
+            <thead className="text-white/35">
+              <tr className="border-b border-white/10">
+                <th className="py-2 pr-3 font-medium">Model</th>
+                <th className="py-2 pr-3 font-medium">Family</th>
+                <th className="py-2 pr-3 font-medium">Quant</th>
+                <th className="py-2 pr-3 font-medium">RAM</th>
+                <th className="py-2 pr-3 font-medium">VRAM</th>
+                <th className="py-2 pr-3 font-medium">Samples</th>
+                <th className="py-2 pr-3 font-medium">Updated</th>
+                <th className="py-2 text-right font-medium">Reset</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5 text-white/65">
+              {profiles.map((profile) => (
+                <tr key={profile.model_id}>
+                  <td className="max-w-[240px] truncate py-2 pr-3" title={profile.model}>{profile.model}</td>
+                  <td className="py-2 pr-3">{profile.family}</td>
+                  <td className="py-2 pr-3">{profile.quant ?? "-"}</td>
+                  <td className="py-2 pr-3">{profile.ram_gb == null ? "-" : gb(profile.ram_gb)}</td>
+                  <td className="py-2 pr-3">{profile.vram_gb == null ? "-" : gb(profile.vram_gb)}</td>
+                  <td className="py-2 pr-3">{profile.samples}</td>
+                  <td className="py-2 pr-3">{new Date(profile.updated_at).toLocaleString()}</td>
+                  <td className="py-2 text-right">
+                    <button
+                      onClick={() => resetOne(profile.model_id)}
+                      disabled={Boolean(busy)}
+                      className="rounded border border-white/15 px-2 py-0.5 text-[11px] text-white/55 hover:bg-white/10 hover:text-white/80 disabled:opacity-30"
+                    >
+                      {busy === profile.model_id ? "Resetting" : "Reset"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SwapPlan({ plan }: { plan: QueuePlan | null }) {
   const typeColor = (t: string) => (t === "image" ? "bg-accent/20 text-accent-fg border-accent/30" : "bg-emerald-500/20 text-emerald-200 border-emerald-400/30");
   return (
@@ -244,6 +344,8 @@ function SwapPlan({ plan }: { plan: QueuePlan | null }) {
 function MemoryTimeline({ history }: { history: MemPoint[] }) {
   const W = 100;
   const H = 32;
+  const [showRss, setShowRss] = useState(false);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const points = history.filter((p) => p.ram || p.vram);
 
   const path = (frac: (p: MemPoint) => number | null) => {
@@ -260,6 +362,9 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
 
   const vramPath = path((p) => (p.vram && p.vram.total_gb > 0 ? p.vram.used_gb / p.vram.total_gb : null));
   const ramPath = path((p) => (p.ram ? p.ram.percent / 100 : null));
+  const rssPath = path((p) => (
+    showRss && p.ram && p.ram.total_gb > 0 ? p.ram.process_rss_gb / p.ram.total_gb : null
+  ));
 
   // vertical markers where the resident model changed (a swap)
   const swaps = points
@@ -268,29 +373,71 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
     .map((m) => (points.length > 1 ? (m.i / (points.length - 1)) * W : 0));
 
   const last = points[points.length - 1];
+  const hover = hoverIndex == null ? null : points[hoverIndex] ?? null;
+  const hoverLeft = hoverIndex != null && points.length > 1 ? `${(hoverIndex / (points.length - 1)) * 100}%` : "0%";
 
   return (
     <section className="rounded-lg border border-white/10 bg-surface p-4">
       <div className="mb-3 flex items-baseline justify-between">
         <h3 className="text-sm font-semibold text-white/75">Memory pressure</h3>
-        <span className="text-xs text-white/35">
-          {points.length ? `${points.length} samples · ${swaps.length} swap${swaps.length === 1 ? "" : "s"}` : "collecting telemetry…"}
-        </span>
+        <div className="flex items-center gap-3">
+          <label className="inline-flex items-center gap-1.5 text-xs text-white/45">
+            <input
+              type="checkbox"
+              checked={showRss}
+              onChange={(event) => setShowRss(event.target.checked)}
+              className="h-3 w-3 accent-accent"
+            />
+            App RSS
+          </label>
+          <span className="text-xs text-white/35">
+            {points.length ? `${points.length} samples / ${swaps.length} swap${swaps.length === 1 ? "" : "s"}` : "collecting telemetry..."}
+          </span>
+        </div>
       </div>
       {points.length < 2 ? (
-        <div className="flex h-20 items-center justify-center text-sm text-white/30">collecting telemetry…</div>
+        <div className="flex h-20 items-center justify-center text-sm text-white/30">collecting telemetry...</div>
       ) : (
         <>
-          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-24 w-full">
-            {swaps.map((x, i) => (
-              <line key={i} x1={x} y1={0} x2={x} y2={H} stroke="rgb(248 250 252 / 0.18)" strokeWidth={0.4} strokeDasharray="1.5 1.5" />
-            ))}
-            {ramPath && <polyline points={ramPath} fill="none" stroke="rgb(16 185 129 / 0.85)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
-            {vramPath && <polyline points={vramPath} fill="none" stroke="rgb(139 92 246 / 0.95)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
-          </svg>
+          <div
+            className="relative h-24"
+            onMouseMove={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const frac = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0;
+              setHoverIndex(Math.min(points.length - 1, Math.max(0, Math.round(frac * (points.length - 1)))));
+            }}
+            onMouseLeave={() => setHoverIndex(null)}
+          >
+            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
+              {swaps.map((x, i) => (
+                <line key={i} x1={x} y1={0} x2={x} y2={H} stroke="rgb(248 250 252 / 0.18)" strokeWidth={0.4} strokeDasharray="1.5 1.5" />
+              ))}
+              {ramPath && <polyline points={ramPath} fill="none" stroke="rgb(16 185 129 / 0.85)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
+              {vramPath && <polyline points={vramPath} fill="none" stroke="rgb(139 92 246 / 0.95)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
+              {rssPath && <polyline points={rssPath} fill="none" stroke="rgb(14 165 233 / 0.9)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
+            </svg>
+            {hover ? (
+              <>
+                <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-white/25" style={{ left: hoverLeft }} />
+                <div
+                  className="pointer-events-none absolute top-1 z-10 min-w-44 rounded-md border border-white/10 bg-black/80 px-2 py-1.5 text-[11px] text-white/70 shadow-lg shadow-black/40"
+                  style={{
+                    left: hoverLeft,
+                    transform: hoverIndex != null && hoverIndex > points.length * 0.65 ? "translateX(-100%)" : "translateX(0)",
+                  }}
+                >
+                  <div className="font-mono text-white/45">{new Date(hover.ts * 1000).toLocaleTimeString()}</div>
+                  <div>RAM: {hover.ram ? `${hover.ram.percent.toFixed(0)}% / ${gb(hover.ram.used_gb)} used` : "-"}</div>
+                  <div>VRAM: {hover.vram ? `${gb(hover.vram.used_gb)} / ${gb(hover.vram.total_gb)}` : "-"}</div>
+                  <div>RSS: {hover.ram ? gb(hover.ram.process_rss_gb) : "-"}</div>
+                </div>
+              </>
+            ) : null}
+          </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/45">
-            <Legend color="bg-accent" label={`VRAM used${last?.vram ? ` · ${last.vram.used_gb.toFixed(1)}/${last.vram.total_gb.toFixed(0)} GB` : ""}`} />
-            <Legend color="bg-emerald-500" label={`RAM %${last?.ram ? ` · ${last.ram.percent.toFixed(0)}%` : ""}`} />
+            <Legend color="bg-accent" label={`VRAM used${last?.vram ? ` / ${last.vram.used_gb.toFixed(1)}/${last.vram.total_gb.toFixed(0)} GB` : ""}`} />
+            <Legend color="bg-emerald-500" label={`RAM %${last?.ram ? ` / ${last.ram.percent.toFixed(0)}%` : ""}`} />
+            {showRss ? <Legend color="bg-info" label={`App RSS${last?.ram ? ` / ${gb(last.ram.process_rss_gb)}` : ""}`} /> : null}
             <Legend color="bg-white/30" label="model swap" dashed />
           </div>
         </>

@@ -1,18 +1,39 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { RuntimeSettings } from "../types";
+import type { RuntimeSettings, SettingsOverrides } from "../types";
 
 export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
+  const [overrides, setOverrides] = useState<SettingsOverrides | null>(null);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setError("");
-    api.runtimeSettings()
-      .then(setSettings)
+    Promise.all([api.runtimeSettings(), api.settingsOverrides()])
+      .then(([runtime, writable]) => {
+        setSettings(runtime);
+        setOverrides(writable);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Could not load settings"));
   }, [open]);
+
+  const saveOverrides = async () => {
+    if (!overrides) return;
+    setSaving(true);
+    setError("");
+    try {
+      const next = await api.saveSettingsOverrides(overrides.values);
+      setOverrides(next);
+      setSettings(await api.runtimeSettings());
+      window.dispatchEvent(new CustomEvent("hfabric:settings-overrides"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save settings");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -40,14 +61,93 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                 "LLM models": settings.counts.llm_models,
                 "LoRAs": settings.counts.loras,
               }} />
+              {overrides ? (
+                <WritableSettings
+                  overrides={overrides}
+                  setOverrides={setOverrides}
+                  onSave={saveOverrides}
+                  saving={saving}
+                />
+              ) : null}
               <Section title="Acceleration" rows={settings.acceleration} />
               <Section title="Memory" rows={settings.memory} />
+              <p className="text-xs leading-5 text-white/35">
+                Memory-safety knobs such as min_free_ram_gb and keep-warm RAM headroom stay env-only.
+              </p>
               <Section title="Paths" rows={settings.paths} mono />
             </div>
           ) : null}
         </div>
       </aside>
     </div>
+  );
+}
+
+function WritableSettings({
+  overrides,
+  setOverrides,
+  onSave,
+  saving,
+}: {
+  overrides: SettingsOverrides;
+  setOverrides: (value: SettingsOverrides) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const values = overrides.values;
+  const update = (key: keyof SettingsOverrides["values"], value: number | boolean) => {
+    setOverrides({ ...overrides, values: { ...values, [key]: value } });
+  };
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs uppercase tracking-wide text-white/40">Writable defaults</h3>
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="rounded border border-accent/40 px-2.5 py-1 text-xs text-accent-fg hover:bg-accent/15 disabled:opacity-40"
+        >
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+      <div className="space-y-2 rounded-md border border-white/10 p-2.5">
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Steps" value={values.default_steps} step={1} onChange={(v) => update("default_steps", v)} />
+          <NumberField label="Guidance" value={values.default_guidance} step={0.1} onChange={(v) => update("default_guidance", v)} />
+          <NumberField label="Width" value={values.default_width} step={64} onChange={(v) => update("default_width", v)} />
+          <NumberField label="Height" value={values.default_height} step={64} onChange={(v) => update("default_height", v)} />
+          <NumberField label="Warm max" value={values.keep_warm_max_models} step={1} onChange={(v) => update("keep_warm_max_models", v)} />
+          <label className="flex items-center justify-between rounded border border-white/10 bg-black/20 px-2 py-1.5 text-xs">
+            <span className="text-white/45">Keep warm</span>
+            <input
+              type="checkbox"
+              checked={values.keep_warm_models}
+              onChange={(event) => update("keep_warm_models", event.target.checked)}
+              className="h-4 w-4 accent-accent"
+            />
+          </label>
+        </div>
+        <p className="text-[11px] leading-4 text-white/30">
+          Saved to data/settings-overrides.json and applied to new jobs or future swaps.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function NumberField({ label, value, step, onChange }: { label: string; value: number; step: number; onChange: (value: number) => void }) {
+  return (
+    <label className="block">
+      <span className="text-[11px] text-white/40">{label}</span>
+      <input
+        type="number"
+        value={value}
+        step={step}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-1 w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-white/75 outline-none focus:border-accent"
+      />
+    </label>
   );
 }
 

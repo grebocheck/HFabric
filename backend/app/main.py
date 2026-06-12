@@ -11,10 +11,12 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from .api import (
     chat,
@@ -39,6 +41,7 @@ from .core.enums import EventType
 from .core.events import Event, EventBus
 from .core.scheduler import Worker
 from .db.session import init_db
+from .services import settings_overrides
 from .services.embedding_service import embedding_service
 from .util import security, sysmon
 from .util.logging import (
@@ -76,6 +79,7 @@ async def _prime_learned_profiles() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
+    settings_overrides.load()
     configure_file_logging(settings)
     install_unhandled_exception_logging(logger, asyncio.get_running_loop())
     reap_known_pidfiles(logger)
@@ -121,6 +125,8 @@ app.add_middleware(
 async def api_token_middleware(request, call_next):
     if request.method == "OPTIONS" or request.url.path == "/api/health":
         return await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
     if security.request_is_authorized(request):
         return await call_next(request)
     return JSONResponse(
@@ -156,3 +162,81 @@ async def health() -> dict:
         "mem": sysmon.snapshot(),
         "security": security.security_posture(),
     }
+
+
+class FrontendAssets:
+    async def __call__(self, scope, receive, send) -> None:
+        if not settings.serve_frontend:
+            await Response(status_code=404)(scope, receive, send)
+            return
+        static = StaticFiles(directory=settings.frontend_dist_dir / "assets", check_dir=False)
+
+        async def send_with_cache(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await static(scope, receive, send_with_cache)
+
+
+app.mount("/assets", FrontendAssets(), name="frontend-assets")
+
+
+def _frontend_unavailable() -> HTMLResponse:
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <html>
+          <head><title>HFabric frontend build missing</title></head>
+          <body style="font-family: system-ui, sans-serif; margin: 2rem;">
+            <h1>Frontend build missing</h1>
+            <p>HFAB_SERVE_FRONTEND=true is enabled, but frontend/dist is not ready.</p>
+            <p>Run <code>npm run build</code> in the <code>frontend</code> directory, then restart.</p>
+          </body>
+        </html>
+        """,
+        status_code=503,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _frontend_headers(path: Path, *, index: bool = False) -> dict[str, str]:
+    if index:
+        return {"Cache-Control": "no-cache"}
+    if "assets" in path.parts:
+        return {"Cache-Control": "public, max-age=31536000, immutable"}
+    return {"Cache-Control": "no-cache"}
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_frontend(full_path: str):
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(404, "not found")
+    if not settings.serve_frontend:
+        raise HTTPException(404, "frontend serving disabled")
+
+    dist = settings.frontend_dist_dir.resolve()
+    index = dist / "index.html"
+    if not index.is_file():
+        logger.error(
+            "HFAB_SERVE_FRONTEND=true but %s is missing; run npm run build in frontend",
+            index,
+        )
+        return _frontend_unavailable()
+
+    if full_path:
+        candidate = (dist / full_path).resolve()
+        try:
+            candidate.relative_to(dist)
+        except ValueError:
+            raise HTTPException(404, "not found")
+        if candidate.is_file():
+            return FileResponse(candidate, headers=_frontend_headers(candidate))
+
+    return FileResponse(
+        index,
+        media_type="text/html",
+        headers=_frontend_headers(index, index=True),
+    )

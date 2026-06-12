@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,4 +43,15 @@ async def record(
 
 
 async def load_all(session: AsyncSession) -> list[ModelProfile]:
-    return list((await session.execute(select(ModelProfile))).scalars().all())
+    stmt = select(ModelProfile).order_by(ModelProfile.updated_at.desc(), ModelProfile.model_id.asc())
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def delete(session: AsyncSession, model_id: str) -> int:
+    result = await session.execute(sa_delete(ModelProfile).where(ModelProfile.model_id == model_id))
+    return int(result.rowcount or 0)
+
+
+async def delete_all(session: AsyncSession) -> int:
+    result = await session.execute(sa_delete(ModelProfile))
+    return int(result.rowcount or 0)

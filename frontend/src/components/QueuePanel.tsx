@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Badge } from "./Badge";
-import type { ArbiterNote, Job } from "../types";
+import type { ArbiterNote, Job, QueuePlan } from "../types";
 
 const statusColor: Record<string, string> = {
   queued: "text-white/55",
@@ -32,6 +32,7 @@ const BLOCKING_NOTE_TONES: Record<string, string> = {
 
 export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: () => void; note?: ArbiterNote | null }) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [plan, setPlan] = useState<QueuePlan | null>(null);
   const sorted = useMemo(
     () => [...jobs].sort(
       (a, b) =>
@@ -44,6 +45,27 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
   const running = jobs.filter((job) => job.status === "running").length;
   const queued = jobs.filter((job) => job.status === "queued").length;
   const finished = jobs.filter((job) => job.status === "done" || job.status === "cancelled").length;
+  const queueKey = useMemo(
+    () => jobs
+      .filter((job) => job.status === "queued" || job.status === "running")
+      .map((job) => `${job.id}:${job.status}:${job.priority}`)
+      .join("|"),
+    [jobs],
+  );
+
+  useEffect(() => {
+    let active = true;
+    api.queuePlan()
+      .then((next) => {
+        if (active) setPlan(next);
+      })
+      .catch(() => {
+        if (active) setPlan(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [queueKey]);
 
   const reorderQueued = async (targetId: string) => {
     if (!draggedId || draggedId === targetId) return;
@@ -85,6 +107,7 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
             {note.message}
           </div>
         ) : null}
+        <QueuePlanPreview plan={plan} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -102,6 +125,7 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
                 setDraggedId={setDraggedId}
                 reorderQueued={reorderQueued}
                 onChanged={onChanged}
+                note={jobNote(note, job)}
               />
             ))}
           </div>
@@ -117,12 +141,14 @@ function JobCard({
   setDraggedId,
   reorderQueued,
   onChanged,
+  note,
 }: {
   job: Job;
   draggedId: string | null;
   setDraggedId: (id: string | null) => void;
   reorderQueued: (targetId: string) => Promise<void>;
   onChanged: () => void;
+  note?: ArbiterNote | null;
 }) {
   const progress = Math.round((job.progress || 0) * 100);
   const prompt = String(job.params?.prompt ?? "");
@@ -157,6 +183,12 @@ function JobCard({
 
       {prompt ? (
         <div className="mt-1.5 line-clamp-2 text-xs leading-4 text-white/45" title={prompt}>{prompt}</div>
+      ) : null}
+
+      {note ? (
+        <div className="mt-1.5 truncate text-[11px] text-white/35" title={note.message}>
+          {noteLine(note)}
+        </div>
       ) : null}
 
       {job.status === "running" ? (
@@ -206,6 +238,52 @@ function JobCard({
       ) : null}
     </article>
   );
+}
+
+function QueuePlanPreview({ plan }: { plan: QueuePlan | null }) {
+  if (!plan || plan.queued === 0) return null;
+  return (
+    <div className="mt-2 rounded-md border border-white/10 bg-black/20 px-2.5 py-2">
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-white/30">
+        Plan: {plan.queued} queued / {plan.swaps} swap{plan.swaps === 1 ? "" : "s"}
+      </div>
+      <div className="flex flex-wrap items-center gap-1 text-[11px]">
+        <span className="max-w-[110px] truncate text-white/35" title={plan.current_model ?? "idle"}>
+          {plan.current_model ?? "idle"}
+        </span>
+        {plan.steps.map((step, i) => (
+          <span key={`${step.model_id}-${i}`} className="inline-flex min-w-0 items-center gap-1">
+            <span className="text-white/20">-&gt;</span>
+            <span className="max-w-[120px] truncate rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-white/60" title={step.model_id}>
+              {step.model}{step.count > 1 ? ` x${step.count}` : ""}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function jobNote(note: ArbiterNote | null | undefined, job: Job): ArbiterNote | null {
+  if (!note || job.status !== "queued") return null;
+  const ids = [note.model_id, note.target_model_id].filter(Boolean);
+  if (ids.includes(job.model_id)) return note;
+  if (!ids.length && note.model === job.model_id) return note;
+  return null;
+}
+
+function noteLine(note: ArbiterNote): string {
+  if (note.reason === "ram_budget") {
+    const need = note.predicted_gb == null ? "" : ` (needs ~${note.predicted_gb.toFixed(1)} GB)`;
+    return `waiting: RAM budget refused${need}`;
+  }
+  if (note.reason === "swap") {
+    return `swap planned: unload ${note.unload_model ?? "current model"}`;
+  }
+  if (note.reason === "warm_evict") {
+    return `waiting: evict warm ${note.model ?? "model"} for RAM`;
+  }
+  return note.message;
 }
 
 function DenoisePreview({ progress, note }: { progress: number; note?: string | null }) {

@@ -4,6 +4,7 @@
 #
 #    ./run.sh          REAL mode: real models on the GPU (default)
 #    ./run.sh stub     STUB mode: full pipeline, no GPU/ML stack
+#    ./run.sh --prod   PROD mode: one FastAPI port serves frontend/dist
 #
 #  Frees stale ports, bootstraps venv + npm on first run, then runs the FastAPI
 #  backend (:8260) and the Vite frontend (:5173) in THIS terminal. Ctrl+C stops
@@ -15,6 +16,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 PYBIN="$ROOT/.venv/bin/python"
+STUB_ARG=0
+PROD=0
+
+for arg in "$@"; do
+  case "$arg" in
+    stub|--stub) STUB_ARG=1 ;;
+    --prod) PROD=1 ;;
+    *)
+      printf 'unknown argument: %s\n' "$arg" >&2
+      exit 2
+      ;;
+  esac
+done
 
 load_env() {
   local file="$1"
@@ -59,7 +73,7 @@ else
 fi
 have() { command -v "$1" >/dev/null 2>&1; }
 
-if [ "${1:-}" = "stub" ]; then
+if [ "$STUB_ARG" = "1" ]; then
   export HFAB_STUB_MODE="true"
   printf '%s[mode] STUB — pipeline only, no GPU/ML stack%s\n' "$C_YELLOW" "$C_RST"
 elif [ "${HFAB_STUB_MODE:-false}" = "true" ] || [ "${HFAB_STUB_MODE:-false}" = "1" ]; then
@@ -68,6 +82,13 @@ elif [ "${HFAB_STUB_MODE:-false}" = "true" ] || [ "${HFAB_STUB_MODE:-false}" = "
 else
   export HFAB_STUB_MODE="false"
   printf '%s[mode] REAL — real models on the GPU (use "stub" for no-GPU mode)%s\n' "$C_GREEN" "$C_RST"
+fi
+
+if [ "$PROD" = "1" ]; then
+  export HFAB_SERVE_FRONTEND="true"
+  printf '%s[mode] PROD - FastAPI serves frontend/dist on one port%s\n' "$C_CYAN" "$C_RST"
+else
+  export HFAB_SERVE_FRONTEND="${HFAB_SERVE_FRONTEND:-false}"
 fi
 
 # --- free ports held by stale instances --------------------------------------
@@ -109,9 +130,78 @@ if [ ! -d "$ROOT/frontend/node_modules" ]; then
   ( cd frontend && npm install )
 fi
 
+dist_stale() {
+  "$PYBIN" - "$ROOT" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+front = root / "frontend"
+index = front / "dist" / "index.html"
+if not index.exists():
+    raise SystemExit(0)
+paths = [
+    front / "src",
+    front / "public",
+    front / "index.html",
+    front / "package.json",
+    front / "package-lock.json",
+    front / "vite.config.ts",
+    front / "tsconfig.json",
+]
+latest = 0.0
+for path in paths:
+    if not path.exists():
+        continue
+    if path.is_file():
+        latest = max(latest, path.stat().st_mtime)
+        continue
+    for child in path.rglob("*"):
+        if child.is_file():
+            latest = max(latest, child.stat().st_mtime)
+raise SystemExit(0 if latest > index.stat().st_mtime else 1)
+PY
+}
+
+health_ready() {
+  if have curl; then
+    curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1
+  else
+    "$PYBIN" - "$PORT" <<'PY'
+from urllib.request import urlopen
+import sys
+
+try:
+    with urlopen(f"http://127.0.0.1:{sys.argv[1]}/api/health", timeout=2) as res:
+        raise SystemExit(0 if res.status == 200 else 1)
+except Exception:
+    raise SystemExit(1)
+PY
+  fi
+}
+
+wait_health() {
+  local deadline=$((SECONDS + 45))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if health_ready; then return 0; fi
+    sleep 0.5
+  done
+  return 1
+}
+
+if [ "$PROD" = "1" ] && dist_stale; then
+  printf '%s[build] frontend/dist is missing or stale -> npm run build%s\n' "$C_CYAN" "$C_RST"
+  ( cd frontend && npm run build )
+fi
+
 printf '%s[run] backend  → http://%s:%s%s\n' "$C_GREEN" "$BIND_HOST" "$PORT" "$C_RST"
-printf '%s[run] frontend → http://localhost:%s%s\n' "$C_GREEN" "$FPORT" "$C_RST"
-printf '%s[run] both run in THIS terminal; press Ctrl+C to stop.%s\n\n' "$C_YELLOW" "$C_RST"
+if [ "$PROD" = "1" ]; then
+  printf '%s[run] frontend → http://localhost:%s (served by FastAPI)%s\n' "$C_GREEN" "$PORT" "$C_RST"
+  printf '%s[run] one server runs in THIS terminal; press Ctrl+C to stop.%s\n\n' "$C_YELLOW" "$C_RST"
+else
+  printf '%s[run] frontend → http://localhost:%s%s\n' "$C_GREEN" "$FPORT" "$C_RST"
+  printf '%s[run] both run in THIS terminal; press Ctrl+C to stop.%s\n\n' "$C_YELLOW" "$C_RST"
+fi
 
 # --- start backend (background) ----------------------------------------------
 ( cd backend && exec "$PYBIN" -m uvicorn app.main:app --host "$BIND_HOST" --port "$PORT" ) &
@@ -126,10 +216,20 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# --- open the UI once servers are up -----------------------------------------
-( sleep 6
-  if have xdg-open; then xdg-open "http://localhost:$FPORT"
-  elif have open; then open "http://localhost:$FPORT"; fi ) >/dev/null 2>&1 &
+if [ "$PROD" = "1" ]; then
+  if wait_health; then
+    if have xdg-open; then xdg-open "http://localhost:$PORT"
+    elif have open; then open "http://localhost:$PORT"; fi
+  else
+    printf '%s[warn] backend did not answer /api/health before timeout%s\n' "$C_YELLOW" "$C_RST"
+  fi
+  wait "$BACKPID"
+else
+  # --- open the UI once servers are up ---------------------------------------
+  ( sleep 6
+    if have xdg-open; then xdg-open "http://localhost:$FPORT"
+    elif have open; then open "http://localhost:$FPORT"; fi ) >/dev/null 2>&1 &
 
-# --- frontend (foreground; blocks until Ctrl+C) ------------------------------
-( cd frontend && npm run dev )
+  # --- frontend (foreground; blocks until Ctrl+C) ----------------------------
+  ( cd frontend && npm run dev )
+fi

@@ -40,8 +40,11 @@ class GpuArbiter:
                         f"Swapping models: unloading {self._current.descriptor.name} "
                         f"to free VRAM for {backend.descriptor.name}."
                     ),
+                    model_id=backend.descriptor.id,
                     model=backend.descriptor.name,
                     family=backend.descriptor.family.value,
+                    unload_model_id=self._current.descriptor.id,
+                    unload_model=self._current.descriptor.name,
                 ))
                 await self._unload_current(allow_keep_warm=True, incoming=backend)
             if not backend.loaded:
@@ -224,8 +227,14 @@ class GpuArbiter:
                     f"for {d.name} (needs ~{decision['need_gb']:.1f} GB, only "
                     f"{decision['available_gb']:.1f} GB free)."
                 ),
+                model_id=victim.descriptor.id,
                 model=victim.descriptor.name,
                 family=victim.descriptor.family.value,
+                target_model_id=d.id,
+                target_model=d.name,
+                target_family=d.family.value,
+                predicted_gb=decision["need_gb"],
+                available_gb=decision["available_gb"],
             ))
             await self._unload_warm(victim)
             decision = sysmon.ram_budget(d.family, d.size_bytes, d.quant, d.id)
@@ -239,6 +248,7 @@ class GpuArbiter:
                 f"{decision['headroom_gb']:.0f} GB headroom, only "
                 f"{decision['available_gb']:.1f} GB RAM free."
             ),
+            model_id=d.id,
             model=d.name,
             family=d.family.value,
             predicted_gb=decision["need_gb"],

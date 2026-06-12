@@ -3,7 +3,7 @@
 // small formatters. Side-effect-free (beyond localStorage) so they unit-test
 // without rendering the composer.
 
-import type { Lora, Model } from "../types";
+import type { ComposerApply, ImageItem, Lora, Model } from "../types";
 
 export const STORE_KEY = "hfabric.image.composer";
 export const PROMPT_HISTORY_KEY = "hfabric.image.promptHistory";
@@ -130,4 +130,18 @@ export function pickDefaultImageModel(models: Model[]): Model | undefined {
     ?? models.find((m) => m.family === "z-image")
     ?? models.find((m) => !m.slow)
     ?? models[0];
+}
+
+export function buildComposerApply(
+  image: ImageItem,
+  models: Model[],
+  opts: { keepSeed: boolean; nonce?: number },
+): ComposerApply {
+  const modelName = typeof image.params?.model === "string" ? image.params.model : "";
+  const model = models.find((m) => m.job_type === "image" && m.name === modelName);
+  return {
+    model_id: model?.id,
+    params: { ...image.params, seed: opts.keepSeed ? image.seed ?? -1 : -1 },
+    nonce: opts.nonce ?? Date.now(),
+  };
 }

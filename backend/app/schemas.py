@@ -29,6 +29,17 @@ class ModelOut(BaseModel):
     slow: bool = False
 
 
+class ModelProfileOut(BaseModel):
+    model_id: str
+    model: str
+    family: str
+    quant: str | None = None
+    ram_gb: float | None = None
+    vram_gb: float | None = None
+    samples: int
+    updated_at: datetime
+
+
 class GpuStatusOut(BaseModel):
     resident: str | None = None
     model_id: str | None = None

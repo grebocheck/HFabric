@@ -56,5 +56,7 @@ jobs:
         run: npm run lint
       - name: Typecheck
         run: npx tsc -b
+      - name: Build frontend
+        run: npm run build
       - name: Test
         run: npm test
