@@ -15,6 +15,7 @@ from app.services.voice_engine import realtime
 
 @pytest.fixture
 async def client(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     monkeypatch.setattr(settings, "voice_models_dir", tmp_path / "voice")
     monkeypatch.setattr(settings, "voice_pretrain_dir", tmp_path / "pretrain")
     monkeypatch.setattr(engine_mod, "_ENGINE", None)
@@ -30,6 +31,8 @@ async def test_session_lifecycle_and_metrics(client):
     before = (await client.get("/api/voice/engine/status")).json()
     assert before["live"] is False
     assert before["metrics"]["input_vu"] == 0.0
+    assert before["metrics"]["squelched"] is False
+    assert before["session_config"] is None
 
     started = await client.post("/api/voice/engine/session/start", json={"model_id": "stub-voice"})
     assert started.status_code == 200
@@ -40,6 +43,9 @@ async def test_session_lifecycle_and_metrics(client):
     assert 0.0 < metrics["output_vu"] <= 1.0
     assert metrics["total_ms"] == 5.0
     assert metrics["chunk_ms"] > 0
+    assert metrics["squelched"] is False
+    assert body["session_config"]["server_audio_sample_rate"] == body["settings"]["server_audio_sample_rate"]
+    assert body["session_config"]["server_read_chunk_size"] == body["settings"]["server_read_chunk_size"]
 
     # A second start while live is refused.
     again = await client.post("/api/voice/engine/session/start", json={"model_id": "stub-voice"})

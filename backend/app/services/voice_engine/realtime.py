@@ -27,6 +27,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ...config import settings
+from . import dsp
 
 if TYPE_CHECKING:
     from .engine import VoiceEngine
@@ -93,10 +94,15 @@ class ChunkProcessor:
         self._engine = engine
         self._loaded = loaded
         self._denoiser = denoiser
+        self._denoise_mode = "dtln" if denoiser is not None else "off"
         self.stream_sr = int(stream_sr)
         self._context_16k = np.zeros(0, dtype=np.float32)
         self._prev_tail = np.zeros(0, dtype=np.float32)  # @ stream sr
-        self.last_timings: dict[str, float] = {}
+        self._squelch = dsp.SquelchGate(
+            threshold_db=engine.silence_threshold_db,
+            hold_ms=engine.silence_hold_ms,
+        )
+        self.last_timings: dict[str, float | bool] = {}
 
     def _crossfade_samples(self) -> int:
         return max(0, int(float(self._engine.cross_fade_overlap_size) * self.stream_sr))
@@ -105,27 +111,56 @@ class ChunkProcessor:
         extra = min(float(self._engine.extra_convert_size), MAX_CONTEXT_SECONDS)
         return max(CHUNK_UNIT_SAMPLES, int(extra * 16000))
 
+    def _active_denoiser(self):
+        mode = str(self._engine.input_denoise)
+        if mode != "dtln":
+            self._denoise_mode = "off"
+            return None
+        if self._denoiser is None:
+            self._denoiser = self._engine.denoiser_sync()
+        if self._denoise_mode != "dtln":
+            self._denoiser.reset()
+            self._denoise_mode = "dtln"
+        return self._denoiser
+
     def process(self, chunk):
         """Convert one chunk (float32 @ stream sr) -> same-length output."""
         import soxr  # noqa: PLC0415
 
         np = self._np
         started = time.perf_counter()
-        timings: dict[str, float] = {}
+        timings: dict[str, float | bool] = {}
 
         stage = time.perf_counter()
         chunk_16k = soxr.resample(chunk, self.stream_sr, 16000).astype(np.float32)
         timings["resample_16k"] = round((time.perf_counter() - stage) * 1000, 3)
 
-        if self._denoiser is not None:
+        denoiser = self._active_denoiser()
+        if denoiser is not None:
             stage = time.perf_counter()
-            chunk_16k = self._denoiser.process(chunk_16k).astype(np.float32, copy=False)
+            chunk_16k = denoiser.process(chunk_16k).astype(np.float32, copy=False)
             timings["input_denoise"] = round((time.perf_counter() - stage) * 1000, 3)
 
         self._context_16k = np.concatenate([self._context_16k, chunk_16k])
         limit = self._context_limit_16k()
         if len(self._context_16k) > limit:
             self._context_16k = self._context_16k[-limit:]
+
+        rms_db = dsp.rms_dbfs(chunk_16k)
+        squelched = self._squelch.update(
+            rms_db,
+            len(chunk_16k) / 16_000.0 * 1000.0,
+            threshold_db=self._engine.silence_threshold_db,
+            hold_ms=self._engine.silence_hold_ms,
+        )
+        timings["input_rms_dbfs"] = round(rms_db, 1)
+        timings["squelched"] = squelched
+        if squelched:
+            fade = self._crossfade_samples()
+            self._prev_tail = np.zeros(len(chunk) + fade, dtype=np.float32)
+            timings["total"] = round((time.perf_counter() - started) * 1000, 3)
+            self.last_timings = timings
+            return np.zeros_like(chunk, dtype=np.float32)
 
         from . import pipeline  # noqa: PLC0415
 
@@ -216,6 +251,7 @@ class RealtimeSession:
             "chunk_ms": None,
             "overruns": 0,
             "underruns": 0,
+            "squelched": False,
         }
         self._input_ring: _Ring | None = None
         self._output_ring: _Ring | None = None
@@ -224,6 +260,7 @@ class RealtimeSession:
         self.stream_sr = 48000
         self.chunk_samples = 0
         self.error: str | None = None
+        self._session_config: dict[str, int | None] | None = None
 
     # ------------------------------------------------------------ lifecycle
     def start(self, model_id: str) -> None:
@@ -236,6 +273,13 @@ class RealtimeSession:
             denoiser.reset()
         self.stream_sr = int(engine.server_audio_sample_rate)
         self.chunk_samples = max(1, int(engine.server_read_chunk_size)) * CHUNK_UNIT_SAMPLES
+        self._session_config = {
+            "server_input_device_id": engine.server_input_device_id,
+            "server_output_device_id": engine.server_output_device_id,
+            "server_monitor_device_id": engine.server_monitor_device_id,
+            "server_audio_sample_rate": self.stream_sr,
+            "server_read_chunk_size": int(engine.server_read_chunk_size),
+        }
         self._input_ring = _Ring()
         self._output_ring = _Ring()
         self._processor = ChunkProcessor(engine, loaded, self.stream_sr, denoiser=denoiser)
@@ -337,27 +381,33 @@ class RealtimeSession:
             try:
                 if self._engine.pass_through:
                     out = chunk.astype(np.float32, copy=False)
-                    timings: dict[str, float] = {"pass_through": 0.0, "total": 0.0}
+                    timings: dict[str, float | bool] = {"pass_through": 0.0, "total": 0.0, "squelched": False}
                 else:
                     out = self._processor.process(chunk)
                     timings = dict(self._processor.last_timings)
             except Exception as exc:  # noqa: BLE001 - keep the stream alive, surface the error
                 self.error = repr(exc)
                 out = np.zeros_like(chunk)
-                timings = {"error": 0.0}
+                timings = {"error": 0.0, "squelched": False}
             self._output_ring.push(out)
             if self._monitor_ring is not None:
                 self._monitor_ring.push(out)
-            total = timings.get("total")
+            squelched = bool(timings.pop("squelched", False))
+            total_raw = timings.get("total")
+            total = float(total_raw) if isinstance(total_raw, (int, float)) and not isinstance(total_raw, bool) else None
             with self._metrics_lock:
                 self._metrics["input_vu"] = in_vu
                 self._metrics["output_vu"] = _rms(out)
                 self._metrics["timings_ms"] = timings
                 self._metrics["total_ms"] = total
+                self._metrics["squelched"] = squelched
 
     def metrics(self) -> dict[str, Any]:
         with self._metrics_lock:
             return dict(self._metrics)
+
+    def session_config(self) -> dict[str, int | None] | None:
+        return dict(self._session_config) if self._session_config is not None else None
 
 
 class StubRealtimeSession:
@@ -367,9 +417,17 @@ class StubRealtimeSession:
         self._engine = engine
         self._started = time.monotonic()
         self.error: str | None = None
+        self._session_config: dict[str, int | None] | None = None
 
     def start(self, model_id: str) -> None:  # noqa: ARG002
         self._started = time.monotonic()
+        self._session_config = {
+            "server_input_device_id": self._engine.server_input_device_id,
+            "server_output_device_id": self._engine.server_output_device_id,
+            "server_monitor_device_id": self._engine.server_monitor_device_id,
+            "server_audio_sample_rate": int(self._engine.server_audio_sample_rate),
+            "server_read_chunk_size": int(self._engine.server_read_chunk_size),
+        }
 
     def stop(self) -> None:
         return None
@@ -386,7 +444,11 @@ class StubRealtimeSession:
             "chunk_ms": chunk_ms,
             "overruns": 0,
             "underruns": 0,
+            "squelched": False,
         }
+
+    def session_config(self) -> dict[str, int | None] | None:
+        return dict(self._session_config) if self._session_config is not None else None
 
 
 _SESSION: RealtimeSession | StubRealtimeSession | None = None

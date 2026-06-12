@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import json
+import logging
 from pathlib import Path
 import wave
 
@@ -13,6 +15,9 @@ from . import dsp, slots
 from .f0 import F0_DETECTORS, SUPPORTED_DETECTORS
 
 INPUT_DENOISE_MODES = {"off", "dtln"}
+VOICE_SETTINGS_FILE = "voice-settings.json"
+_SETTINGS_LOAD_LOGGED: set[str] = set()
+logger = logging.getLogger(__name__)
 
 
 def _clamp_pitch(value: int) -> int:
@@ -87,6 +92,14 @@ class ConvertParams:
 
 class VoiceEngine:
     def __init__(self) -> None:
+        self._set_default_settings()
+        self._load_persisted_settings()
+        self._lock = asyncio.Lock()
+        self._loaded_model_id: str | None = None
+        self._loaded_model = None
+        self._denoiser = None
+
+    def _set_default_settings(self) -> None:
         self.pitch = _clamp_pitch(settings.voice_pitch)
         self.index_ratio = _clamp_ratio(settings.voice_index_ratio)
         self.protect = _clamp_ratio(settings.voice_protect)
@@ -95,6 +108,8 @@ class VoiceEngine:
         self.input_gate_db = dsp.clamp_input_gate_db(settings.voice_input_gate_db)
         self.input_formant = dsp.clamp_input_formant(settings.voice_input_formant)
         self.input_denoise = _validate_input_denoise(settings.voice_input_denoise)
+        self.silence_threshold_db = dsp.clamp_silence_threshold_db(dsp.DEFAULT_SILENCE_THRESHOLD_DB)
+        self.silence_hold_ms = dsp.clamp_silence_hold_ms(dsp.DEFAULT_SILENCE_HOLD_MS)
         self.device = settings.voice_device
         self.server_input_device_id: int | None = None
         self.server_output_device_id: int | None = None
@@ -108,10 +123,43 @@ class VoiceEngine:
         self.cross_fade_overlap_size = 0.05
         self.extra_convert_size = 2.0
         self.pass_through = False
-        self._lock = asyncio.Lock()
-        self._loaded_model_id: str | None = None
-        self._loaded_model = None
-        self._denoiser = None
+
+    @staticmethod
+    def _settings_path() -> Path:
+        return settings.data_dir / VOICE_SETTINGS_FILE
+
+    def _log_settings_load_once(self, key: str, message: str, exc: Exception | None = None) -> None:
+        if key in _SETTINGS_LOAD_LOGGED:
+            return
+        _SETTINGS_LOAD_LOGGED.add(key)
+        if exc is None:
+            logger.info(message)
+        else:
+            logger.warning("%s: %s", message, exc)
+
+    def _load_persisted_settings(self) -> None:
+        path = self._settings_path()
+        if not path.exists():
+            self._log_settings_load_once("missing", f"voice settings file not found; using defaults ({path})")
+            return
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            if not isinstance(payload, dict):
+                raise ValueError("voice settings file must contain a JSON object")
+            self._apply_settings(payload)
+        except Exception as exc:  # noqa: BLE001 - bad local settings must not block startup
+            self._set_default_settings()
+            self._log_settings_load_once("invalid", f"could not load voice settings; using defaults ({path})", exc)
+
+    def _save_persisted_settings(self) -> None:
+        path = self._settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp")
+        with tmp.open("w", encoding="utf-8") as handle:
+            json.dump(self.settings_payload(), handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        tmp.replace(path)
 
     @property
     def loaded_model_id(self) -> str | None:
@@ -127,6 +175,8 @@ class VoiceEngine:
             "input_gate_db": self.input_gate_db,
             "input_formant": self.input_formant,
             "input_denoise": self.input_denoise,
+            "silence_threshold_db": self.silence_threshold_db,
+            "silence_hold_ms": self.silence_hold_ms,
             "server_input_device_id": self.server_input_device_id,
             "server_output_device_id": self.server_output_device_id,
             "server_monitor_device_id": self.server_monitor_device_id,
@@ -141,6 +191,10 @@ class VoiceEngine:
         }
 
     def update_settings(self, data: dict) -> None:
+        self._apply_settings(data)
+        self._save_persisted_settings()
+
+    def _apply_settings(self, data: dict) -> None:
         if data.get("pitch") is not None:
             self.pitch = _clamp_pitch(data["pitch"])
         if data.get("index_ratio") is not None:
@@ -157,15 +211,19 @@ class VoiceEngine:
             self.input_formant = dsp.clamp_input_formant(data["input_formant"])
         if data.get("input_denoise") is not None:
             self.input_denoise = _validate_input_denoise(data["input_denoise"])
-        if data.get("server_input_device_id") is not None:
-            self.server_input_device_id = _clamp_device_id(data["server_input_device_id"])
-        if data.get("server_output_device_id") is not None:
-            self.server_output_device_id = _clamp_device_id(data["server_output_device_id"])
-        if data.get("server_monitor_device_id") is not None:
-            self.server_monitor_device_id = _clamp_device_id(
-                data["server_monitor_device_id"],
-                allow_none=True,
-            )
+        if data.get("silence_threshold_db") is not None:
+            self.silence_threshold_db = dsp.clamp_silence_threshold_db(data["silence_threshold_db"])
+        if data.get("silence_hold_ms") is not None:
+            self.silence_hold_ms = dsp.clamp_silence_hold_ms(data["silence_hold_ms"])
+        if "server_input_device_id" in data:
+            value = data["server_input_device_id"]
+            self.server_input_device_id = None if value is None else _clamp_device_id(value)
+        if "server_output_device_id" in data:
+            value = data["server_output_device_id"]
+            self.server_output_device_id = None if value is None else _clamp_device_id(value)
+        if "server_monitor_device_id" in data:
+            value = data["server_monitor_device_id"]
+            self.server_monitor_device_id = None if value is None else _clamp_device_id(value, allow_none=True)
         if data.get("server_input_gain") is not None:
             self.server_input_gain = _clamp_gain(data["server_input_gain"])
         if data.get("server_output_gain") is not None:

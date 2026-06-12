@@ -157,6 +157,21 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   twice. The optional `denoise_dtln` asset pair is listed separately and does
   not block base engine readiness; selecting `dtln` without the weights returns
   a 503 naming `models/voice/pretrain/denoise`.
+- [x] **P6R polish - Idle squelch + persisted live tuning.** Realtime now
+  measures each denoised chunk before RVC conversion and uses a hysteresis
+  squelch (`silence_threshold_db`, `silence_hold_ms`) to output pure zeros and
+  skip ContentVec/RMVPE/synth while idle; offline conversion is unchanged. Voice
+  settings persist to `data/voice-settings.json` through atomic writes, `/status`
+  flags missing persisted audio-device ids, and the UI exposes live restart
+  hints plus a Recommended chip for the DTLN setup (pitch intentionally
+  untouched). *Validation 2026-06-12:* the root `.venv` CUDA bench
+  (`scripts\voice_realtime_bench.py --device cuda`) with real
+  `chocola_yagiyukiv2` produced 96/133/192 mean/p95 **231.2/392.0**,
+  **132.7/159.3**,
+  **122.7/131.3** ms vs chunk **256.0/354.7/512.0** ms. The added squelch
+  segment fed five silent chunks between voiced chunks: **4/5** silence chunks
+  squelched after hold, max squelched time **0.190 ms**, and the first voiced
+  chunk after silence converted in **129.0 ms** with RMS **0.101110**.
 - [~] **P6R.4 — Live validation + legacy voice removal (gates the phase).** Code
   part done 2026-06-12: deleted the old wrapper router, launch path, settings,
   pidfile reap hook, discovery fallbacks, frontend legacy client/types/helpers,

@@ -65,6 +65,36 @@ def test_noise_gate_drops_quiet_noise_and_keeps_tone():
     assert np.allclose(dsp.apply_noise_gate(signal, -90), signal)
 
 
+def test_squelch_gate_hysteresis_hold_and_reopen():
+    gate = dsp.SquelchGate(threshold_db=-48.0, hold_ms=400.0)
+
+    assert gate.update(-90.0, 100.0) is True
+    assert gate.is_closed
+
+    assert gate.update(-41.0, 20.0) is False
+    assert gate.is_open
+
+    assert gate.update(-70.0, 250.0) is False
+    assert gate.is_open
+
+    assert gate.update(-47.0, 50.0) is False
+    assert gate.is_open
+
+    assert gate.update(-70.0, 399.0) is False
+    assert gate.update(-70.0, 1.0) is True
+    assert gate.is_closed
+
+    assert gate.update(-41.0, 20.0) is False
+    assert gate.is_open
+
+
+def test_squelch_gate_off_passes_audio():
+    gate = dsp.SquelchGate(threshold_db=-90.0, hold_ms=400.0)
+
+    assert gate.update(-240.0, 1000.0) is False
+    assert gate.is_open
+
+
 def test_formant_shift_moves_centroid_and_compensates_f0():
     import numpy as np
 

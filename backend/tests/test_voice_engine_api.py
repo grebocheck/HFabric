@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import math
 import struct
 import wave
@@ -15,6 +16,7 @@ from app.services.voice_engine import engine as engine_mod
 
 @pytest.fixture
 async def client(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     monkeypatch.setattr(settings, "voice_models_dir", tmp_path / "voice")
     monkeypatch.setattr(settings, "voice_pretrain_dir", tmp_path / "pretrain")
     monkeypatch.setattr(settings, "voice_max_upload_mb", 64)
@@ -74,6 +76,8 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
             "input_gate_db": -999,
             "input_formant": 9,
             "input_denoise": "dtln",
+            "silence_threshold_db": -999,
+            "silence_hold_ms": 9999,
             "server_input_gain": 9,
             "server_output_gain": -2,
         },
@@ -87,6 +91,8 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
     assert current["input_gate_db"] == -90.0
     assert current["input_formant"] == 2.0
     assert current["input_denoise"] == "dtln"
+    assert current["silence_threshold_db"] == -90.0
+    assert current["silence_hold_ms"] == 2000.0
     assert current["server_input_gain"] == 4.0
     assert current["server_output_gain"] == 0.0
 
@@ -104,6 +110,76 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
     accepted = await client.post("/api/voice/engine/settings", json={"input_denoise": "dtln"})
     assert accepted.status_code == 200
     assert accepted.json()["settings"]["input_denoise"] == "dtln"
+
+
+async def test_settings_persist_and_fresh_engine_loads_file(client):
+    response = await client.post(
+        "/api/voice/engine/settings",
+        json={
+            "pitch": 7,
+            "index_ratio": 0.33,
+            "silence_threshold_db": -52,
+            "silence_hold_ms": 250,
+            "server_input_device_id": 1,
+        },
+    )
+    assert response.status_code == 200
+
+    path = settings.data_dir / "voice-settings.json"
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["pitch"] == 7
+    assert persisted["index_ratio"] == 0.33
+    assert persisted["silence_threshold_db"] == -52.0
+    assert persisted["silence_hold_ms"] == 250.0
+
+    engine_mod._ENGINE = None
+    fresh = (await client.get("/api/voice/engine/status")).json()["settings"]
+    assert fresh["pitch"] == 7
+    assert fresh["index_ratio"] == 0.33
+    assert fresh["silence_threshold_db"] == -52.0
+    assert fresh["silence_hold_ms"] == 250.0
+    assert fresh["server_input_device_id"] == 1
+
+
+async def test_corrupt_settings_file_falls_back_to_defaults(client):
+    path = settings.data_dir / "voice-settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not-json", encoding="utf-8")
+    engine_mod._ENGINE = None
+
+    current = (await client.get("/api/voice/engine/status")).json()["settings"]
+
+    assert current["pitch"] == settings.voice_pitch
+    assert current["index_ratio"] == settings.voice_index_ratio
+    assert current["silence_threshold_db"] == -48.0
+    assert current["silence_hold_ms"] == 400.0
+
+
+async def test_settings_load_clamps_and_flags_missing_devices(client):
+    path = settings.data_dir / "voice-settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "pitch": 99,
+            "index_ratio": 9,
+            "silence_threshold_db": -999,
+            "silence_hold_ms": 9999,
+            "server_input_device_id": 99,
+            "server_output_device_id": 88,
+            "server_monitor_device_id": 77,
+            "unknown_future_key": "ignored",
+        }),
+        encoding="utf-8",
+    )
+    engine_mod._ENGINE = None
+
+    current = (await client.get("/api/voice/engine/status")).json()["settings"]
+
+    assert current["pitch"] == 24
+    assert current["index_ratio"] == 1.0
+    assert current["silence_threshold_db"] == -90.0
+    assert current["silence_hold_ms"] == 2000.0
+    assert current["device_missing"] == {"input": True, "output": True, "monitor": True}
 
 
 async def test_convert_round_trip_is_deterministic(client):

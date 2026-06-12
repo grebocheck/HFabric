@@ -37,6 +37,8 @@ class VoiceEngineSettingsUpdate(BaseModel):
     input_gate_db: float | str | None = None
     input_formant: float | None = None
     input_denoise: str | None = None
+    silence_threshold_db: float | str | None = None
+    silence_hold_ms: float | None = None
     server_input_device_id: int | None = None
     server_output_device_id: int | None = None
     server_monitor_device_id: int | None = None
@@ -69,23 +71,60 @@ def _asset_error(input_denoise: str | None = None) -> str | None:
     return f"missing required voice pretrain asset(s): {', '.join(missing)}; searched {dirs}"
 
 
+def _device_id_set(items: list[dict[str, Any]]) -> set[int]:
+    ids: set[int] = set()
+    for item in items:
+        for key in ("id", "index"):
+            try:
+                ids.add(int(item[key]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return ids
+
+
+def _device_missing(settings_payload: dict[str, Any], audio_devices: dict[str, list[dict[str, Any]]]) -> dict[str, bool]:
+    input_ids = _device_id_set(audio_devices["inputs"])
+    output_ids = _device_id_set(audio_devices["outputs"])
+
+    def missing(value: object, ids: set[int], *, off_ok: bool = False) -> bool:
+        if value is None:
+            return False
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return True
+        if off_ok and n < 0:
+            return False
+        return n not in ids
+
+    return {
+        "input": missing(settings_payload.get("server_input_device_id"), input_ids),
+        "output": missing(settings_payload.get("server_output_device_id"), output_ids),
+        "monitor": missing(settings_payload.get("server_monitor_device_id"), output_ids, off_ok=True),
+    }
+
+
 def _status_payload() -> dict[str, Any]:
     engine = get_engine()
     asset_info = engine.assets()
     models = engine.models()
     ready = True if settings.stub_mode else asset_info["ready"] and bool(models)
     session = realtime.current_session()
+    audio_devices = devices.audio_devices()
+    settings_payload = engine.settings_payload()
+    settings_payload["device_missing"] = _device_missing(settings_payload, audio_devices)
     return {
         "engine": "native-rvc",
         "stub": settings.stub_mode,
         "ready": ready,
         "assets": asset_info["assets"],
         "models": models,
-        "audio_devices": devices.audio_devices(),
+        "audio_devices": audio_devices,
         "device": engine.device,
-        "settings": engine.settings_payload(),
+        "settings": settings_payload,
         "loaded_model": engine.loaded_model_id,
         "live": session is not None,
+        "session_config": session.session_config() if session is not None else None,
         "session_error": session.error if session is not None else None,
         "metrics": session.metrics() if session is not None else {
             "input_vu": 0.0,
@@ -95,6 +134,7 @@ def _status_payload() -> dict[str, Any]:
             "chunk_ms": None,
             "overruns": 0,
             "underruns": 0,
+            "squelched": False,
         },
     }
 

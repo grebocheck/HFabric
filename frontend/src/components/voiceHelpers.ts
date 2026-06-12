@@ -30,6 +30,20 @@ export const latencyPresets = [
   { id: "quality", label: "Quality", chunk: 192, crossFade: 0.08, extra: 7 },
 ] as const;
 
+export const recommendedVoicePreset = {
+  inputDenoise: "dtln" as const,
+  inputHighpassHz: 80,
+  inputGateDb: -90,
+  silenceThresholdDb: -48,
+  silenceHoldMs: 400,
+  indexRatio: 0.75,
+  protect: 0.5,
+  readChunkSize: 133,
+  crossFadeOverlap: 0.05,
+  extraConvert: 2,
+  sampleRate: 48000,
+} as const;
+
 export const waveformSlots = 64;
 export const timingLabels = ["prep", "f0", "infer", "post", "io", "mix"];
 
@@ -39,6 +53,8 @@ export type VoiceControlState = {
   inputGateDb: number;
   inputHighpassHz: number;
   inputDenoise: "off" | "dtln";
+  silenceThresholdDb: number;
+  silenceHoldMs: number;
   indexRatio: number;
   protect: number;
   f0Detector: string;
@@ -82,7 +98,9 @@ export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceE
     inputGateDb: num(settings.input_gate_db, -60),
     inputHighpassHz: num(settings.input_highpass_hz, 80),
     inputDenoise: settings.input_denoise === "dtln" ? "dtln" : "off",
-    indexRatio: num(settings.index_ratio, 1),
+    silenceThresholdDb: num(settings.silence_threshold_db, -48),
+    silenceHoldMs: num(settings.silence_hold_ms, 400),
+    indexRatio: num(settings.index_ratio, 0.75),
     protect: num(settings.protect, 0.5),
     f0Detector: f0Options.some((o) => o.value === f0) ? f0 : "rmvpe",
     passThrough: Boolean(settings.pass_through),
@@ -121,6 +139,8 @@ export function nativeTuningSettingsPatch(state: Pick<
   | "inputGateDb"
   | "inputHighpassHz"
   | "inputDenoise"
+  | "silenceThresholdDb"
+  | "silenceHoldMs"
   | "indexRatio"
   | "protect"
   | "f0Detector"
@@ -132,6 +152,8 @@ export function nativeTuningSettingsPatch(state: Pick<
     input_gate_db: state.inputGateDb,
     input_highpass_hz: state.inputHighpassHz,
     input_denoise: state.inputDenoise,
+    silence_threshold_db: state.silenceThresholdDb,
+    silence_hold_ms: state.silenceHoldMs,
     index_ratio: state.indexRatio,
     protect: state.protect,
     f0_detector: state.f0Detector,

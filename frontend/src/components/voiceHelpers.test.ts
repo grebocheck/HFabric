@@ -11,6 +11,7 @@ import {
   nativeSettingsToVoiceState,
   nativeTuningSettingsPatch,
   num,
+  recommendedVoicePreset,
   resolveMonitorDeviceId,
   selectedNativeModelId,
 } from "./voiceHelpers";
@@ -52,6 +53,8 @@ describe("settings coercion", () => {
       input_gate_db: "-55",
       input_highpass_hz: "120",
       input_denoise: "dtln",
+      silence_threshold_db: "-48",
+      silence_hold_ms: "400",
       index_ratio: "0.25",
       protect: "0.4",
       f0_detector: "rmvpe",
@@ -72,6 +75,8 @@ describe("settings coercion", () => {
       inputGateDb: -55,
       inputHighpassHz: 120,
       inputDenoise: "dtln",
+      silenceThresholdDb: -48,
+      silenceHoldMs: 400,
       indexRatio: 0.25,
       protect: 0.4,
       f0Detector: "rmvpe",
@@ -115,6 +120,8 @@ describe("settings coercion", () => {
       inputGateDb: -70,
       inputHighpassHz: 80,
       inputDenoise: "dtln",
+      silenceThresholdDb: -52,
+      silenceHoldMs: 250,
       indexRatio: 0.4,
       protect: 0.2,
       f0Detector: "rmvpe",
@@ -125,6 +132,8 @@ describe("settings coercion", () => {
       input_gate_db: -70,
       input_highpass_hz: 80,
       input_denoise: "dtln",
+      silence_threshold_db: -52,
+      silence_hold_ms: 250,
       index_ratio: 0.4,
       protect: 0.2,
       f0_detector: "rmvpe",
@@ -180,5 +189,17 @@ describe("formatters and constants", () => {
 
   it("exports the existing latency presets", () => {
     expect(latencyPresets.map((preset) => preset.id)).toEqual(["fast", "balanced", "quality"]);
+  });
+
+  it("exports the recommended voice preset without pitch", () => {
+    expect(recommendedVoicePreset).toMatchObject({
+      inputDenoise: "dtln",
+      inputGateDb: -90,
+      silenceThresholdDb: -48,
+      silenceHoldMs: 400,
+      indexRatio: 0.75,
+      sampleRate: 48000,
+    });
+    expect("pitch" in recommendedVoicePreset).toBe(false);
   });
 });

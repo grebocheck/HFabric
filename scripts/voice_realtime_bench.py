@@ -95,7 +95,7 @@ def choose_model_id(requested: str) -> str:
     if models:
         available = ", ".join(str(model["id"]) for model in models)
         raise RuntimeError(f"model {requested!r} not found; available models: {available}")
-    searched = f"{settings.voice_models_dir}, {settings.voice_wokada_dir / 'model_dir'}"
+    searched = str(settings.voice_models_dir)
     raise RuntimeError(f"no voice models found; searched {searched}")
 
 
@@ -173,6 +173,92 @@ def validate_stream(chunk_size: int, stitched: np.ndarray, offline: np.ndarray, 
         )
 
 
+def validate_squelch_segment(
+    loaded: object,
+    stream_sr: int,
+) -> dict[str, float | int]:
+    engine = get_engine()
+    old_threshold = engine.silence_threshold_db
+    old_hold = engine.silence_hold_ms
+    old_crossfade = engine.cross_fade_overlap_size
+    old_extra = engine.extra_convert_size
+    try:
+        engine.silence_threshold_db = -48.0
+        engine.silence_hold_ms = 400.0
+        engine.cross_fade_overlap_size = 0.05
+        engine.extra_convert_size = 2.0
+
+        chunk_size = 133
+        chunk_samples = chunk_size * CHUNK_UNIT_SAMPLES
+        voiced = synth_voice_like(stream_sr, chunk_samples)
+        silent = np.zeros(chunk_samples, dtype=np.float32)
+        chunks: list[tuple[str, np.ndarray]] = [
+            ("voice-pre-1", voiced),
+            ("voice-pre-2", voiced),
+            *[(f"silence-{i + 1}", silent) for i in range(5)],
+            ("voice-after", voiced),
+        ]
+        processor = ChunkProcessor(engine, loaded, stream_sr)
+        records: list[dict[str, object]] = []
+
+        for label, chunk in chunks:
+            start = time.perf_counter()
+            out = processor.process(chunk)
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            timings = dict(processor.last_timings)
+            records.append({
+                "label": label,
+                "out": out,
+                "elapsed_ms": elapsed_ms,
+                "timings": timings,
+                "squelched": bool(timings.get("squelched", False)),
+                "total_ms": float(timings.get("total", elapsed_ms)),
+            })
+
+        squelched = [record for record in records if str(record["label"]).startswith("silence") and record["squelched"]]
+        if not squelched:
+            raise AssertionError("squelch segment: no silent chunk was squelched")
+
+        skipped_keys = {"content_vec", "f0", "synth"}
+        for record in squelched:
+            out = np.asarray(record["out"], dtype=np.float32)
+            timings = dict(record["timings"])  # type: ignore[arg-type]
+            total_ms = float(record["total_ms"])
+            if not np.allclose(out, 0.0, atol=0.0):
+                raise AssertionError(f"squelch segment: {record['label']} did not output pure zeros")
+            if skipped_keys & set(timings):
+                raise AssertionError(f"squelch segment: {record['label']} ran conversion stages: {timings}")
+            if total_ms >= 5.0:
+                raise AssertionError(f"squelch segment: {record['label']} took {total_ms:.3f} ms, expected < 5 ms")
+
+        after = records[-1]
+        after_out = np.asarray(after["out"], dtype=np.float32)
+        after_timings = dict(after["timings"])  # type: ignore[arg-type]
+        if after["squelched"]:
+            raise AssertionError("squelch segment: first voiced chunk after silence remained squelched")
+        if not np.all(np.isfinite(after_out)):
+            raise AssertionError("squelch segment: first voiced chunk after silence contains NaN or Inf")
+        after_rms = rms(after_out)
+        if after_rms <= 1e-6:
+            raise AssertionError(f"squelch segment: first voiced chunk after silence is too quiet ({after_rms:.8f})")
+        if "synth" not in after_timings:
+            raise AssertionError(f"squelch segment: first voiced chunk after silence did not convert: {after_timings}")
+
+        return {
+            "chunk_size": chunk_size,
+            "silent_chunks": 5,
+            "squelched_chunks": len(squelched),
+            "max_squelched_ms": max(float(record["total_ms"]) for record in squelched),
+            "first_voice_after_ms": float(after["total_ms"]),
+            "first_voice_after_rms": after_rms,
+        }
+    finally:
+        engine.silence_threshold_db = old_threshold
+        engine.silence_hold_ms = old_hold
+        engine.cross_fade_overlap_size = old_crossfade
+        engine.extra_convert_size = old_extra
+
+
 def main() -> int:
     args = parse_args()
     warnings.filterwarnings(
@@ -215,6 +301,16 @@ def main() -> int:
             f"{result['stitched_rms']:.6f},"
             f"{result['offline_rms']:.6f}"
         )
+    squelch = validate_squelch_segment(loaded, args.stream_sr)
+    print(
+        "squelch_segment: "
+        f"chunk_size={squelch['chunk_size']} "
+        f"silent_chunks={squelch['silent_chunks']} "
+        f"squelched_chunks={squelch['squelched_chunks']} "
+        f"max_squelched_ms={squelch['max_squelched_ms']:.3f} "
+        f"first_voice_after_ms={squelch['first_voice_after_ms']:.1f} "
+        f"first_voice_after_rms={squelch['first_voice_after_rms']:.6f}"
+    )
     return 0
 
 

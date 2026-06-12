@@ -76,6 +76,7 @@ export function PerformanceBreakdown({ metrics }: { metrics?: VoiceMetrics }) {
   const max = Math.max(1, Number(total ?? 0), Number(chunk ?? 0), ...timings.map((entry) => entry.value));
   const overruns = Number(metrics?.overruns ?? 0);
   const underruns = Number(metrics?.underruns ?? 0);
+  const squelched = Boolean(metrics?.squelched);
 
   return (
     <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
@@ -88,6 +89,7 @@ export function PerformanceBreakdown({ metrics }: { metrics?: VoiceMetrics }) {
         <MetricPill label="total" value={formatMs(total)} />
         <MetricPill label="overruns" value={String(overruns)} />
         <MetricPill label="underruns" value={String(underruns)} />
+        <MetricPill label="squelch" value={squelched ? "silence" : "voice"} />
       </div>
       <div className="mt-3 flex flex-col gap-2">
         {timings.length === 0 ? (

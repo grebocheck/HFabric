@@ -37,12 +37,16 @@ export function DeviceSelect({
   value,
   devices,
   fallback,
+  missing = false,
+  restartPending = false,
   onChange,
 }: {
   label: string;
   value: number;
   devices: VoiceAudioDevice[];
   fallback: string;
+  missing?: boolean;
+  restartPending?: boolean;
   onChange: (value: number) => void;
 }) {
   const name = deviceName(devices, value, fallback);
@@ -50,6 +54,10 @@ export function DeviceSelect({
     <label className="min-w-0">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs uppercase tracking-wide text-white/40">{label}</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {missing ? <span className="text-[11px] text-amber-200/80">re-pick device</span> : null}
+          {restartPending ? <span className="text-[11px] text-amber-200/70">restart to apply</span> : null}
+        </span>
       </div>
       <Select
         value={String(value)}
@@ -67,11 +75,29 @@ export function DeviceSelect({
   );
 }
 
-export function MonitorSelect({ value, devices, onChange }: { value: number; devices: VoiceAudioDevice[]; onChange: (value: number) => void }) {
+export function MonitorSelect({
+  value,
+  devices,
+  missing = false,
+  restartPending = false,
+  onChange,
+}: {
+  value: number;
+  devices: VoiceAudioDevice[];
+  missing?: boolean;
+  restartPending?: boolean;
+  onChange: (value: number) => void;
+}) {
   const name = deviceName(devices, value, "Off");
   return (
     <label className="min-w-0">
-      <div className="text-xs uppercase tracking-wide text-white/40">Monitor</div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs uppercase tracking-wide text-white/40">Monitor</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {missing ? <span className="text-[11px] text-amber-200/80">re-pick device</span> : null}
+          {restartPending ? <span className="text-[11px] text-amber-200/70">restart to apply</span> : null}
+        </span>
+      </div>
       <Select
         value={String(value)}
         onChange={(v) => onChange(Number(v))}

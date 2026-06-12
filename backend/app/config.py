@@ -174,7 +174,7 @@ class Settings(BaseSettings):
     voice_timeout_seconds: int = 600
     voice_max_upload_mb: int = 64
     voice_pitch: int = 0
-    voice_index_ratio: float = 1.0
+    voice_index_ratio: float = 0.75
     voice_protect: float = 0.5
     voice_f0_detector: str = "rmvpe"
     voice_input_highpass_hz: int = 80

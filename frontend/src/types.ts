@@ -512,6 +512,8 @@ export interface VoiceEngineSettings {
   input_gate_db: number;
   input_formant: number;
   input_denoise: "off" | "dtln";
+  silence_threshold_db: number;
+  silence_hold_ms: number;
   server_input_device_id: number | null;
   server_output_device_id: number | null;
   server_monitor_device_id: number | null;
@@ -523,6 +525,11 @@ export interface VoiceEngineSettings {
   cross_fade_overlap_size: number;
   extra_convert_size: number;
   pass_through: boolean;
+  device_missing?: {
+    input: boolean;
+    output: boolean;
+    monitor: boolean;
+  };
 }
 
 export interface VoiceEngineSettingsUpdate {
@@ -534,6 +541,8 @@ export interface VoiceEngineSettingsUpdate {
   input_gate_db?: number | string | null;
   input_formant?: number | null;
   input_denoise?: "off" | "dtln" | string | null;
+  silence_threshold_db?: number | string | null;
+  silence_hold_ms?: number | null;
   server_input_device_id?: number | null;
   server_output_device_id?: number | null;
   server_monitor_device_id?: number | null;
@@ -555,6 +564,15 @@ export interface VoiceEngineMetrics {
   chunk_ms: number | null;
   overruns: number;
   underruns: number;
+  squelched: boolean;
+}
+
+export interface VoiceEngineSessionConfig {
+  server_input_device_id: number | null;
+  server_output_device_id: number | null;
+  server_monitor_device_id: number | null;
+  server_audio_sample_rate: number;
+  server_read_chunk_size: number;
 }
 
 export interface VoiceEngineStatus {
@@ -571,6 +589,7 @@ export interface VoiceEngineStatus {
   settings: VoiceEngineSettings;
   loaded_model: string | null;
   live: boolean;
+  session_config: VoiceEngineSessionConfig | null;
   session_error: string | null;
   metrics: VoiceEngineMetrics;
 }

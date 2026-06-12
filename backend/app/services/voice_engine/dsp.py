@@ -11,6 +11,10 @@ DEFAULT_INPUT_HIGHPASS_HZ = 80
 DEFAULT_INPUT_GATE_DB = -60.0
 DEFAULT_INPUT_FORMANT = 0.0
 GATE_OFF_DB = -90.0
+DEFAULT_SILENCE_THRESHOLD_DB = -48.0
+DEFAULT_SILENCE_HOLD_MS = 400.0
+SQUELCH_OFF_DB = -90.0
+SQUELCH_OPEN_HYSTERESIS_DB = 6.0
 
 
 def clamp_input_highpass_hz(value: object) -> int:
@@ -38,6 +42,113 @@ def clamp_input_gate_db(value: object) -> float:
 def clamp_input_formant(value: object) -> float:
     """Clamp input-side formant/brightness shift to +/-2 semitone-like units."""
     return max(-2.0, min(2.0, float(value)))
+
+
+def clamp_silence_threshold_db(value: object) -> float:
+    """Clamp realtime squelch threshold to -90..-20 dBFS.
+
+    -90 dBFS is the off position: the realtime squelch always passes audio.
+    """
+    if isinstance(value, str) and value.strip().lower() == "off":
+        return SQUELCH_OFF_DB
+    n = float(value)
+    if n == 0.0:
+        return SQUELCH_OFF_DB
+    return max(SQUELCH_OFF_DB, min(-20.0, n))
+
+
+def clamp_silence_hold_ms(value: object) -> float:
+    """Clamp realtime squelch hangover to 0..2000 ms."""
+    return max(0.0, min(2000.0, float(value)))
+
+
+def rms_dbfs(audio) -> float:
+    """Return RMS in dBFS for float audio where +/-1.0 is full scale."""
+    import numpy as np  # noqa: PLC0415
+
+    arr = _as_float32(audio)
+    if arr.size == 0:
+        return -240.0
+    rms = float(np.sqrt(np.mean(np.square(arr, dtype=np.float32))))
+    return float(20.0 * np.log10(max(rms, 1e-12)))
+
+
+class SquelchGate:
+    """Realtime silence gate with open hysteresis and close hangover.
+
+    ``update`` returns True while the gate is closed and the caller should emit
+    silence. It opens immediately above threshold + 6 dB and closes only after
+    continuous time below threshold reaches the configured hold time.
+    """
+
+    def __init__(
+        self,
+        threshold_db: object = DEFAULT_SILENCE_THRESHOLD_DB,
+        hold_ms: object = DEFAULT_SILENCE_HOLD_MS,
+    ) -> None:
+        self.threshold_db = clamp_silence_threshold_db(threshold_db)
+        self.hold_ms = clamp_silence_hold_ms(hold_ms)
+        self._open = False
+        self._below_ms = 0.0
+        self._disabled = self.threshold_db <= SQUELCH_OFF_DB
+
+    @property
+    def is_open(self) -> bool:
+        return self._open or self._disabled
+
+    @property
+    def is_closed(self) -> bool:
+        return not self.is_open
+
+    def configure(self, *, threshold_db: object, hold_ms: object) -> None:
+        threshold = clamp_silence_threshold_db(threshold_db)
+        hold = clamp_silence_hold_ms(hold_ms)
+        disabled = threshold <= SQUELCH_OFF_DB
+        if disabled != self._disabled:
+            self._open = disabled
+            self._below_ms = 0.0
+        self.threshold_db = threshold
+        self.hold_ms = hold
+        self._disabled = disabled
+
+    def reset(self, *, open_gate: bool = False) -> None:
+        self._open = bool(open_gate)
+        self._below_ms = 0.0
+
+    def update(
+        self,
+        rms_db: float,
+        duration_ms: float,
+        *,
+        threshold_db: object | None = None,
+        hold_ms: object | None = None,
+    ) -> bool:
+        if threshold_db is not None or hold_ms is not None:
+            self.configure(
+                threshold_db=self.threshold_db if threshold_db is None else threshold_db,
+                hold_ms=self.hold_ms if hold_ms is None else hold_ms,
+            )
+
+        if self._disabled:
+            self._open = True
+            self._below_ms = 0.0
+            return False
+
+        if float(rms_db) > self.threshold_db + SQUELCH_OPEN_HYSTERESIS_DB:
+            self._open = True
+            self._below_ms = 0.0
+            return False
+
+        if self._open:
+            if float(rms_db) < self.threshold_db:
+                self._below_ms += max(0.0, float(duration_ms))
+                if self._below_ms >= self.hold_ms:
+                    self._open = False
+                    self._below_ms = 0.0
+            else:
+                self._below_ms = 0.0
+
+        return not self._open
 
 
 def input_formant_factor(input_formant: float) -> float:

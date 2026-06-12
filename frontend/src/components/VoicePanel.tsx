@@ -28,6 +28,7 @@ import {
   nativeSettingsToVoiceState,
   nativeTuningSettingsPatch,
   num,
+  recommendedVoicePreset,
   resolveMonitorDeviceId,
   sampleRates,
   selectedNativeModelId,
@@ -95,7 +96,9 @@ export function VoicePanel() {
   const [inputGateDb, setInputGateDb] = useState(-60);
   const [inputHighpassHz, setInputHighpassHz] = useState(80);
   const [inputDenoise, setInputDenoise] = useState<"off" | "dtln">("off");
-  const [indexRatio, setIndexRatio] = useState(1);
+  const [silenceThresholdDb, setSilenceThresholdDb] = useState(-48);
+  const [silenceHoldMs, setSilenceHoldMs] = useState(400);
+  const [indexRatio, setIndexRatio] = useState(0.75);
   const [protect, setProtect] = useState(0.5);
   const [f0Detector, setF0Detector] = useState("rmvpe");
   const [passThrough, setPassThrough] = useState(false);
@@ -149,6 +152,27 @@ export function VoicePanel() {
   const monitorOn = monitorDeviceId >= 0;
   const canApply = statusLoaded && !busy;
   const canGoLive = ready && Boolean(modelId) && !busy;
+  const sessionConfig = status?.session_config ?? null;
+  const deviceMissing = status?.settings.device_missing ?? { input: false, output: false, monitor: false };
+  const inputRestartPending = Boolean(
+    live && sessionConfig && sessionConfig.server_input_device_id !== (inputDeviceId >= 0 ? inputDeviceId : null),
+  );
+  const outputRestartPending = Boolean(
+    live && sessionConfig && sessionConfig.server_output_device_id !== (outputDeviceId >= 0 ? outputDeviceId : null),
+  );
+  const monitorRestartPending = Boolean(
+    live
+      && sessionConfig
+      && (sessionConfig.server_monitor_device_id == null || sessionConfig.server_monitor_device_id < 0
+        ? -1
+        : sessionConfig.server_monitor_device_id) !== (monitorDeviceId >= 0 ? monitorDeviceId : -1),
+  );
+  const sampleRateRestartPending = Boolean(
+    live && sessionConfig && sessionConfig.server_audio_sample_rate !== sampleRate,
+  );
+  const chunkRestartPending = Boolean(
+    live && sessionConfig && sessionConfig.server_read_chunk_size !== readChunkSize,
+  );
 
   const routingPatch = useMemo(() => nativeRoutingSettingsPatch({
     inputDeviceId,
@@ -198,6 +222,8 @@ export function VoicePanel() {
     setInputGateDb(next.inputGateDb);
     setInputHighpassHz(next.inputHighpassHz);
     setInputDenoise(next.inputDenoise);
+    setSilenceThresholdDb(next.silenceThresholdDb);
+    setSilenceHoldMs(next.silenceHoldMs);
     setIndexRatio(next.indexRatio);
     setProtect(next.protect);
     setF0Detector(next.f0Detector);
@@ -267,6 +293,8 @@ export function VoicePanel() {
     inputGateDb,
     inputHighpassHz,
     inputDenoise,
+    silenceThresholdDb,
+    silenceHoldMs,
     indexRatio,
     protect,
     f0Detector,
@@ -302,6 +330,14 @@ export function VoicePanel() {
     return api.voiceEngineSessionStart(modelId);
   });
 
+  const onRestartLive = () => run("live-restart", async () => {
+    const nextModelId = modelId || status?.loaded_model;
+    if (!nextModelId) throw new Error("Select a voice model before restarting live mode");
+    await api.voiceEngineSessionStop();
+    await api.voiceEngineSettings(fullSettingsPatch());
+    return api.voiceEngineSessionStart(nextModelId);
+  });
+
   const onMonitor = (next: boolean) => {
     if (!next) {
       setMonitorDeviceId(-1);
@@ -335,6 +371,33 @@ export function VoicePanel() {
     setReadChunkSize(preset.chunk);
     setCrossFadeOverlap(preset.crossFade);
     setExtraConvert(preset.extra);
+  };
+
+  const onRecommended = () => {
+    setInputDenoise(recommendedVoicePreset.inputDenoise);
+    setInputHighpassHz(recommendedVoicePreset.inputHighpassHz);
+    setInputGateDb(recommendedVoicePreset.inputGateDb);
+    setSilenceThresholdDb(recommendedVoicePreset.silenceThresholdDb);
+    setSilenceHoldMs(recommendedVoicePreset.silenceHoldMs);
+    setIndexRatio(recommendedVoicePreset.indexRatio);
+    setProtect(recommendedVoicePreset.protect);
+    setReadChunkSize(recommendedVoicePreset.readChunkSize);
+    setCrossFadeOverlap(recommendedVoicePreset.crossFadeOverlap);
+    setExtraConvert(recommendedVoicePreset.extraConvert);
+    setSampleRate(recommendedVoicePreset.sampleRate);
+    void applyPatch("recommended", {
+      input_denoise: recommendedVoicePreset.inputDenoise,
+      input_highpass_hz: recommendedVoicePreset.inputHighpassHz,
+      input_gate_db: recommendedVoicePreset.inputGateDb,
+      silence_threshold_db: recommendedVoicePreset.silenceThresholdDb,
+      silence_hold_ms: recommendedVoicePreset.silenceHoldMs,
+      index_ratio: recommendedVoicePreset.indexRatio,
+      protect: recommendedVoicePreset.protect,
+      server_read_chunk_size: recommendedVoicePreset.readChunkSize,
+      cross_fade_overlap_size: recommendedVoicePreset.crossFadeOverlap,
+      extra_convert_size: recommendedVoicePreset.extraConvert,
+      server_audio_sample_rate: recommendedVoicePreset.sampleRate,
+    });
   };
 
   const onOfflineConvert = async () => {
@@ -483,6 +546,8 @@ export function VoicePanel() {
                 value={inputDeviceId}
                 devices={inputDevices}
                 fallback="No input selected"
+                missing={deviceMissing.input}
+                restartPending={inputRestartPending}
                 onChange={setInputDeviceId}
               />
             ) : (
@@ -494,6 +559,8 @@ export function VoicePanel() {
                 value={outputDeviceId}
                 devices={outputDevices}
                 fallback="No output selected"
+                missing={deviceMissing.output}
+                restartPending={outputRestartPending}
                 onChange={setOutputDeviceId}
               />
             ) : (
@@ -503,6 +570,8 @@ export function VoicePanel() {
               <MonitorSelect
                 value={monitorDeviceId}
                 devices={outputDevices}
+                missing={deviceMissing.monitor}
+                restartPending={monitorRestartPending}
                 onChange={setMonitorDeviceId}
               />
             ) : (
@@ -535,13 +604,22 @@ export function VoicePanel() {
                 </div>
               </div>
               {live ? (
-                <button
-                  onClick={() => onLive(false)}
-                  disabled={Boolean(busy)}
-                  className="mt-3 w-full rounded-md bg-red-600/90 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-40"
-                >
-                  {busy === "live-off" ? "Stopping..." : "Stop live voice"}
-                </button>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <button
+                    onClick={() => onLive(false)}
+                    disabled={Boolean(busy)}
+                    className="rounded-md bg-red-600/90 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-40"
+                  >
+                    {busy === "live-off" ? "Stopping..." : "Stop live voice"}
+                  </button>
+                  <button
+                    onClick={onRestartLive}
+                    disabled={Boolean(busy)}
+                    className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2.5 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/15 disabled:opacity-40"
+                  >
+                    {busy === "live-restart" ? "Restarting..." : "Restart session"}
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => onLive(true)}
@@ -594,6 +672,9 @@ export function VoicePanel() {
               <Badge>overruns {status?.metrics.overruns ?? 0}</Badge>
               <Badge>underruns {status?.metrics.underruns ?? 0}</Badge>
               <Badge>chunk {formatMs(status?.metrics.chunk_ms)}</Badge>
+              <Badge color={status?.metrics.squelched ? "bg-amber-600/40 text-amber-100" : "bg-emerald-700/45 text-emerald-100"}>
+                {status?.metrics.squelched ? "silence" : "voice"}
+              </Badge>
             </div>
           </div>
         </SetupStep>
@@ -605,13 +686,24 @@ export function VoicePanel() {
             <div className="text-xs font-medium uppercase tracking-wide text-white/40">Tuning</div>
             <div className="mt-1 text-xs text-white/35">{selected?.name ?? "no voice selected"}</div>
           </div>
-          <button
-            onClick={onApply}
-            disabled={!canApply}
-            className="rounded-md border border-white/15 px-3 py-1.5 text-sm font-medium text-white/75 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
-          >
-            {busy === "apply" ? "Applying..." : "Apply tuning"}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={onRecommended}
+              disabled={!canApply}
+              title="Tuned for DTLN live voice. Pitch is voice-specific and is not changed."
+              className="rounded border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-medium text-emerald-100 transition hover:bg-emerald-300/15 disabled:opacity-30"
+            >
+              {busy === "recommended" ? "Applying..." : "Recommended"}
+            </button>
+            <button
+              onClick={onApply}
+              disabled={!canApply}
+              className="rounded-md border border-white/15 px-3 py-1.5 text-sm font-medium text-white/75 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+            >
+              {busy === "apply" ? "Applying..." : "Apply tuning"}
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -646,7 +738,7 @@ export function VoicePanel() {
 
           <div className="md:col-span-2 xl:col-span-4">
             <div className="text-xs uppercase tracking-wide text-white/40">Input clean-up & character</div>
-            <div className="mt-2 grid gap-3 md:grid-cols-4">
+            <div className="mt-2 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
               <label>
                 <div className="text-xs text-white/45">Denoise</div>
                 <Select
@@ -674,6 +766,24 @@ export function VoicePanel() {
                   </div>
                 </div>
                 <Slider value={inputGateDb} min={-90} max={-20} step={1} onChange={setInputGateDb} />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-white/45">Idle squelch</div>
+                  <div className="font-mono text-xs text-white/45">
+                    {silenceThresholdDb <= -90 ? "off" : `${silenceThresholdDb.toFixed(0)} dB`}
+                  </div>
+                </div>
+                <Slider value={silenceThresholdDb} min={-90} max={-20} step={1} onChange={setSilenceThresholdDb} />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-white/45">Hold</div>
+                  <div className="font-mono text-xs text-white/45">{Math.round(silenceHoldMs)} ms</div>
+                </div>
+                <Slider value={silenceHoldMs} min={0} max={2000} step={50} onChange={setSilenceHoldMs} />
               </div>
 
               <label>
@@ -746,7 +856,10 @@ export function VoicePanel() {
 
         <div className="grid gap-3 md:grid-cols-3">
           <label>
-            <div className="text-xs uppercase tracking-wide text-white/40">Sample rate</div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs uppercase tracking-wide text-white/40">Sample rate</span>
+              {sampleRateRestartPending ? <span className="text-[11px] text-amber-200/70">restart to apply</span> : null}
+            </div>
             <Select
               value={String(sampleRate)}
               onChange={(v) => setSampleRate(Number(v))}
@@ -756,7 +869,10 @@ export function VoicePanel() {
           </label>
 
           <label>
-            <div className="text-xs uppercase tracking-wide text-white/40">Chunk</div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs uppercase tracking-wide text-white/40">Chunk</span>
+              {chunkRestartPending ? <span className="text-[11px] text-amber-200/70">restart to apply</span> : null}
+            </div>
             <input
               type="number"
               min={1}
