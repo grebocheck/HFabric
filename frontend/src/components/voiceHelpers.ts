@@ -157,7 +157,7 @@ export function num(value: unknown, fallback: number): number {
 }
 
 export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceEngineSettings, unknown>>): VoiceControlState {
-  const f0 = String(settings.f0_detector ?? "rmvpe");
+  const f0 = String(settings.f0_detector ?? "fcpe");
   return {
     pitch: num(settings.pitch, 0),
     speakerId: num(settings.speaker_id, 0),
@@ -171,7 +171,7 @@ export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceE
     protect: num(settings.protect, 0.5),
     noiseScale: num(settings.noise_scale, 0.66666),
     f0Smoothing: num(settings.f0_smoothing, 0),
-    f0Detector: f0Options.some((o) => o.value === f0) ? f0 : "rmvpe",
+    f0Detector: f0Options.some((o) => o.value === f0) ? f0 : "fcpe",
     passThrough: Boolean(settings.pass_through),
     inputDeviceId: settings.server_input_device_id == null ? -1 : num(settings.server_input_device_id, -1),
     outputDeviceId: settings.server_output_device_id == null ? -1 : num(settings.server_output_device_id, -1),

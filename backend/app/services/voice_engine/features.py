@@ -24,9 +24,15 @@ class ContentVec:
             return
         import onnxruntime as ort  # noqa: PLC0415
 
+        from .onnx_cuda import ensure_cuda_dll_search_path  # noqa: PLC0415
+
         # ContentVec dominates the realtime per-chunk budget; use the CUDA
         # execution provider when the installed onnxruntime ships it (the
-        # plain CPU wheel does not) and fall back to CPU otherwise.
+        # plain CPU wheel does not) and fall back to CPU otherwise. The CUDA
+        # provider DLL links against CUDA/cuDNN runtime libs that only torch
+        # ships on Windows, so register torch/lib on the DLL search path first
+        # or session creation falls back to CPU with a load error.
+        ensure_cuda_dll_search_path()
         providers = ["CPUExecutionProvider"]
         if "CUDAExecutionProvider" in ort.get_available_providers():
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]

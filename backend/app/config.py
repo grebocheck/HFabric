@@ -181,7 +181,7 @@ class Settings(BaseSettings):
     voice_protect: float = 0.33
     voice_noise_scale: float = 0.66666
     voice_f0_smoothing: float = 0.0
-    voice_f0_detector: str = "rmvpe"
+    voice_f0_detector: str = "fcpe"
     voice_input_highpass_hz: int = 80
     voice_input_gate_db: float = -90.0
     voice_input_formant: float = 0.0

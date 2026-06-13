@@ -52,8 +52,9 @@ const assetSearchHint = "Place content_vec_500.onnx and rmvpe.pt in models/voice
 const denoiseAssetHint = "Place dtln_model_1.onnx and dtln_model_2.onnx in models/voice/pretrain/denoise.";
 const modelDirHint = "models/voice";
 
+const nativeF0Detectors = new Set(["rmvpe", "fcpe", "crepe_tiny", "crepe_full"]);
 const nativeF0Options = f0Options.map((option) => (
-  option.value === "rmvpe"
+  nativeF0Detectors.has(option.value)
     ? option
     : { ...option, disabled: true, hint: "not available in native mode" }
 ));
@@ -114,7 +115,7 @@ export function VoicePanel() {
   const [protect, setProtect] = useState(0.5);
   const [noiseScale, setNoiseScale] = useState(0.66666);
   const [f0Smoothing, setF0Smoothing] = useState(0);
-  const [f0Detector, setF0Detector] = useState("rmvpe");
+  const [f0Detector, setF0Detector] = useState("fcpe");
   const [passThrough, setPassThrough] = useState(false);
   const [ptt, setPtt] = useState(false);
   const [inputDeviceId, setInputDeviceId] = useState(-1);

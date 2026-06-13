@@ -24,8 +24,20 @@ bitsandbytes>=0.49             # 4-bit path (Blackwell sm_120 supported)
 sounddevice>=0.5
 soundfile>=0.13
 faiss-cpu>=1.14
-onnxruntime>=1.26
+# GPU build: ContentVec ONNX is the heaviest realtime stage; the CUDA EP cuts it
+# ~2x (34 -> 18 ms/1s) and (with FCPE) takes the per-chunk total well under
+# budget. The CUDA provider DLL links cublasLt64_12 / cudnn64_9, which torch
+# (+cu128) already ships under torch/lib; onnx_cuda.ensure_cuda_dll_search_path
+# registers that dir so the EP loads (else it silently falls back to CPU).
+# The plain CPU wheel (onnxruntime) also works — code falls back gracefully.
+onnxruntime-gpu>=1.26
 soxr>=1.0
+# Pitch detectors. FCPE (default): ~8x faster than RMVPE on GPU (30 -> 3.5 ms),
+# bundles its own weights. CREPE (tiny/full) is offered as an alternative
+# algorithm (slower: ~57/64 ms, still under budget); torchcrepe ships its
+# weights in the package. RMVPE (rmvpe.pt) remains available for max quality.
+torchfcpe>=0.0.4
+torchcrepe>=0.0.24
 
 # FLUX note (M0 finding): the local flux_dev.safetensors is an fp8 ComfyUI
 # all-in-one checkpoint. diffusers needs a (non-gated) config to assemble the

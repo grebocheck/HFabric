@@ -173,6 +173,20 @@ class LoadedVoiceModel:
     index_state: dict[str, Any] | None
 
 
+def _phone_embed_dim(state: dict[str, Any]) -> int | None:
+    """Return the ContentVec input dim of an RVC state dict (768=v2, 256=v1).
+
+    ``enc_p.emb_phone`` is a Linear(in=ContentVec dim, out=hidden), so its
+    weight is [hidden, dim]. Returns None when the key is absent (e.g. an
+    unexpected export layout) so the caller can fall back to the version field.
+    """
+    weight = state.get("enc_p.emb_phone.weight")
+    shape = getattr(weight, "shape", None)
+    if shape is None or len(shape) != 2:
+        return None
+    return int(shape[1])
+
+
 def _clamp_speaker_id(value: object, speaker_count: int) -> int:
     try:
         n = int(value)
@@ -218,7 +232,7 @@ def load_model(slot: dict[str, Any], assets: dict[str, str], device: str) -> Loa
         state = checkpoint.get("weight") or {}
         config = list(checkpoint.get("config") or [])
         f0 = bool(checkpoint.get("f0", 1))
-        version = str(checkpoint.get("version") or "v1")
+        version = str(checkpoint.get("version") or "")
         sample_rate = _sample_rate(checkpoint.get("sr") or (config[-1] if config else None))
         checkpoint_sid = _checkpoint_speaker_id(checkpoint)
     elif model_path.suffix.lower() == ".safetensors":
@@ -227,14 +241,27 @@ def load_model(slot: dict[str, Any], assets: dict[str, str], device: str) -> Loa
         state = load_file(str(model_path), device="cpu")
         config = []
         f0 = bool(slot.get("f0", True))
-        version = str(slot.get("version") or "v2")
+        version = str(slot.get("version") or "")
         sample_rate = _sample_rate(slot.get("sampling_rate"))
         checkpoint_sid = None
     else:
         raise ValueError(f"unsupported RVC model file: {model_path.suffix}")
 
-    if version != "v2":
-        raise NotImplementedError("native voice engine P6R.1 supports RVC v2 checkpoints only")
+    # Trust the weights over the metadata string: v2 uses a 768-dim ContentVec
+    # phone embedding, v1 a 256-dim one. Many community v2 checkpoints ship with
+    # an empty/missing `version` field, and the old `or "v1"` default rejected
+    # them outright. Detecting from the embedding shape lets any real v2 model
+    # load while still giving v1 models a precise, actionable error.
+    phone_dim = _phone_embed_dim(state)
+    if phone_dim is not None and phone_dim != 768:
+        raise NotImplementedError(
+            f"native voice engine supports RVC v2 (768-dim ContentVec) checkpoints only; "
+            f"this model has a {phone_dim}-dim phone embedding (looks like RVC v1)"
+        )
+    if phone_dim is None and version and version != "v2":
+        raise NotImplementedError(
+            f"native voice engine supports RVC v2 checkpoints only (got version {version!r})"
+        )
     if not config:
         raise NotImplementedError("native voice engine real mode requires RVC checkpoint config metadata")
 
