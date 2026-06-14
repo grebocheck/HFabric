@@ -225,6 +225,7 @@ export interface LlamaState {
 
 export interface HealthStatus {
   status: string;
+  version?: string;
   stub_mode: boolean;
   models: number;
   gpu: GpuStatus;

@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import __version__
 from .api import (
     chat,
     code,
@@ -149,7 +150,7 @@ async def lifespan(app: FastAPI):
         await event_logger.stop()
 
 
-app = FastAPI(title="HFabric", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="HFabric", version=__version__, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -197,6 +198,7 @@ app.include_router(ws.router)
 async def health() -> dict:
     return {
         "status": "ok",
+        "version": __version__,
         "stub_mode": settings.stub_mode,
         "models": len(app.state.registry.descriptors()),
         "gpu": app.state.arbiter.status(),

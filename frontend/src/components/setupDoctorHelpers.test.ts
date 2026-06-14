@@ -45,27 +45,29 @@ describe("setupDoctorStatus", () => {
     expect(status.detail).toContain("RTX 5070 Ti");
   });
 
-  it("reports ROCm as active and flags disabled CUDA features", () => {
+  it("reports ROCm as experimental and flags disabled CUDA features", () => {
     const status = setupDoctorStatus(cap({
       backend: "rocm",
       selected_profile: "amd-rocm-linux",
       active_profile: "amd-rocm-linux",
       primary_gpu: { name: "AMD Radeon RX 7900 XTX" },
     }));
-    expect(status.tone).toBe("good");
+    expect(status.tone).toBe("info");
     expect(status.headline).toMatch(/AMD/);
+    expect(status.headline).toMatch(/experimental/i);
     expect(status.detail).toMatch(/CUDA-only features are disabled/);
   });
 
-  it("reports Apple MPS as active", () => {
+  it("reports Apple MPS as experimental", () => {
     const status = setupDoctorStatus(cap({
       backend: "mps",
       selected_profile: "apple-mps",
       active_profile: "apple-mps",
       primary_gpu: { name: "Apple Silicon GPU" },
     }));
-    expect(status.tone).toBe("good");
+    expect(status.tone).toBe("info");
     expect(status.headline).toMatch(/Apple Silicon/);
+    expect(status.headline).toMatch(/experimental/i);
     expect(status.detail).toMatch(/PyTorch MPS/);
   });
 

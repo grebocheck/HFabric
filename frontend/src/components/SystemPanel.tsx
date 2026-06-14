@@ -12,6 +12,7 @@ export function SystemPanel({
   note,
   queueKey = "",
   imageSignal = 0,
+  version,
 }: {
   gpu: GpuStatus;
   mem: MemSnapshot | null;
@@ -19,6 +20,7 @@ export function SystemPanel({
   note?: ArbiterNote | null;
   queueKey?: string;
   imageSignal?: number;
+  version?: string;
 }) {
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [plan, setPlan] = useState<QueuePlan | null>(null);
@@ -56,6 +58,7 @@ export function SystemPanel({
         title="System monitor"
         subtitle="Live RAM, VRAM, runtime, and model residency telemetry for the local workspace."
       >
+        {version ? <StatusPill label={`HFabric v${version}`} tone="neutral" /> : null}
         <StatusPill label={gpu.model ? "model resident" : "idle"} tone={gpu.model ? "info" : "neutral"} />
         <StatusPill label={vram ? `${vram.used_gb.toFixed(1)} GB VRAM used` : "no VRAM telemetry"} tone={vram ? "info" : "warn"} />
         <StatusPill label={ram ? `${ram.percent.toFixed(0)}% RAM` : "RAM waiting"} tone={ram && ram.percent > 85 ? "warn" : ram ? "good" : "neutral"} />

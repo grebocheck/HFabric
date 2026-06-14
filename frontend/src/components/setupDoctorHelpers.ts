@@ -46,21 +46,21 @@ export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
 
   if (cap.backend === "rocm") {
     return {
-      headline: "AMD GPU detected, ROCm build active",
+      headline: "AMD GPU detected, ROCm build active (experimental)",
       detail: gpuName
-        ? `${gpuName} runs through the Linux ROCm PyTorch build; CUDA-only features are disabled.`
-        : "The Linux ROCm PyTorch build is active; CUDA-only features are disabled.",
-      tone: "good",
+        ? `${gpuName} runs through the Linux ROCm PyTorch build; CUDA-only features are disabled. This path is not yet validated on real hardware — SDXL-only for now, and a validation report would help.`
+        : "The Linux ROCm PyTorch build is active (experimental, unvalidated on real hardware); CUDA-only features are disabled.",
+      tone: "info",
     };
   }
 
   if (cap.backend === "mps") {
     return {
-      headline: "Apple Silicon detected, using the MPS build",
+      headline: "Apple Silicon detected, MPS build active (experimental)",
       detail: gpuName
-        ? `${gpuName} runs through PyTorch MPS; CUDA-only features are disabled.`
-        : "PyTorch MPS is active; CUDA-only features are disabled.",
-      tone: "good",
+        ? `${gpuName} runs through PyTorch MPS; CUDA-only features are disabled. This path is not yet validated on a real Mac — SDXL-only for now, and a validation report would help.`
+        : "PyTorch MPS is active (experimental, unvalidated on a real Mac); CUDA-only features are disabled.",
+      tone: "info",
     };
   }
 
@@ -71,6 +71,11 @@ export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
       : "No supported GPU accelerator was found, so models render in CPU-safe placeholder mode.",
     tone: "warn",
   };
+}
+
+/** Backends that are implemented but not yet validated on real hardware (P21.3). */
+export function isExperimentalBackend(cap: CapabilityProfile | null): boolean {
+  return cap?.backend === "rocm" || cap?.backend === "mps";
 }
 
 const TIER_LABELS: Record<string, string> = {

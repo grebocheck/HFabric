@@ -47,19 +47,17 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > Derived from the 2026-06-14 audit. Most of these are cheap and unblock a first
 > external test build. Sequenced from cheapest/highest-trust to broadest.
 
-- [~] **P21.1 — Truth-in-docs pass.** Fix drifted docs so a new reader trusts
-  them: stale test counts, stale `[~]` markers, the hardcoded dev path, and
-  Windows-centric residue. *Mostly done* by the README/ROADMAP/audit rewrite;
-  remaining tail is the tracked build artifact (→ P17.6).
-- [ ] **P21.2 — Version stamp + changelog + contributing.** Add a single source of
-  truth `__version__`, surface it in `/api/health` and the UI footer, add
-  `CHANGELOG.md` (so testers know what changed between drops), and a short
-  `CONTRIBUTING.md` / "how to report a bug" (the developer guide already has the
-  bug-report template to link). Tag the first external build.
-- [ ] **P21.3 — Label experimental paths in the UI.** The README support matrix is
-  honest about ROCm/MPS being unvalidated; the Setup Doctor should say the same in
-  plain language ("Experimental — help us validate") and the first-run experience
-  should not silently imply parity with the NVIDIA path.
+- [x] **P21.1 — Truth-in-docs pass.** Fixed drifted docs (test counts, stale `[~]`
+  markers, the hardcoded dev path, Windows-centric residue) in the README/ROADMAP/
+  audit rewrite; the tracked build artifact tail landed with P17.6.
+- [x] **P21.2 — Version stamp + changelog + contributing.** `app.__version__` is the
+  single source of truth, surfaced in `/api/health` and the System tab; `CHANGELOG.md`
+  (Keep a Changelog) and `CONTRIBUTING.md` (dev setup + bug-report template) added.
+  *Remaining:* tag the build (`v0.1.0`) when cutting the first external release (P21.5).
+- [x] **P21.3 — Label experimental paths in the UI.** Setup Doctor now reads ROCm/MPS
+  as "(experimental)" with an Experimental pill and an info (not success) tone, plus
+  a plain "not yet validated on real hardware — SDXL-only" line, matching the README
+  support matrix.
 - [ ] **P21.4 — Real-hardware validation breadth.** Recruit ROCm and Apple Silicon
   testers; run `scripts/install_smoke.py` + the GPU smoke checklist on each and
   fill the validation log in `docs/gpu-smoke.md`. Promote a profile from
@@ -87,9 +85,10 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 - [ ] **P17.5 — Generate API types from OpenAPI.** Replace the hand-maintained
   `types.ts` (825) with `openapi-typescript` output + a CI freshness check. Kills
   the backend↔frontend drift class.
-- [ ] **P17.6 — Repo hygiene.** Untrack `frontend/tsconfig.tsbuildinfo` (gitignore
-  it — it churns every diff) and add a friendly-message layer over raw `repr(exc)`
-  job errors while the full trace goes to `data/logs/`.
+- [~] **P17.6 — Repo hygiene.** `frontend/tsconfig.tsbuildinfo` untracked +
+  gitignored (`*.tsbuildinfo`) so it no longer churns the diff. *Remaining:* a
+  friendly-message layer over raw `repr(exc)` job errors while the full trace goes
+  to `data/logs/`.
 - [ ] **P17.7 — Environment lockfile.** Freeze the verified GPU stack
   (`pip freeze > requirements-gpu.lock`) so M0/M1 can be rebuilt after a disk
   failure without archaeology.

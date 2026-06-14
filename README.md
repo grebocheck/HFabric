@@ -314,6 +314,8 @@ python scripts/install_profiles.py --pretty
 | [models/README.md](models/README.md) | Model folder layout + curated download list |
 | [docs/voice-routing.md](docs/voice-routing.md) | Routing the voice changer into Discord/OBS/etc. |
 | [docs/audit-2026-06-14.md](docs/audit-2026-06-14.md) | Current release-readiness audit (weaknesses + plan) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to report a bug + open a PR |
+| [CHANGELOG.md](CHANGELOG.md) | What changed between versions |
 | [ROADMAP.md](ROADMAP.md) | Shipped milestones + active backlog |
 
 ## License and models

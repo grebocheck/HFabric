@@ -6,6 +6,7 @@ import {
   compactModelDest,
   familyLabel,
   formatComputeCapability,
+  isExperimentalBackend,
   setupDoctorStatus,
   tierLabel,
   type DoctorTone,
@@ -87,6 +88,7 @@ export function SetupDoctor() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-white/85">{status.headline}</h3>
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {isExperimentalBackend(cap) ? <StatusPill label="Experimental" tone="warn" /> : null}
                   <StatusPill label={cap.label ?? cap.active_profile} tone={status.tone === "warn" ? "warn" : "good"} />
                   {cap.confidence ? <StatusPill label={`${cap.confidence} confidence`} tone="neutral" /> : null}
                 </div>
