@@ -66,6 +66,17 @@ async def isolated_runtime(monkeypatch, tmp_path):
     """Point global settings + DB session helpers at a per-test runtime tree."""
     from app.config import settings
     from app.db import session as db_session
+    from app.services import settings_overrides
+
+    # The /settings/overrides API mutates the global `settings` singleton with a
+    # raw setattr (not monkeypatch), so any test that PUTs an override would leak
+    # values like `min_free_ram_gb` into later tests (e.g. the sysmon budget
+    # guard). Snapshot the writable keys here and restore them on teardown.
+    settings_snapshot = {
+        key: getattr(settings, key)
+        for key in settings_overrides.WRITABLE_KEYS
+        if hasattr(settings, key)
+    }
 
     data_dir = tmp_path / "data"
     monkeypatch.setattr(settings, "data_dir", data_dir)
@@ -97,6 +108,8 @@ async def isolated_runtime(monkeypatch, tmp_path):
         await new_engine.dispose()
         db_session.engine = old_engine
         db_session.SessionLocal = old_session_local
+        for key, value in settings_snapshot.items():
+            setattr(settings, key, value)
 
 
 @pytest.fixture
