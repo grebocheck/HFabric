@@ -145,6 +145,42 @@ def test_cannot_remove_active_version(tmp_path):
         raise AssertionError("expected active-removal guard")
 
 
+def test_verify_binary_missing(tmp_path):
+    result = lr.verify_binary(str(tmp_path / "nope"))
+    assert result["ok"] is False
+    assert "not found" in result["error"]
+
+
+def test_verify_binary_runs_version(tmp_path, monkeypatch):
+    fake = tmp_path / "llama-server"
+    fake.write_text("x")
+
+    class Proc:
+        returncode = 0
+        stdout = "version: 6543 (abc123)\nbuilt with gcc"
+        stderr = ""
+
+    monkeypatch.setattr(lr.subprocess, "run", lambda *a, **k: Proc())
+    result = lr.verify_binary(str(fake))
+    assert result["ok"] is True
+    assert result["version"] == "6543"
+
+
+def test_verify_binary_nonzero_exit_is_failure(tmp_path, monkeypatch):
+    fake = tmp_path / "llama-server"
+    fake.write_text("x")
+
+    class Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "error while loading shared libraries: libcudart.so.12"
+
+    monkeypatch.setattr(lr.subprocess, "run", lambda *a, **k: Proc())
+    result = lr.verify_binary(str(fake))
+    assert result["ok"] is False
+    assert "libcudart" in result["error"]
+
+
 def test_activate_switches_and_remove_inactive(tmp_path):
     root = tmp_path / "llama"
     lr.register_version(root, tag="b1", variant="cpu", extracted_dir=_fake_build(tmp_path, "e1"), system="Linux")

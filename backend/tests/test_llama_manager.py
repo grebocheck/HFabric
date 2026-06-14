@@ -113,6 +113,45 @@ def test_check_update_compares_tags(monkeypatch, tmp_path):
     assert result["update_available"] is True
 
 
+def test_verify_active_caches_and_appears_in_state(monkeypatch, tmp_path):
+    root = tmp_path / "llama"
+    monkeypatch.setattr(llama_manager, "MANAGED_ROOT", root)
+    llama_manager._verify_cache.clear()
+    lr = llama_manager._llama_release()
+    lr.register_version(root, tag="b1", variant="cpu", extracted_dir=_fake_extracted(tmp_path, "e1", "Linux"), system="Linux")
+
+    monkeypatch.setattr(lr, "verify_binary", lambda path, timeout=20.0: {"ok": True, "version": "b1", "error": None})
+    result = llama_manager.verify_active()
+    assert result["ok"] is True
+    assert result["id"] == "b1-cpu"
+    assert llama_manager.state()["active_verified"]["version"] == "b1"
+
+
+def test_install_auto_verifies_and_warns_on_broken_build(monkeypatch, tmp_path):
+    root = tmp_path / "llama"
+    monkeypatch.setattr(llama_manager, "MANAGED_ROOT", root)
+    llama_manager._verify_cache.clear()
+    _pin_llama_settings(monkeypatch)
+    lr = llama_manager._llama_release()
+
+    def fake_install(target, *, system, machine, variant, tag=None, progress_cb=None):
+        src = _fake_extracted(tmp_path, "extracted", system)
+        v = lr.register_version(target, tag=tag or "b9", variant=variant, extracted_dir=src, system=system)
+        v["variant_matched"] = True
+        return v
+
+    monkeypatch.setattr(lr, "install", fake_install)
+    monkeypatch.setattr(lr, "verify_binary", lambda path, timeout=20.0: {
+        "ok": False, "version": None, "error": "libcudart.so.12 missing",
+    })
+
+    llama_manager.install_blocking(tag="b9", variant="cpu")
+    status = llama_manager.get_status()
+    assert status["state"] == "done"
+    assert status["verified"]["ok"] is False
+    assert "failed to run" in status["message"]
+
+
 async def test_api_state_and_activate(monkeypatch, tmp_path, app_client):
     root = tmp_path / "llama"
     monkeypatch.setattr(llama_manager, "MANAGED_ROOT", root)

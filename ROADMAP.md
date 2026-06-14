@@ -568,8 +568,13 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     panel: versions, active marker, install/update/rollback/remove, live download
     progress, and toast notifications. Core + manager + API are unit-tested with
     the network mocked (no real downloads in CI).
-  - Next: surface a "verify build" health check (run `llama-server --version`),
-    and let the model download manager (P18.4) flag GGUFs needing a newer build.
+  - Verify slice: `llama_release.verify_binary()` runs `llama-server --version`
+    to catch a broken build (missing CUDA DLLs, wrong arch) immediately. The
+    manager auto-verifies right after install (the toast says "installed and
+    verified" or "installed but failed to run: …"), `/api/llama/verify` runs it
+    on demand, and the Settings panel shows a ✓ verified / ✕ won't-run badge on
+    the active build plus a Verify button. Network-free, unit-tested.
+  - Next: let the model download manager (P18.4) flag GGUFs needing a newer build.
 
 ### P19 — Generation features (growth — after the foundation phases)
 

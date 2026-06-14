@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlmConfig, Lora, Model, ModelProfile, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelProfile, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -103,6 +103,7 @@ export const api = {
     fetch("/api/llama/install", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }).then(j<LlamaInstallStatus>),
   llamaCheckUpdate: (body: { variant?: string } = {}) =>
     fetch("/api/llama/check", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }).then(j<LlamaUpdateInfo>),
+  llamaVerify: () => fetch("/api/llama/verify", { method: "POST" }).then(j<LlamaVerifyResult>),
   llamaActivate: (id: string) =>
     fetch("/api/llama/activate", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id }) }).then(j<LlamaState>),
   llamaRemove: (id: string) =>

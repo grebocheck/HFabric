@@ -40,6 +40,12 @@ async def check_llama_update(body: dict[str, Any] | None = None) -> dict[str, An
         raise HTTPException(502, f"could not check for updates: {exc}") from exc
 
 
+@router.post("/verify")
+async def verify_llama() -> dict[str, Any]:
+    """Run the active build's `llama-server --version` health check."""
+    return await asyncio.to_thread(llama_manager.verify_active)
+
+
 @router.post("/activate")
 async def activate_llama(body: dict[str, Any]) -> dict[str, Any]:
     version_id = body.get("id")

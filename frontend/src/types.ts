@@ -129,6 +129,14 @@ export interface LlamaVersion {
   binaries: string[];
 }
 
+export interface LlamaVerifyResult {
+  ok: boolean;
+  version: string | null;
+  error: string | null;
+  id?: string | null;
+  checked_at?: number;
+}
+
 export interface LlamaInstallStatus {
   state: "idle" | "running" | "done" | "error" | string;
   tag: string | null;
@@ -137,6 +145,7 @@ export interface LlamaInstallStatus {
   asset: string | null;
   progress: { done: number; total: number };
   version: LlamaVersion | null;
+  verified?: LlamaVerifyResult | null;
   updated_at: number;
 }
 
@@ -162,6 +171,7 @@ export interface LlamaState {
   legacy_binary_present: boolean;
   install_status: LlamaInstallStatus;
   update: LlamaUpdateInfo | null;
+  active_verified: LlamaVerifyResult | null;
 }
 
 export interface HealthStatus {

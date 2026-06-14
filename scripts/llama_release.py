@@ -14,7 +14,9 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import tempfile
 from typing import Any, Callable
 import urllib.request
@@ -292,6 +294,37 @@ def active_version(root: Path) -> dict[str, Any] | None:
 
 def _dir_size(directory: Path) -> int:
     return sum(p.stat().st_size for p in Path(directory).rglob("*") if p.is_file())
+
+
+def verify_binary(path: str | None, timeout: float = 20.0) -> dict[str, Any]:
+    """Run ``<binary> --version`` to confirm a build actually loads on this host.
+
+    Catches a broken update (missing CUDA DLLs, wrong arch, ABI mismatch) right
+    away instead of after a model load fails. Returns ``{ok, version, error}``.
+    """
+    if not path or not Path(path).exists():
+        return {"ok": False, "version": None, "error": "binary not found"}
+    try:
+        proc = subprocess.run(  # noqa: S603 - the managed llama-server binary
+            [str(path), "--version"],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "version": None, "error": str(exc)}
+    output = f"{proc.stdout or ''}\n{proc.stderr or ''}".strip()
+    if proc.returncode != 0:
+        return {"ok": False, "version": None, "error": output[:300] or f"exit {proc.returncode}"}
+    return {"ok": True, "version": _parse_version(output), "error": None}
+
+
+def _parse_version(output: str) -> str | None:
+    match = re.search(r"version:\s*(\S+)", output)
+    if match:
+        return match.group(1)
+    for line in output.splitlines():
+        if line.strip():
+            return line.strip()[:80]
+    return None
 
 
 # --------------------------------------------------------------------- network

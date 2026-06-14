@@ -31,10 +31,12 @@ _status: dict[str, Any] = {
     "asset": None,
     "progress": {"done": 0, "total": 0},
     "version": None,
+    "verified": None,
     "updated_at": 0.0,
 }
 _status_lock = threading.Lock()
 _update_cache: dict[str, Any] = {}
+_verify_cache: dict[str, dict[str, Any]] = {}
 
 
 def _llama_release() -> ModuleType:
@@ -103,7 +105,22 @@ def state() -> dict[str, Any]:
         "legacy_binary_present": _legacy_present(),
         "install_status": get_status(),
         "update": _update_cache or None,
+        "active_verified": _verify_cache.get(active_id) if active_id else None,
     }
+
+
+def verify_active() -> dict[str, Any]:
+    """Run the active build's ``llama-server --version`` and cache the result."""
+    lr = _llama_release()
+    active = lr.active_version(MANAGED_ROOT)
+    if not active:
+        return {"ok": False, "version": None, "error": "no active build", "id": None}
+    server = (active.get("binaries") or {}).get("llama-server")
+    result = lr.verify_binary(server)
+    result["id"] = active.get("id")
+    result["checked_at"] = time.time()
+    _verify_cache[active["id"]] = result
+    return result
 
 
 def _legacy_present() -> bool:
@@ -159,8 +176,13 @@ def install_blocking(tag: str | None = None, variant: str | None = None) -> dict
             progress_cb=progress,
         )
         apply_active_to_settings()
+        verified = verify_active()
         note = "" if version.get("variant_matched", True) else f" ({version.get('selection_reason')})"
-        _set_status(state="done", version=version, message=f"Installed {version.get('tag')}{note}")
+        if verified.get("ok"):
+            message = f"Installed and verified {version.get('tag')}{note}"
+        else:
+            message = f"Installed {version.get('tag')}{note}, but it failed to run: {verified.get('error')}"
+        _set_status(state="done", version=version, verified=verified, message=message)
         return version
     except Exception as exc:  # noqa: BLE001 - report download/extract failures to the UI
         _set_status(state="error", message=f"{type(exc).__name__}: {exc}")

@@ -94,6 +94,20 @@ export function LlamaRuntime() {
     }
   };
 
+  const verify = async () => {
+    setBusy("verify");
+    try {
+      const result = await api.llamaVerify();
+      if (result.ok) toast.success(`Build runs OK${result.version ? ` (${result.version})` : ""}`);
+      else toast.error(`Build failed to run: ${result.error ?? "unknown error"}`, { duration: 10000 });
+      await refresh();
+    } catch (err) {
+      toast.error(errMsg(err, "Verify failed"));
+    } finally {
+      setBusy("");
+    }
+  };
+
   const remove = async (id: string) => {
     setBusy(id);
     try {
@@ -119,6 +133,11 @@ export function LlamaRuntime() {
         subtitle={data ? `${data.variant} build · keeps ${data.keep_versions} for rollback` : "loading…"}
         actions={
           <div className="flex items-center gap-1.5">
+            {data?.active ? (
+              <button onClick={() => void verify()} className={subtleButton} disabled={Boolean(busy) || installing}>
+                {busy === "verify" ? "Verifying…" : "Verify"}
+              </button>
+            ) : null}
             <button onClick={() => void check()} className={subtleButton} disabled={Boolean(busy) || installing}>
               {busy === "check" ? "Checking…" : "Check update"}
             </button>
@@ -174,6 +193,17 @@ export function LlamaRuntime() {
                         <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/50">{v.variant}</span>
                         {v.active ? (
                           <span className="rounded bg-emerald-600/40 px-1.5 py-0.5 text-[10px] text-emerald-100">active</span>
+                        ) : null}
+                        {v.active && data.active_verified ? (
+                          data.active_verified.ok ? (
+                            <span className="rounded bg-emerald-700/40 px-1.5 py-0.5 text-[10px] text-emerald-100" title={`Runs OK${data.active_verified.version ? ` (${data.active_verified.version})` : ""}`}>
+                              ✓ verified
+                            </span>
+                          ) : (
+                            <span className="rounded bg-red-700/45 px-1.5 py-0.5 text-[10px] text-red-100" title={data.active_verified.error ?? "failed to run"}>
+                              ✕ won&apos;t run
+                            </span>
+                          )
                         ) : null}
                       </div>
                       <div className="mt-0.5 text-[11px] text-white/35">
