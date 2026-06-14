@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
+import { SetupDoctor } from "./SetupDoctor";
 import { StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { ArbiterNote, GpuStatus, ImageStats, MemPoint, MemSnapshot, ModelProfile, QueuePlan, RuntimeSettings } from "../types";
 
@@ -46,6 +47,7 @@ export function SystemPanel({
 
   const ram = mem?.ram;
   const vram = mem?.vram;
+  const capability = settings?.capability;
 
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-y-auto">
@@ -57,6 +59,8 @@ export function SystemPanel({
         <StatusPill label={vram ? `${vram.used_gb.toFixed(1)} GB VRAM used` : "no VRAM telemetry"} tone={vram ? "info" : "warn"} />
         <StatusPill label={ram ? `${ram.percent.toFixed(0)}% RAM` : "RAM waiting"} tone={ram && ram.percent > 85 ? "warn" : ram ? "good" : "neutral"} />
       </WorkspaceHeader>
+
+      <SetupDoctor />
 
       <ArbiterStatus note={note} />
 
@@ -114,8 +118,10 @@ export function SystemPanel({
         </Card>
 
         {settings ? (
-          <Card title="Runtime" subtitle={settings.stub_mode ? "STUB mode" : "GPU mode"}>
+          <Card title="Runtime" subtitle={capability?.effective_stub_mode ? "STUB mode" : `${capability?.backend ?? "GPU"} mode`}>
             <Rows rows={{
+              "Profile": capability?.active_profile ?? (settings.stub_mode ? "cpu-safe" : "unknown"),
+              "Tier": capability?.hardware_tier ?? "-",
               "Image models": String(settings.counts.image_models ?? 0),
               "LLM models": String(settings.counts.llm_models ?? 0),
               "LoRAs": String(settings.counts.loras ?? 0),

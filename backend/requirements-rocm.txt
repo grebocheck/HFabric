@@ -1,0 +1,26 @@
+# --- HFabric backend: AMD ROCm / non-CUDA accelerated deps ---
+#
+# Install PyTorch first from the ROCm index selected by scripts/install_profiles.py:
+#
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm7.2
+#   pip install -r backend/requirements-rocm.txt
+#
+# This file intentionally avoids CUDA-only packages such as nunchaku CUDA wheels
+# and CUDA ONNX Runtime EPs. Runtime feature gates hide CUDA-only paths on ROCm.
+
+diffusers==0.38.0
+transformers>=4.49,<5
+accelerate>=1.13
+safetensors>=0.4.5
+sentencepiece>=0.2.0
+protobuf>=5.0
+
+# Native voice engine / audio stack. ContentVec runs through CPU ONNX Runtime
+# on the ROCm profile until a tested ROCm EP path is added.
+sounddevice>=0.5
+soundfile>=0.13
+faiss-cpu>=1.14
+onnxruntime>=1.20
+soxr>=1.0
+torchfcpe>=0.0.4
+torchcrepe>=0.0.24

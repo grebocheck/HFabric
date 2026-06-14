@@ -412,20 +412,35 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > PyTorch local install, NVIDIA CUDA GPU Compute Capability, AMD ROCm system
 > requirements / compatibility matrix, and AMD ROCm PyTorch install.
 
-- [ ] **P20.1 — Hardware probe + support report.** Add one cross-platform probe
+- [~] **P20.1 — Hardware probe + support report.** Add one cross-platform probe
   (`scripts/hardware_probe.py` + PowerShell wrapper) that emits JSON:
   OS/build, Python version, RAM, disk free, GPU vendor/model/VRAM, NVIDIA driver
   + compute capability when present, AMD ROCm-visible device + LLVM target when
   present, and whether `torch` can see the accelerator. The app and installer
   both consume this report; no duplicate detection logic in batch scripts.
-- [ ] **P20.2 — Installer profile resolver.** Replace "pick these packages by
+  - First slice: `scripts/hardware_probe.py` runs with stdlib only and emits the
+    shared JSON report. It uses `nvidia-smi`, Windows CIM, `lspci`, `rocminfo`,
+    and optional `torch` visibility when available; missing tools are skipped.
+- [~] **P20.2 — Installer profile resolver.** Replace "pick these packages by
   hand" with a resolver that chooses one profile:
   `nvidia-cuda`, `amd-rocm-linux`, `cpu-safe`, and later optional
   `amd-directml-windows` if it proves useful. Each profile has a package index,
   lockfile, verification command, and post-install health check. The installer
   asks only when there are two valid choices; otherwise it chooses the safest
   working profile automatically.
-- [ ] **P20.3 — NVIDIA beyond RTX 50 / Blackwell.** Support NVIDIA 50xx, 40xx,
+  - First slice: `scripts/install_profiles.py` consumes the hardware report (or
+    probes live), selects `nvidia-cuda`, `amd-rocm-linux`, or `cpu-safe`, emits
+    package index/packages, verification snippet, runtime defaults, disabled
+    features, warnings, and source links. Fake-probe tests cover Blackwell,
+    lower-VRAM NVIDIA, Linux AMD ROCm, Windows AMD fallback, CPU fallback, and
+    invalid forced profile rejection. `setup.ps1` and `setup.sh` now call the
+    resolver in their default path and install profile-specific PyTorch wheels
+    and requirements instead of hardcoding CUDA for every REAL setup.
+  - Launcher slice: `run.bat`/`scripts/run.ps1`/`run.sh` now use the same
+    resolver when `HFAB_STUB_MODE` is not explicitly set, so unsupported
+    machines start CPU-safe automatically while NVIDIA/ROCm profiles start
+    REAL mode. Explicit `stub` and `HFAB_STUB_MODE` remain overrides.
+- [~] **P20.3 — NVIDIA beyond RTX 50 / Blackwell.** Support NVIDIA 50xx, 40xx,
   30xx, and practical lower tiers by capability and VRAM, not by one validated
   RTX 5070 Ti path. Runtime policy must auto-disable Blackwell-only fast paths
   where they do not apply, choose attention/compile/cache defaults per compute
@@ -434,6 +449,18 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   16 GB+ = current richer image/LLM paths. Tests should fake probe reports for
   multiple compute capabilities and prove the resolver never recommends an
   impossible package/model path.
+  - First slice: the resolver now makes NVIDIA runtime defaults capability-aware
+    instead of Blackwell-only. Compute capability maps to an architecture name
+    (`pascal`/`turing`/`ampere`/`ada`/`hopper`/`blackwell`); attention defaults
+    to `math` below Ampere and `auto` at 8.0+; `flux_step_cache` and
+    `allow_nunchaku` require the fp4-capable Ampere+ path; `blackwell_fast_paths`
+    stays 12.0-only. Pre-Ampere cards drop `nunchaku_cuda` from
+    `optional_features` so `setup.ps1`/`setup.sh` never fetch an unusable CUDA
+    nunchaku wheel. A new `model_policy` block buckets image families into
+    recommended/advanced/hidden by tier + nunchaku capability (and an LLM
+    param-size hint), surfaced through `/api/capabilities`; P20.7 wires it to the
+    download manager. Fake-probe tests cover caps 6.1/7.5/8.0/8.6/8.9/9.0/12.0
+    across VRAM tiers and prove no impossible package/model path is recommended.
 - [ ] **P20.4 — AMD GPU path.** Implement a first-class AMD profile instead of
   treating non-NVIDIA as "CPU only". Linux ROCm is the primary target because
   PyTorch ROCm wheels and AMD's support matrix are Linux-centered. The probe
@@ -442,26 +469,60 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   `torch.cuda.is_available()` under the ROCm build, and automatically disables
   CUDA-only libraries/features (`nunchaku`, CUDA llama binaries, CUDA-specific
   attention assumptions) in favor of ROCm-safe or CPU fallbacks.
+  - First slice: added `backend/requirements-rocm.txt` so the AMD profile avoids
+    CUDA-only packages (`nunchaku`, CUDA ONNX Runtime EP assumptions) while still
+    installing the common diffusers/transformers/audio stack.
 - [ ] **P20.5 — Runtime capability gates.** Move backend feature decisions from
   env assumptions to a `CapabilityProfile`: vendor, backend (`cuda`/`rocm`/`cpu`),
   VRAM, supported dtypes/attention, available binaries, and known unsafe
   features. The model registry, Settings tab, and composer should hide or label
   incompatible options instead of letting users choose combinations that will
   fail after a long load.
-- [ ] **P20.6 — User-facing installer UX.** Build a simple "Setup doctor" page:
+  - First slice: added `backend/app/services/capability_profile.py`, which
+    imports the shared hardware/profile resolver and exposes an active runtime
+    capability object (`selected_profile`, `active_profile`, `backend`,
+    `hardware_tier`, feature flags, disabled features, warnings). `/api/settings`
+    now includes this object and `/api/capabilities` exposes it directly; the
+    Settings and System tabs show the selected profile/backend/tier. Tests cover
+    CUDA, STUB override, ROCm, CPU-safe, and API/settings payload parity.
+  - Model gate slice: added `backend/app/services/model_compatibility.py`.
+    `/api/models` now marks each model with `available`, `runtime_mode`,
+    `unavailable_reason`, and compatibility warnings. The image composer avoids
+    disabled models, the picker labels them, and `/api/jobs` rejects unavailable
+    models server-side. Current guards cover STUB passthrough, nunchaku CUDA
+    requirements, ROCm bitsandbytes exclusions, and estimated VRAM over budget.
+- [~] **P20.6 — User-facing installer UX.** Build a simple "Setup doctor" page:
   detected hardware, selected profile, missing driver/runtime, package status,
   and one action button. Text should be plain: "NVIDIA GPU detected, installing
   CUDA build" / "AMD GPU detected, ROCm works on Linux for this card" /
   "GPU path unavailable, using CPU-safe mode." Advanced details stay expandable.
+  - First slice: `SetupDoctor` (in the System tab) reads `/api/capabilities` and
+    shows a plain-language headline (NVIDIA CUDA / AMD ROCm / CPU-safe / forced
+    STUB), detected hardware (GPU, VRAM, architecture, compute cap., tier),
+    selected profile/backend, a package-status chip row from the feature flags,
+    the per-hardware model recommendation buckets (from P20.3 `model_policy`),
+    warnings, and one "Re-run detection" button (`?refresh=true` re-probe).
+    Considered profiles, disabled features, and source docs sit behind an
+    "Advanced details" toggle. Pure status/label helpers are unit-tested
+    (`setupDoctorHelpers.test.ts`).
 - [ ] **P20.7 — Model recommendation by hardware.** Tie the model download
   manager (P18.4) to the capability profile. Users should see curated models
   that fit their VRAM/RAM/disk budget, with "Recommended" preselected and
   impossible models hidden behind an Advanced filter.
-- [ ] **P20.8 — CI and smoke matrix without owning every GPU.** Add fake-probe
+- [~] **P20.8 — CI and smoke matrix without owning every GPU.** Add fake-probe
   unit tests for NVIDIA/AMD/CPU resolver decisions, plus optional self-hosted or
   manual smoke scripts for real CUDA and ROCm machines. Store every real-machine
   validation in `docs/gpu-smoke.md` with date, GPU, driver, package profile, and
   pass/fail notes.
+  - First slice: fake-probe coverage now runs in CI via `test_install_profiles`,
+    `test_capability_profile`, `test_model_compatibility`, and a new
+    `test_install_smoke` (all stdlib/STUB, no GPU). `scripts/install_smoke.py`
+    is the real-machine counterpart: it probes, resolves the profile, and grades
+    it against `torch` visibility (CUDA build vs HIP build vs no accelerator),
+    plus a feature-sanity guard (no `nunchaku_cuda` on pre-Ampere/non-CUDA) and
+    an in-process verify-snippet run; exit code + a paste-ready markdown summary.
+    `docs/gpu-smoke.md` gains an installer-profile smoke section and a
+    real-machine validation log table (date/GPU/driver/profile/result).
 
 ### P19 — Generation features (growth — after the foundation phases)
 

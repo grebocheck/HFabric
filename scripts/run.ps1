@@ -1,7 +1,7 @@
 <#
   HFabric launcher — ONE window, both servers.
 
-    .\scripts\run.ps1          # REAL mode (real models on the GPU)
+    .\scripts\run.ps1          # Auto mode (hardware probe selects REAL/STUB)
     .\scripts\run.ps1 -Stub    # STUB mode (full pipeline, no GPU/ML stack)
     .\scripts\run.ps1 -Prod    # one-port production mode (serves frontend/dist)
 
@@ -61,6 +61,61 @@ function Test-Truthy([string]$Value) {
     return @("1", "true", "yes", "on").Contains($Value.ToLowerInvariant())
 }
 
+function Resolve-InstallProfile([string]$Prefer = "") {
+    $profilePython = "python"
+    if (Test-Path $venvPy) { $profilePython = $venvPy }
+
+    $args = @("scripts\install_profiles.py")
+    if (-not [string]::IsNullOrWhiteSpace($Prefer)) {
+        $args += @("--prefer", $Prefer)
+    }
+
+    $json = & $profilePython @args 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[profile] hardware profile resolution failed" -ForegroundColor Red
+        Write-Host $json -ForegroundColor Red
+        exit 1
+    }
+    return (($json -join "`n") | ConvertFrom-Json)
+}
+
+function Write-ProfileSummary($Profile) {
+    if (-not $Profile) { return }
+    $profileId = [string]$Profile.selected_profile
+    $tier = [string]$Profile.hardware_tier
+    if ([string]::IsNullOrWhiteSpace($tier)) { $tier = "unknown" }
+
+    Write-Host "[profile] $profileId ($tier)" -ForegroundColor Cyan
+    if (-not [string]::IsNullOrWhiteSpace($Profile.reason)) {
+        Write-Host "[profile] $($Profile.reason)" -ForegroundColor DarkGray
+    }
+    foreach ($warning in @($Profile.warnings)) {
+        if (-not [string]::IsNullOrWhiteSpace($warning)) {
+            Write-Host "[profile] warning: $warning" -ForegroundColor Yellow
+        }
+    }
+}
+
+function Write-AcceleratorInstallHint($Profile) {
+    Write-Host "[setup] REAL mode also needs the accelerator stack." -ForegroundColor Yellow
+    if (-not $Profile) {
+        Write-Host "        Run setup.bat real or .\setup.ps1 -Real to install it." -ForegroundColor Yellow
+        return
+    }
+
+    $torchPackages = @($Profile.install.torch.packages)
+    $indexUrl = [string]$Profile.install.torch.index_url
+    if ($torchPackages.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($indexUrl)) {
+        Write-Host "        & '$venvPy' -m pip install $($torchPackages -join ' ') --index-url $indexUrl" -ForegroundColor Yellow
+    }
+    foreach ($req in @($Profile.install.requirements)) {
+        if (-not [string]::IsNullOrWhiteSpace($req)) {
+            Write-Host "        & '$venvPy' -m pip install -r $req" -ForegroundColor Yellow
+        }
+    }
+    Write-Host "        Or run setup.bat real / .\setup.ps1 -Real for the guided install." -ForegroundColor Yellow
+}
+
 function Get-NewestWriteUtc([string[]]$Paths) {
     $latest = [datetime]::MinValue
     foreach ($path in $Paths) {
@@ -115,16 +170,31 @@ if ([string]::IsNullOrWhiteSpace($BindHost)) {
 $env:HFAB_HOST = $BindHost
 $env:HFAB_PORT = "$Port"
 
+$selectedProfile = $null
+$stubModeRaw = [Environment]::GetEnvironmentVariable("HFAB_STUB_MODE", "Process")
 if ($Stub) {
     $env:HFAB_STUB_MODE = "true"
     Write-Host "[mode] STUB - architectural pipeline only, no GPU/ML stack" -ForegroundColor DarkYellow
-} elseif (Test-Truthy $env:HFAB_STUB_MODE) {
-    $env:HFAB_STUB_MODE = "true"
-    Write-Host "[mode] STUB - architectural pipeline only, no GPU/ML stack" -ForegroundColor DarkYellow
+} elseif (-not [string]::IsNullOrWhiteSpace($stubModeRaw)) {
+    if (Test-Truthy $stubModeRaw) {
+        $env:HFAB_STUB_MODE = "true"
+        Write-Host "[mode] STUB - HFAB_STUB_MODE override" -ForegroundColor DarkYellow
+    } else {
+        $env:HFAB_STUB_MODE = "false"
+        Write-Host "[mode] REAL - HFAB_STUB_MODE override" -ForegroundColor Green
+    }
 } else {
-    $env:HFAB_STUB_MODE = "false"
-    Write-Host "[mode] REAL - real models on the GPU (use -Stub for no-GPU mode)" -ForegroundColor Green
+    $selectedProfile = Resolve-InstallProfile
+    Write-ProfileSummary $selectedProfile
+    if ([string]$selectedProfile.selected_profile -eq "cpu-safe") {
+        $env:HFAB_STUB_MODE = "true"
+        Write-Host "[mode] STUB - CPU-safe profile selected automatically" -ForegroundColor DarkYellow
+    } else {
+        $env:HFAB_STUB_MODE = "false"
+        Write-Host "[mode] REAL - $($selectedProfile.selected_profile) profile selected automatically" -ForegroundColor Green
+    }
 }
+$isStubMode = Test-Truthy $env:HFAB_STUB_MODE
 
 # .env can opt into one-port serving permanently (HFAB_SERVE_FRONTEND=true):
 # then a plain double-click behaves exactly like -Prod, so the UI lives on the
@@ -174,10 +244,8 @@ if (-not (Test-Path $venvPy)) {
     python -m venv .venv
     & $venvPy -m pip install --upgrade pip
     & $venvPy -m pip install -r backend\requirements.txt
-    if (-not $Stub) {
-        Write-Host "[setup] REAL mode also needs the Blackwell GPU stack:" -ForegroundColor Yellow
-        Write-Host "        & '$venvPy' -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128" -ForegroundColor Yellow
-        Write-Host "        & '$venvPy' -m pip install -r backend\requirements-gpu.txt" -ForegroundColor Yellow
+    if (-not $isStubMode) {
+        Write-AcceleratorInstallHint $selectedProfile
     }
 }
 

@@ -12,8 +12,8 @@ from ..config import settings
 from ..core.arbiter import GpuArbiter
 from ..core.enums import ModelFamily
 from ..schemas import GpuStatusOut, LoraOut, ModelOut, ModelProfileOut
+from ..services import capability_profile, model_compatibility, settings_overrides
 from ..services import model_profile_service as mps
-from ..services import settings_overrides
 from ..util import sysmon
 from .deps import get_arbiter, get_registry, get_session
 
@@ -27,6 +27,7 @@ async def list_models(
 ) -> list[ModelOut]:
     current = arbiter.current
     out: list[ModelOut] = []
+    profile = capability_profile.get_capability_profile()
     for d in registry.descriptors():
         loaded = current is not None and current.descriptor.id == d.id
         existing = registry.peek_backend(d.id)
@@ -34,12 +35,22 @@ async def list_models(
         # raw fp8 FLUX (no quant backend) is the slow / high-mem path on 16 GB
         slow = d.family is ModelFamily.FLUX and d.quant is None
         prof = sysmon.get_learned_profile(d.id)
+        estimated_vram = sysmon.estimate_vram_need_gb(d.family, d.size_bytes, d.quant, d.id)
+        compat = model_compatibility.compatibility_for_model(
+            d,
+            profile=profile,
+            estimated_vram_gb=estimated_vram,
+        )
         out.append(ModelOut(
             id=d.id, name=d.name, family=d.family, job_type=d.job_type,
             size_bytes=d.size_bytes, loaded=loaded, warm=warm, quant=d.quant,
-            estimated_vram_gb=sysmon.estimate_vram_need_gb(d.family, d.size_bytes, d.quant, d.id),
+            estimated_vram_gb=estimated_vram,
             vram_measured=bool(prof and prof.get("vram_gb")),
             slow=slow,
+            available=compat["available"],
+            runtime_mode=compat["runtime_mode"],
+            unavailable_reason=compat["unavailable_reason"],
+            compatibility_warnings=compat["compatibility_warnings"],
         ))
     return out
 
@@ -195,7 +206,13 @@ async def runtime_settings(
         },
         "gpu": arbiter.status(),
         "mem": sysmon.snapshot(),
+        "capability": capability_profile.get_capability_profile(),
     }
+
+
+@router.get("/capabilities")
+async def runtime_capabilities(refresh: bool = Query(False)) -> dict[str, Any]:
+    return capability_profile.get_capability_profile(refresh=refresh)
 
 
 @router.get("/settings/overrides")

@@ -9,6 +9,7 @@ import {
   isKnownSizeDefault,
   isKnownStepDefault,
   isLoraCompatible,
+  isModelAvailable,
   isNunchaku,
   numberParam,
   pickDefaultImageModel,
@@ -51,6 +52,13 @@ describe("model ranking & selection", () => {
     expect(isNunchaku(undefined)).toBe(false);
   });
 
+  it("isModelAvailable treats only explicit false as unavailable", () => {
+    expect(isModelAvailable(model())).toBe(true);
+    expect(isModelAvailable(model({ available: true }))).toBe(true);
+    expect(isModelAvailable(model({ available: false }))).toBe(false);
+    expect(isModelAvailable(undefined)).toBe(false);
+  });
+
   it("imageModelRank orders flux2-nunchaku first and slow last", () => {
     expect(imageModelRank(model({ family: "flux2", quant: "nunchaku-fp4" }))).toBe(-1);
     expect(imageModelRank(model({ family: "flux2" }))).toBe(0);
@@ -67,6 +75,8 @@ describe("model ranking & selection", () => {
     expect(pickDefaultImageModel([slow, fluxNun])?.id).toBe("fn");
     expect(pickDefaultImageModel([slow, model({ id: "ok" })])?.id).toBe("ok");
     expect(pickDefaultImageModel([slow])?.id).toBe("s");
+    expect(pickDefaultImageModel([model({ id: "off", available: false }), model({ id: "ok" })])?.id).toBe("ok");
+    expect(pickDefaultImageModel([model({ id: "off", available: false })])).toBeUndefined();
   });
 
   it("isLoraCompatible matches family or passes when unconstrained", () => {

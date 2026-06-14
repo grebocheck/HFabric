@@ -15,7 +15,7 @@ from ..core.enums import EventType, JobStatus, JobType
 from ..core.events import EventBus
 from ..core.scheduler import Worker, plan_queue
 from ..schemas import JobCreate, JobOut, PriorityUpdate
-from ..services import prompt_service, queue_service
+from ..services import model_compatibility, prompt_service, queue_service
 from .deps import get_arbiter, get_bus, get_registry, get_session, get_worker
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -30,6 +30,10 @@ def _validate_model(registry: ModelRegistry, payload: JobCreate) -> ModelDescrip
         raise HTTPException(
             400, f"model '{desc.id}' is {desc.job_type.value}, not {payload.type.value}"
         )
+    try:
+        model_compatibility.require_model_available(desc)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     return desc
 
 

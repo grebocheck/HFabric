@@ -1,16 +1,16 @@
 ﻿<#
   HFabric automated setup script
 
-    .\setup.ps1              # Guided setup (STUB → REAL → models)
+    .\setup.ps1              # Auto setup (hardware probe → recommended profile)
     .\setup.ps1 -Stub        # STUB mode only (no GPU/ML stack)
-    .\setup.ps1 -Real        # REAL mode: GPU stack + optional models
-    .\setup.ps1 -DownloadAll # REAL mode: GPU stack + ALL curated models
+    .\setup.ps1 -Real        # Force accelerator profile when available
+    .\setup.ps1 -DownloadAll # Accelerator profile + ALL curated models
 
   This script:
-  1. Checks prerequisites (Python 3.12+, Node.js 18+, NVIDIA drivers if needed)
+  1. Checks prerequisites (Python 3.12+, Node.js 18+)
   2. Creates Python venv + installs pip dependencies
   3. Installs npm dependencies
-  4. Optionally installs GPU stack (torch + requirements-gpu.txt)
+  4. Auto-selects CPU/CUDA/ROCm profile and installs matching packages
   5. Optionally downloads model files (FLUX, SDXL, LLMs)
 #>
 param(
@@ -77,6 +77,21 @@ function Assert-LastExit {
     }
 }
 
+function Resolve-InstallProfile {
+    param([string]$Prefer = "")
+    $args = @("scripts\install_profiles.py")
+    if (-not [string]::IsNullOrWhiteSpace($Prefer)) {
+        $args += @("--prefer", $Prefer)
+    }
+    $json = & python @args 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Text "hardware profile resolution failed"
+        Write-Host $json -ForegroundColor Red
+        exit 1
+    }
+    return (($json -join "`n") | ConvertFrom-Json)
+}
+
 # --- Check prerequisites ------------------------------------------------------
 
 if (-not $SkipPrerequiteCheck) {
@@ -102,49 +117,55 @@ if (-not $SkipPrerequiteCheck) {
     $nodeVersion = & node --version 2>&1
     Write-Success "Node.js found: $nodeVersion"
     
-    # NVIDIA GPU for REAL mode
-    if (-not $Stub -and -not (Test-Command "nvidia-smi")) {
-        Write-Warning-Text "NVIDIA drivers not found (nvidia-smi not in PATH)"
-        Write-Host "`n  → For REAL mode, install NVIDIA GPU drivers: https://www.nvidia.com/Download/driverDetails.aspx" -ForegroundColor Yellow
-        Write-Host "  → Or use STUB mode (no GPU required) with -Stub flag`n" -ForegroundColor Yellow
-        $choice = Read-Host "Continue with STUB mode? (y/n)"
-        if ($choice -ne "y") { exit 1 }
-        $Stub = $true
-    }
-    elseif (-not $Stub -and (Test-Command "nvidia-smi")) {
+    # Optional NVIDIA summary. Final install decision is made by
+    # scripts/install_profiles.py, which also handles AMD/CPU-safe profiles.
+    if (-not $Stub -and (Test-Command "nvidia-smi")) {
         $gpuInfo = & nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>&1 | Select-Object -First 1
         Write-Success "NVIDIA GPU found: $gpuInfo"
     }
 }
 
-# --- Determine mode -----------------------------------------------------------
+# --- Determine install profile ------------------------------------------------
 
-$mode = "guided"
-if ($Stub) { $mode = "stub" }
-elseif ($Real) { $mode = "real" }
-elseif ($DownloadAll) { $mode = "download-all" }
+Write-Section "Hardware profile"
 
-if ($mode -eq "guided") {
-    Write-Section "Setup mode selection"
-    Write-Host "`n  1) STUB mode (no GPU, test foundation)  ← FASTEST, recommended first"
-    Write-Host "  2) REAL mode (GPU stack only)"
-    Write-Host "  3) REAL + Models (GPU + download models)"
-    Write-Host ""
-    $modeChoice = Read-Host "Select mode (1-3, default: 1)"
-    switch ($modeChoice) {
-        "2" { $mode = "real"; $Real = $true }
-        "3" { $mode = "download-all"; $DownloadAll = $true }
-        default { $mode = "stub"; $Stub = $true }
-    }
+$profile = $null
+$mode = "auto"
+if ($Stub) {
+    $profile = Resolve-InstallProfile -Prefer "cpu-safe"
+    $mode = "stub"
+} else {
+    $profile = Resolve-InstallProfile
+    if ($DownloadAll) { $mode = "download-all" }
+    elseif ($Real) { $mode = "real" }
 }
 
-if ($DownloadAll) { $Real = $true }
-
-Write-Host "`n  Mode: " -NoNewline -ForegroundColor White
-if ($Stub) {
-    Write-Host "STUB (no GPU/ML)" -ForegroundColor Yellow
+$profileId = [string]$profile.selected_profile
+$isAccelerated = $profileId -ne "cpu-safe"
+if (-not $isAccelerated) {
+    $Stub = $true
+    $Real = $false
 } else {
-    Write-Host "REAL (GPU)" -ForegroundColor Green
+    $Stub = $false
+    $Real = $true
+}
+if ($DownloadAll -and -not $isAccelerated) {
+    Write-Warning-Text "DownloadAll requested, but no supported accelerator profile was found; setup will stay CPU-safe."
+    $DownloadAll = $false
+}
+
+Write-Host "  Selected profile: " -NoNewline -ForegroundColor White
+if ($isAccelerated) {
+    Write-Host "$profileId ($($profile.hardware_tier))" -ForegroundColor Green
+} else {
+    Write-Host "$profileId" -ForegroundColor Yellow
+}
+Write-Host "  $($profile.reason)" -ForegroundColor DarkGray
+foreach ($warning in @($profile.warnings)) {
+    Write-Warning-Text $warning
+}
+if ($profile.primary_gpu) {
+    Write-Host "  GPU: $($profile.primary_gpu.vendor) $($profile.primary_gpu.name) ($($profile.primary_gpu.vram_mb) MB VRAM)" -ForegroundColor DarkGray
 }
 
 # --- Create/update venv -------------------------------------------------------
@@ -185,41 +206,57 @@ Write-Success "Foundation packages installed (FastAPI, SQLAlchemy, Pydantic, etc
 # --- Install GPU deps if needed -----------------------------------------------
 
 if ($Real) {
-    Write-Section "Installing GPU/ML stack"
-    
-    Write-Host "  Installing PyTorch 2.11 + CUDA 12.8..." -ForegroundColor Cyan
-    Write-Host "  (this takes 2–5 min, ~2 GB download)" -ForegroundColor DarkGray
-    & $venvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 2>&1 | Out-Null
+    Write-Section "Installing accelerated ML stack"
+
+    $torchPackages = @($profile.install.torch.packages)
+    $torchIndex = [string]$profile.install.torch.index_url
+    Write-Host "  Installing PyTorch for $profileId..." -ForegroundColor Cyan
+    Write-Host "  Index: $torchIndex" -ForegroundColor DarkGray
+    & $venvPip install @torchPackages --index-url $torchIndex 2>&1 | Out-Null
     Assert-LastExit "PyTorch install"
-    Write-Success "PyTorch + CUDA installed"
-    
-    Write-Host "  Verifying PyTorch installation..." -ForegroundColor Cyan
-    $torchCheck = & $venvPy -c "import torch; print(f'torch={torch.__version__}'); cap = torch.cuda.get_device_capability(); print(f'GPU capability={cap}')" 2>&1
-    Write-Host "    $torchCheck" -ForegroundColor DarkGray
-    Write-Success "PyTorch verified"
-    
-    Write-Host "  Installing GPU backends (diffusers, transformers, accelerate, bitsandbytes)..." -ForegroundColor Cyan
-    Write-Host "  (this takes 3–5 min, ~1 GB download)" -ForegroundColor DarkGray
-    & $venvPip install -r backend\requirements-gpu.txt 2>&1 | Out-Null
-    Assert-LastExit "GPU backend install"
-    Write-Success "GPU backends installed"
-    
-    # Optional: Nunchaku for FLUX
-    $installNunchaku = $false
-    if ($DownloadAll) {
-        $installNunchaku = $true
+    Write-Success "PyTorch installed"
+
+    Write-Host "  Verifying PyTorch profile..." -ForegroundColor Cyan
+    $verify = [string]$profile.install.verify
+    $torchCheck = & $venvPy -c $verify 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning-Text "PyTorch verification failed for $profileId"
+        Write-Host "    $torchCheck" -ForegroundColor Yellow
     } else {
-        Write-Host ""
-        $nChoice = Read-Host "Install Nunchaku acceleration for FLUX? (y/n, default: n)"
-        if ($nChoice -eq "y") { $installNunchaku = $true }
+        Write-Host "    $torchCheck" -ForegroundColor DarkGray
+        Write-Success "PyTorch verified"
     }
+
+    foreach ($req in @($profile.install.requirements)) {
+        Write-Host "  Installing backend requirements from $req..." -ForegroundColor Cyan
+        & $venvPip install -r $req 2>&1 | Out-Null
+        Assert-LastExit "backend requirement install ($req)"
+    }
+    Write-Success "Accelerated backend packages installed"
     
+    # Optional: Nunchaku for FLUX (CUDA-only for now).
+    $installNunchaku = $false
+    $canInstallNunchaku = @($profile.optional_features) -contains "nunchaku_cuda"
+    if ($canInstallNunchaku) {
+        if ($DownloadAll) {
+            $installNunchaku = $true
+        } else {
+            Write-Host ""
+            $nChoice = Read-Host "Install Nunchaku acceleration for FLUX? (y/n, default: n)"
+            if ($nChoice -eq "y") { $installNunchaku = $true }
+        }
+    }
+
     if ($installNunchaku) {
         Write-Host "`n  Installing Nunchaku (FLUX acceleration)..." -ForegroundColor Cyan
         Write-Host "  (Matching cu12.8+torch2.11+cp312 wheel, ~300 MB)" -ForegroundColor DarkGray
         $nunchakuUrl = "https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-win_amd64.whl"
         & $venvPip install $nunchakuUrl 2>&1 | Out-Null
-        Write-Success "Nunchaku installed"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning-Text "Nunchaku wheel install failed; continuing without FLUX acceleration."
+        } else {
+            Write-Success "Nunchaku installed"
+        }
     }
 }
 
@@ -294,8 +331,9 @@ Write-Host "`n  Mode: " -NoNewline -ForegroundColor White
 if ($Stub) {
     Write-Host "STUB (foundation only)" -ForegroundColor Yellow
 } else {
-    Write-Host "REAL (GPU + ML stack)" -ForegroundColor Green
+    Write-Host "ACCELERATED ($profileId)" -ForegroundColor Green
 }
+Write-Host "  Install profile: $profileId / tier: $($profile.hardware_tier)" -ForegroundColor DarkGray
 
 Write-Host "`n  Next step: start the app`n" -ForegroundColor White
 

@@ -2,7 +2,7 @@
 # =============================================================================
 #  HFabric launcher — Linux / macOS
 #
-#    ./run.sh          REAL mode: real models on the GPU (default)
+#    ./run.sh          Auto mode (hardware probe selects REAL/STUB)
 #    ./run.sh stub     STUB mode: full pipeline, no GPU/ML stack
 #    ./run.sh --prod   PROD mode: one FastAPI port serves frontend/dist
 #
@@ -73,17 +73,124 @@ else
 fi
 have() { command -v "$1" >/dev/null 2>&1; }
 
-if [ "$STUB_ARG" = "1" ]; then
-  export HFAB_STUB_MODE="true"
-  printf '%s[mode] STUB — pipeline only, no GPU/ML stack%s\n' "$C_YELLOW" "$C_RST"
-elif [ "${HFAB_STUB_MODE:-false}" = "true" ] || [ "${HFAB_STUB_MODE:-false}" = "1" ]; then
-  export HFAB_STUB_MODE="true"
-  printf '%s[mode] STUB - pipeline only, no GPU/ML stack%s\n' "$C_YELLOW" "$C_RST"
+PYHOST=""
+if [ -x "$PYBIN" ]; then
+  PYHOST="$PYBIN"
 else
-  export HFAB_STUB_MODE="false"
-  printf '%s[mode] REAL — real models on the GPU (use "stub" for no-GPU mode)%s\n' "$C_GREEN" "$C_RST"
+  for cand in python3.12 python3.11 python3 python; do
+    if have "$cand"; then PYHOST="$cand"; break; fi
+  done
+fi
+[ -n "$PYHOST" ] || PYHOST="python3"
+
+truthy() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+PROFILE_JSON=""
+profile_get() {
+  "$PYHOST" -c 'import json, sys
+data = json.loads(sys.stdin.read())
+value = data
+for part in sys.argv[1].split("."):
+    value = value[part]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is not None:
+    print(value)
+' "$1" <<< "$PROFILE_JSON"
+}
+
+profile_list() {
+  "$PYHOST" -c 'import json, sys
+data = json.loads(sys.stdin.read())
+value = data
+for part in sys.argv[1].split("."):
+    value = value[part]
+for item in value or []:
+    print(item)
+' "$1" <<< "$PROFILE_JSON"
+}
+
+resolve_profile() {
+  local prefer="${1:-}"
+  local args=(scripts/install_profiles.py)
+  if [ -n "$prefer" ]; then args+=(--prefer "$prefer"); fi
+  PROFILE_JSON="$("$PYHOST" "${args[@]}")"
+}
+
+print_profile_summary() {
+  [ -n "$PROFILE_JSON" ] || return 0
+  local profile_id tier reason
+  profile_id="$(profile_get selected_profile)"
+  tier="$(profile_get hardware_tier)"
+  reason="$(profile_get reason)"
+  printf '%s[profile] %s (%s)%s\n' "$C_CYAN" "$profile_id" "${tier:-unknown}" "$C_RST"
+  [ -n "$reason" ] && printf '%s[profile] %s%s\n' "$C_DIM" "$reason" "$C_RST"
+  while IFS= read -r warning; do
+    [ -n "$warning" ] && printf '%s[profile] warning: %s%s\n' "$C_YELLOW" "$warning" "$C_RST"
+  done < <(profile_list warnings)
+}
+
+print_accelerator_install_hint() {
+  printf '%s[setup] REAL mode also needs the accelerator stack.%s\n' "$C_YELLOW" "$C_RST"
+  if [ -z "$PROFILE_JSON" ]; then
+    printf '%s        Run ./setup.sh real to install it.%s\n' "$C_YELLOW" "$C_RST"
+    return 0
+  fi
+
+  local torch_index
+  torch_index="$(profile_get install.torch.index_url)"
+  hint_packages=()
+  while IFS= read -r package; do
+    [ -n "$package" ] && hint_packages+=("$package")
+  done < <(profile_list install.torch.packages)
+  if [ "${#hint_packages[@]}" -gt 0 ] && [ -n "$torch_index" ]; then
+    printf '%s        "%s" -m pip install %s --index-url %s%s\n' \
+      "$C_YELLOW" "$PYBIN" "${hint_packages[*]}" "$torch_index" "$C_RST"
+  fi
+  while IFS= read -r req; do
+    [ -n "$req" ] && printf '%s        "%s" -m pip install -r %s%s\n' "$C_YELLOW" "$PYBIN" "$req" "$C_RST"
+  done < <(profile_list install.requirements)
+  printf '%s        Or run ./setup.sh real for the guided install.%s\n' "$C_YELLOW" "$C_RST"
+}
+
+STUB_ENV_SET=0
+STUB_ENV_RAW="${HFAB_STUB_MODE-}"
+if [ -n "${HFAB_STUB_MODE+x}" ] && [ -n "$HFAB_STUB_MODE" ]; then
+  STUB_ENV_SET=1
 fi
 
+if [ "$STUB_ARG" = "1" ]; then
+  export HFAB_STUB_MODE="true"
+  printf '%s[mode] STUB - pipeline only, no GPU/ML stack%s\n' "$C_YELLOW" "$C_RST"
+elif [ "$STUB_ENV_SET" = "1" ]; then
+  if truthy "$STUB_ENV_RAW"; then
+    export HFAB_STUB_MODE="true"
+    printf '%s[mode] STUB - HFAB_STUB_MODE override%s\n' "$C_YELLOW" "$C_RST"
+  else
+    export HFAB_STUB_MODE="false"
+    printf '%s[mode] REAL - HFAB_STUB_MODE override%s\n' "$C_GREEN" "$C_RST"
+  fi
+else
+  resolve_profile
+  print_profile_summary
+  PROFILE_ID="$(profile_get selected_profile)"
+  if [ "$PROFILE_ID" = "cpu-safe" ]; then
+    export HFAB_STUB_MODE="true"
+    printf '%s[mode] STUB - CPU-safe profile selected automatically%s\n' "$C_YELLOW" "$C_RST"
+  else
+    export HFAB_STUB_MODE="false"
+    printf '%s[mode] REAL - %s profile selected automatically%s\n' "$C_GREEN" "$PROFILE_ID" "$C_RST"
+  fi
+fi
+
+if [ "$PROD" = "0" ] && truthy "${HFAB_SERVE_FRONTEND:-}"; then
+  PROD=1
+fi
 if [ "$PROD" = "1" ]; then
   export HFAB_SERVE_FRONTEND="true"
   printf '%s[mode] PROD - FastAPI serves frontend/dist on one port%s\n' "$C_CYAN" "$C_RST"
@@ -115,12 +222,11 @@ sleep 0.4
 # --- bootstrap backend venv --------------------------------------------------
 if [ ! -x "$PYBIN" ]; then
   printf '%s[setup] creating venv + installing foundation deps...%s\n' "$C_CYAN" "$C_RST"
-  PYHOST="python3"; have python3 || PYHOST="python"
   "$PYHOST" -m venv .venv
   "$PYBIN" -m pip install --upgrade pip >/dev/null
   "$PYBIN" -m pip install -r backend/requirements.txt >/dev/null
   if [ "${HFAB_STUB_MODE}" = "false" ]; then
-    printf '%s[setup] REAL mode also needs the GPU stack — run ./setup.sh real%s\n' "$C_YELLOW" "$C_RST"
+    print_accelerator_install_hint
   fi
 fi
 

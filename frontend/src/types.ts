@@ -15,6 +15,10 @@ export interface Model {
   estimated_vram_gb?: number | null;
   vram_measured?: boolean;
   slow?: boolean;
+  available?: boolean;
+  runtime_mode?: "real" | "stub" | "disabled" | string;
+  unavailable_reason?: string | null;
+  compatibility_warnings?: string[];
 }
 
 export interface WarmModel {
@@ -61,6 +65,57 @@ export interface MemSnapshot {
 export interface SecurityPosture {
   exposed: boolean;
   token_required: boolean;
+}
+
+export interface CapabilityGpu {
+  vendor?: string | null;
+  name?: string | null;
+  vram_mb?: number | null;
+  compute_capability_tuple?: number[];
+  architecture?: string | null;
+  rocm?: Record<string, unknown> | null;
+}
+
+export interface ModelPolicy {
+  tier: string;
+  image: {
+    recommended: ModelFamily[];
+    advanced: ModelFamily[];
+    hidden: ModelFamily[];
+  };
+  llm: {
+    max_recommended_params_b: number;
+  };
+  notes: string[];
+}
+
+export interface CapabilityCandidate {
+  id: string;
+  confidence?: string | null;
+  reason?: string | null;
+  gpu?: CapabilityGpu | null;
+  warnings?: string[];
+}
+
+export interface CapabilityProfile {
+  schema_version: number;
+  selected_profile: string;
+  active_profile: string;
+  label?: string | null;
+  backend: "cuda" | "rocm" | "cpu" | string;
+  configured_stub_mode: boolean;
+  effective_stub_mode: boolean;
+  confidence?: string | null;
+  reason?: string | null;
+  hardware_tier: string;
+  primary_gpu?: CapabilityGpu | null;
+  runtime_defaults: Record<string, unknown>;
+  features: Record<string, boolean>;
+  disabled_features: string[];
+  model_policy?: ModelPolicy | null;
+  warnings: string[];
+  candidates: CapabilityCandidate[];
+  sources: Record<string, string>;
 }
 
 export interface HealthStatus {
@@ -179,6 +234,7 @@ export interface RuntimeSettings {
   counts: Record<string, number>;
   gpu: GpuStatus;
   mem: Record<string, unknown>;
+  capability?: CapabilityProfile;
 }
 
 export interface Job {

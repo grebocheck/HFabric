@@ -19,8 +19,9 @@ shipped milestones and the active backlog.
 
 The same pipeline also runs **without** torch or llama.cpp in **STUB mode**
 (`HFAB_STUB_MODE=true`) — used for UI work and as the basis for CI (see
-[Testing](#testing)). Real model loading is the default; `run.bat` / `run.ps1`
-run REAL mode, while `run.bat stub` forces STUB.
+[Testing](#testing)). The launcher probes hardware by default: supported
+NVIDIA/ROCm systems run REAL mode, while unsupported systems fall back to
+CPU-safe/STUB. `run.bat stub` still forces STUB explicitly.
 
 ## License And Models
 
@@ -53,9 +54,10 @@ full model notice.
    - Includes npm
    - Verify: `node --version` and `npm --version`
 
-3. **NVIDIA GPU drivers** (for REAL mode)
-   - Update to latest from [nvidia.com](https://www.nvidia.com/Download/driverDetails.aspx)
-   - Verify: Run `nvidia-smi` in a terminal; you should see GPU info and CUDA version ≥ 12.1
+3. **GPU driver/runtime** (optional, for acceleration)
+   - NVIDIA: install a recent NVIDIA driver; `nvidia-smi` should report your GPU.
+   - AMD: Linux ROCm is the first supported AMD path; unsupported cards fall back to CPU-safe mode.
+   - No supported GPU: setup still works in CPU-safe/STUB mode.
 
 4. **Git** (optional, for model downloads)
    - Used by `huggingface-cli` to pull models
@@ -63,38 +65,40 @@ full model notice.
 
 ### Automated Setup (Recommended)
 
-**Use the setup script for your platform** to run an interactive guided install:
+**Use the setup script for your platform**. It probes hardware and chooses the
+recommended profile automatically (`nvidia-cuda`, `amd-rocm-linux`, or
+`cpu-safe`):
 
 ```bat
-setup.bat          # Windows interactive: choose STUB, REAL, or REAL+models
+setup.bat          # Windows auto setup
 setup.bat stub     # STUB mode (no GPU, ~1 min)
-setup.bat real     # REAL mode + GPU stack (10–15 min)
-setup.bat all      # REAL mode + GPU stack + download ALL models (30–60 min + 80 GB)
+setup.bat real     # force accelerator setup when available
+setup.bat all      # accelerator setup + download ALL models (30-60 min + 80 GB)
 ```
 
 ```bash
-./setup.sh          # Linux/macOS interactive: choose STUB, REAL, or REAL+models
+./setup.sh          # Linux/macOS auto setup
 ./setup.sh stub     # STUB mode (no GPU)
-./setup.sh real     # REAL mode + GPU stack
-./setup.sh all      # REAL mode + download curated models
+./setup.sh real     # force accelerator setup when available
+./setup.sh all      # accelerator setup + download curated models
 ```
 
 Or from PowerShell on Windows:
 ```powershell
-.\setup.ps1        # Guided setup
+.\setup.ps1        # Auto setup
 .\setup.ps1 -Stub  # STUB mode
-.\setup.ps1 -Real  # REAL mode only
-.\setup.ps1 -DownloadAll  # REAL mode + models
+.\setup.ps1 -Real  # force accelerator setup when available
+.\setup.ps1 -DownloadAll  # accelerator setup + models
 ```
 
 **What the setup script does:**
-1. ✓ Checks Python 3.12+, Node.js 18+, NVIDIA drivers (if needed)
-2. ✓ Creates and activates Python venv
-3. ✓ Installs pip dependencies (`requirements.txt` + optionally `requirements-gpu.txt`)
-4. ✓ Installs npm packages (`frontend/package.json`)
-5. ✓ Optionally installs PyTorch + CUDA 12.8 (for RTX 5070 Ti)
-6. ✓ Optionally installs Nunchaku (FLUX acceleration)
-7. ✓ Optionally downloads curated models (FLUX, SDXL, LLMs, etc.)
+1. Checks Python 3.12+ and Node.js 18+
+2. Probes hardware and selects an install profile automatically
+3. Creates and activates Python venv
+4. Installs pip dependencies (`requirements.txt` plus profile-specific accelerated deps)
+5. Installs npm packages (`frontend/package.json`)
+6. Optionally installs Nunchaku when the selected CUDA profile supports it
+7. Optionally downloads curated models (FLUX, SDXL, LLMs, etc.)
 
 After setup finishes, run `run.bat` (or `run.ps1`) to start the app.
 
@@ -232,6 +236,17 @@ HFAB_SERVE_FRONTEND=false
 Generation defaults, model paths, acceleration, memory policy, LLM runtime,
 RAG/vision/speech, and voice defaults are managed from the app's Settings tab.
 
+Hardware/profile diagnostics:
+
+```powershell
+python scripts\hardware_probe.py --pretty
+python scripts\install_profiles.py --pretty
+```
+
+The first command emits a machine report; the second chooses the recommended
+install profile (`nvidia-cuda`, `amd-rocm-linux`, or `cpu-safe`) with package
+index, verification command, disabled features, and warnings.
+
 #### Step 6: Verify GPU usage
 
 1. Open another terminal and run: `nvidia-smi -l 1` (updates every 1 second)
@@ -313,7 +328,7 @@ Key modules (backend):
 Easiest — double-click **`run.bat`** (or from a terminal):
 
 ```bat
-run.bat          REM REAL mode: real models on the GPU (default)
+run.bat          REM auto-select REAL/STUB from the hardware profile
 run.bat stub     REM STUB mode: full pipeline, no GPU/ML stack
 ```
 
@@ -325,7 +340,7 @@ stops both.
 PowerShell equivalent:
 
 ```powershell
-.\scripts\run.ps1          # REAL mode
+.\scripts\run.ps1          # auto-select REAL/STUB from the hardware profile
 .\scripts\run.ps1 -Stub    # STUB mode
 ```
 
@@ -485,8 +500,13 @@ and `/api/images/{id}/metadata` for reproducibility export.
 
 `/api/settings` exposes a runtime snapshot for the Settings tab: model paths,
 memory guard values, acceleration knobs, model/LoRA counts, GPU status, and
-current memory telemetry. Writable settings are served by
-`/api/settings/overrides` and stored in `data/settings-overrides.json`.
+current memory telemetry. It also includes the active capability profile
+(`nvidia-cuda`, `amd-rocm-linux`, or `cpu-safe`); `/api/capabilities` exposes the
+same object directly for diagnostics and UI gating. Writable settings are served
+by `/api/settings/overrides` and stored in `data/settings-overrides.json`.
+`/api/models` includes per-model compatibility metadata (`available`,
+`runtime_mode`, `unavailable_reason`) so the UI can label models that do not fit
+the active hardware profile before they are queued.
 
 ### Keep-warm policy
 

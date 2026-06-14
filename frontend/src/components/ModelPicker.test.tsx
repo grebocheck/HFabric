@@ -43,4 +43,23 @@ describe("ModelPicker", () => {
     await user.click(screen.getByText("SDXL base"));
     expect(onChange).toHaveBeenCalledWith("sdxl");
   });
+
+  it("renders unavailable models as disabled options", async () => {
+    const user = userEvent.setup();
+    render(<ModelPicker
+      models={[...MODELS, model({
+        id: "off",
+        name: "Disabled model",
+        available: false,
+        unavailable_reason: "needs more VRAM",
+      })]}
+      value=""
+      onChange={() => {}}
+    />);
+    await user.click(screen.getByRole("button"));
+    const disabled = screen.getByText("Disabled model").closest("button") as HTMLButtonElement | null;
+    expect(disabled?.disabled).toBe(true);
+    expect(screen.getByText("disabled")).toBeTruthy();
+    expect(screen.getByText("needs more VRAM")).toBeTruthy();
+  });
 });

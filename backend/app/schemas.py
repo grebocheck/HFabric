@@ -27,6 +27,10 @@ class ModelOut(BaseModel):
     # True for models that are slow / memory-heavy on 16 GB (raw fp8 FLUX) so the
     # UI can warn before a click triggers a long, VRAM-overflowing run.
     slow: bool = False
+    available: bool = True
+    runtime_mode: str = "real"
+    unavailable_reason: str | None = None
+    compatibility_warnings: list[str] = Field(default_factory=list)
 
 
 class ModelProfileOut(BaseModel):

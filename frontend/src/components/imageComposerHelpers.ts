@@ -84,6 +84,10 @@ export function isNunchaku(model: Model | undefined): boolean {
   return Boolean(model?.quant?.startsWith("nunchaku"));
 }
 
+export function isModelAvailable(model: Model | undefined): boolean {
+  return Boolean(model && model.available !== false);
+}
+
 export function isLoraCompatible(lora: Lora, model: Model | undefined): boolean {
   return !model || !lora.family || lora.family === model.family;
 }
@@ -116,6 +120,7 @@ export function numberParam(value: unknown, fallback: number): number {
 }
 
 export function imageModelRank(model: Model): number {
+  if (!isModelAvailable(model)) return 99;
   if (model.family === "flux2" && isNunchaku(model)) return -1;
   if (model.family === "flux2") return 0;
   if (model.family === "flux" && isNunchaku(model)) return 0;
@@ -126,10 +131,11 @@ export function imageModelRank(model: Model): number {
 }
 
 export function pickDefaultImageModel(models: Model[]): Model | undefined {
-  return models.find((m) => m.family === "flux" && isNunchaku(m))
-    ?? models.find((m) => m.family === "z-image")
-    ?? models.find((m) => !m.slow)
-    ?? models[0];
+  const available = models.filter(isModelAvailable);
+  return available.find((m) => m.family === "flux" && isNunchaku(m))
+    ?? available.find((m) => m.family === "z-image")
+    ?? available.find((m) => !m.slow)
+    ?? available[0];
 }
 
 export function buildComposerApply(

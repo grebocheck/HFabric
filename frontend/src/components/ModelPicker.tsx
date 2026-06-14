@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import type { Model } from "../types";
 import { Badge } from "./Badge";
-import { familyColor, formatVram, isNunchaku } from "./imageComposerHelpers";
+import { familyColor, formatVram, isModelAvailable, isNunchaku } from "./imageComposerHelpers";
 import { Select } from "./Select";
 
 // A compact model selector (P13.1): the always-expanded card grid ate too much
@@ -21,7 +21,12 @@ export function ModelPicker({
 }) {
   const byId = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
   const options = useMemo(
-    () => models.map((m) => ({ value: m.id, label: m.name, hint: formatVram(m) })),
+    () => models.map((m) => ({
+      value: m.id,
+      label: m.name,
+      hint: m.unavailable_reason ?? formatVram(m),
+      disabled: !isModelAvailable(m),
+    })),
     [models],
   );
 
@@ -46,12 +51,19 @@ export function ModelPicker({
               {m.quant ? <Badge>{m.quant}</Badge> : null}
               {isNunchaku(m) ? <Badge color="bg-emerald-700/55 text-emerald-100">fast</Badge> : null}
               {m.slow ? <Badge color="bg-amber-600/35 text-amber-100">slow</Badge> : null}
+              {m.runtime_mode === "stub" ? <Badge color="bg-sky-700/50 text-sky-100">stub</Badge> : null}
+              {!isModelAvailable(m) ? <Badge color="bg-red-700/50 text-red-100">disabled</Badge> : null}
               {m.loaded ? (
                 <Badge color="bg-emerald-700/55 text-emerald-100">loaded</Badge>
               ) : m.warm ? (
                 <Badge color="bg-sky-700/50 text-sky-100">warm</Badge>
               ) : null}
             </span>
+            {m.unavailable_reason ? (
+              <span className="truncate text-[11px] text-red-200/75" title={m.unavailable_reason}>
+                {m.unavailable_reason}
+              </span>
+            ) : null}
           </span>
         );
       }}

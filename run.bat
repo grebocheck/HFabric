@@ -2,7 +2,7 @@
 REM ===========================================================================
 REM  HFabric launcher  (double-click me)
 REM
-REM    run.bat          -> REAL mode: real models on the GPU (default)
+REM    run.bat          -> Auto mode: hardware probe selects REAL/STUB
 REM    run.bat stub     -> STUB mode: full pipeline, no GPU/ML stack
 REM    run.bat --prod   -> production: one FastAPI port serves frontend/dist
 REM

@@ -343,12 +343,25 @@ function Control({
 }
 
 function RuntimeSummary({ settings }: { settings: RuntimeSettings | null }) {
+  const capability = settings?.capability;
+  const gpuName = capability?.primary_gpu?.name ?? "-";
+  const vramMb = capability?.primary_gpu?.vram_mb;
+  const gpuLabel = vramMb ? `${gpuName} (${Math.round(vramMb / 1024)} GB)` : gpuName;
+
   return (
     <Panel>
-      <SectionTitle title="Runtime" subtitle={settings?.stub_mode ? "STUB mode" : "Current process"} />
+      <SectionTitle title="Runtime" subtitle={capability?.effective_stub_mode ? "STUB mode" : "Current process"} />
       <div className="space-y-3 p-3 text-xs">
         {settings ? (
           <>
+            {capability ? (
+              <SummaryRows rows={{
+                "Profile": capability.active_profile,
+                "Backend": capability.backend,
+                "Tier": capability.hardware_tier,
+                "GPU": gpuLabel,
+              }} />
+            ) : null}
             <SummaryRows rows={{
               "Image models": String(settings.counts.image_models ?? 0),
               "LLM models": String(settings.counts.llm_models ?? 0),

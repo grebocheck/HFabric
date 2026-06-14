@@ -2,7 +2,7 @@
 # =============================================================================
 #  HFabric setup — Linux / macOS
 #
-#    ./setup.sh            Guided setup (pick STUB / REAL / REAL+models)
+#    ./setup.sh            Auto setup (hardware probe -> recommended profile)
 #    ./setup.sh stub       STUB mode only (no GPU/ML stack)
 #    ./setup.sh real       REAL mode: GPU stack (Linux+CUDA) + optional models
 #    ./setup.sh all        REAL mode + download ALL curated models (~80 GB)
@@ -21,7 +21,7 @@ PYBIN="$VENV/bin/python"
 PIPBIN="$VENV/bin/pip"
 
 # --- args --------------------------------------------------------------------
-MODE=""            # stub | real | all | (empty => guided)
+MODE=""            # stub | real | all | (empty => auto)
 FORCE=0
 SKIP_CHECKS=0
 WANT_NUNCHAKU=0
@@ -48,6 +48,30 @@ ok()      { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RST" "$1"; }
 warn()    { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RST" "$1"; }
 err()     { printf '  %s✗%s %s\n' "$C_RED" "$C_RST" "$1"; }
 have()    { command -v "$1" >/dev/null 2>&1; }
+
+profile_get() {
+  "$PYHOST" -c 'import json, sys
+data = json.loads(sys.stdin.read())
+value = data
+for part in sys.argv[1].split("."):
+    value = value[part]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is not None:
+    print(value)
+' "$1" <<< "$PROFILE_JSON"
+}
+
+profile_list() {
+  "$PYHOST" -c 'import json, sys
+data = json.loads(sys.stdin.read())
+value = data
+for part in sys.argv[1].split("."):
+    value = value[part]
+for item in value or []:
+    print(item)
+' "$1" <<< "$PROFILE_JSON"
+}
 
 OS="$(uname -s)"   # Linux | Darwin
 
@@ -82,39 +106,42 @@ if [ "$SKIP_CHECKS" -eq 0 ]; then
   fi
   ok "Node.js found: $(node --version)"
 
-  if [ "$MODE" != "stub" ]; then
-    if [ "$OS" = "Darwin" ]; then
-      warn "macOS has no CUDA — REAL/GPU mode is not supported here. Falling back to STUB."
-      MODE="stub"
-    elif ! have nvidia-smi; then
-      warn "nvidia-smi not found — REAL mode needs an NVIDIA GPU + drivers."
-      read -r -p "  Continue with STUB mode instead? (y/N) " ans
-      [ "${ans:-n}" = "y" ] || exit 1
-      MODE="stub"
-    else
-      ok "NVIDIA GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)"
-    fi
+  if [ "$MODE" != "stub" ] && have nvidia-smi; then
+    ok "NVIDIA GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)"
   fi
 fi
 [ -n "$PYHOST" ] || PYHOST="python3"
 
-# --- guided mode selection ---------------------------------------------------
-if [ -z "$MODE" ]; then
-  section "Setup mode"
-  echo "  1) STUB  — no GPU, test the foundation   ← fastest, recommended first"
-  echo "  2) REAL  — GPU stack only"
-  echo "  3) REAL + models  — GPU stack + download curated models (~80 GB)"
-  read -r -p "  Select (1-3, default 1): " choice
-  case "${choice:-1}" in
-    2) MODE="real" ;;
-    3) MODE="all" ;;
-    *) MODE="stub" ;;
-  esac
+# --- resolve install profile -------------------------------------------------
+section "Hardware profile"
+if [ "$MODE" = "stub" ]; then
+  PROFILE_JSON="$("$PYHOST" scripts/install_profiles.py --prefer cpu-safe)"
+else
+  PROFILE_JSON="$("$PYHOST" scripts/install_profiles.py)"
 fi
+PROFILE_ID="$(profile_get selected_profile)"
+PROFILE_TIER="$(profile_get hardware_tier)"
+PROFILE_REASON="$(profile_get reason)"
 
 REAL=0
-[ "$MODE" = "real" ] || [ "$MODE" = "all" ] && REAL=1
-printf '\n  Mode: %s%s%s\n' "$C_CYAN" "$MODE" "$C_RST"
+if [ "$PROFILE_ID" != "cpu-safe" ]; then REAL=1; fi
+if [ "$MODE" = "real" ] && [ "$REAL" -eq 0 ]; then
+  warn "real requested, but no supported accelerator profile was found; setup will stay CPU-safe."
+  MODE="stub"
+fi
+if [ "$MODE" = "all" ] && [ "$REAL" -eq 0 ]; then
+  warn "all requested, but no supported accelerator profile was found; setup will stay CPU-safe."
+  MODE="stub"
+fi
+if [ -z "$MODE" ]; then
+  if [ "$REAL" -eq 1 ]; then MODE="auto"; else MODE="stub"; fi
+fi
+
+printf '\n  Profile: %s%s%s (%s)\n' "$C_CYAN" "$PROFILE_ID" "$C_RST" "$PROFILE_TIER"
+printf '  %s\n' "$PROFILE_REASON"
+while IFS= read -r warning; do
+  [ -n "$warning" ] && warn "$warning"
+done < <(profile_list warnings)
 
 # --- create / update venv ----------------------------------------------------
 section "Python virtual environment"
@@ -140,18 +167,34 @@ ok "Foundation packages installed (FastAPI, SQLAlchemy, Pydantic, ...)"
 # --- GPU / ML stack ----------------------------------------------------------
 if [ "$REAL" -eq 1 ]; then
   section "Installing GPU / ML stack"
-  echo "  installing PyTorch + CUDA 12.8 (2–5 min, ~2 GB)..."
-  "$PIPBIN" install torch torchvision --index-url https://download.pytorch.org/whl/cu128 >/dev/null
-  ok "PyTorch + CUDA installed"
-  echo "  verifying torch..."
-  "$PYBIN" -c "import torch; print('    torch', torch.__version__, '| cuda', torch.cuda.is_available())" || \
-    warn "torch imported but CUDA check failed (driver mismatch?)"
+  TORCH_INDEX="$(profile_get install.torch.index_url)"
+  TORCH_PACKAGES=()
+  while IFS= read -r package; do
+    [ -n "$package" ] && TORCH_PACKAGES+=("$package")
+  done < <(profile_list install.torch.packages)
+  echo "  installing PyTorch for $PROFILE_ID..."
+  echo "  index: $TORCH_INDEX"
+  "$PIPBIN" install "${TORCH_PACKAGES[@]}" --index-url "$TORCH_INDEX" >/dev/null
+  ok "PyTorch installed"
+  echo "  verifying torch profile..."
+  VERIFY="$(profile_get install.verify)"
+  if "$PYBIN" -c "$VERIFY"; then
+    ok "PyTorch verified"
+  else
+    warn "torch imported but profile verification failed (driver/runtime mismatch?)"
+  fi
 
-  echo "  installing GPU backends (diffusers, transformers, accelerate, bitsandbytes)..."
-  "$PIPBIN" install -r backend/requirements-gpu.txt >/dev/null
-  ok "GPU backends installed"
+  while IFS= read -r req; do
+    [ -n "$req" ] || continue
+    echo "  installing backend requirements from $req..."
+    "$PIPBIN" install -r "$req" >/dev/null
+  done < <(profile_list install.requirements)
+  ok "Accelerated backend packages installed"
 
   if [ "$MODE" = "all" ]; then WANT_NUNCHAKU=1; fi
+  if ! profile_list optional_features | grep -qx "nunchaku_cuda"; then
+    WANT_NUNCHAKU=0
+  fi
   if [ "$WANT_NUNCHAKU" -eq 1 ]; then
     NUNCHAKU_URL="https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-linux_x86_64.whl"
     echo "  installing Nunchaku (FLUX SVDQuant fp4)..."
@@ -201,7 +244,7 @@ fi
 # --- summary -----------------------------------------------------------------
 section "Setup complete"
 printf '\n  Start the app:\n'
-if [ "$MODE" = "stub" ]; then
+if [ "$MODE" = "stub" ] || [ "$REAL" -eq 0 ]; then
   printf '    %s./run.sh stub%s\n' "$C_CYAN" "$C_RST"
 else
   printf '    %s./run.sh%s   %s(./run.sh stub for no-GPU mode)%s\n' "$C_CYAN" "$C_RST" "$C_DIM" "$C_RST"

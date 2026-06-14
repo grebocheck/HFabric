@@ -20,6 +20,7 @@ import {
   isKnownSizeDefault,
   isKnownStepDefault,
   isLoraCompatible,
+  isModelAvailable,
   isNunchaku,
   loadPromptHistory,
   numberParam,
@@ -132,11 +133,11 @@ export function ImageComposer({
   }, [applyWritableDefaults]);
 
   useEffect(() => {
-    if (!imgModel || !imgModels.some((m) => m.id === imgModel)) {
+    if (!imgModel || !isModelAvailable(selectedImgModel)) {
       const preferred = pickDefaultImageModel(imgModels);
-      if (preferred) setImgModel(preferred.id);
+      if (preferred && preferred.id !== imgModel) setImgModel(preferred.id);
     }
-  }, [imgModels, imgModel]);
+  }, [imgModels, imgModel, selectedImgModel]);
 
   useEffect(() => {
     const data: SavedComposer = { imgModel, negative, steps, guidance, width, height, seed, batch, count, selectedLoras, presetId };
@@ -269,7 +270,7 @@ export function ImageComposer({
     setNegative(typeof params.negative === "string" ? params.negative : "");
     const targetId = modelId ?? (typeof params.model_id === "string" ? params.model_id : undefined);
     const model = targetId ? imgModels.find((m) => m.id === targetId) : undefined;
-    if (model) setImgModel(model.id);
+    if (model && isModelAvailable(model)) setImgModel(model.id);
     setSteps(numberParam(params.steps, steps));
     setGuidance(numberParam(params.guidance, guidance));
     setWidth(numberParam(params.width, width));
@@ -329,7 +330,8 @@ export function ImageComposer({
     ...imagePresets.map((p) => ({ value: p.id, label: p.name })),
   ];
 
-  const canQueue = Boolean(imgModel) && Boolean(promptDraft.trim());
+  const selectedUnavailableReason = selectedImgModel?.unavailable_reason ?? "";
+  const canQueue = Boolean(imgModel) && isModelAvailable(selectedImgModel) && Boolean(promptDraft.trim());
   const activeRatio = RATIOS.find((r) => isRatio(width, height, r.w, r.h))?.label ?? "custom";
   const promptChars = promptDraft.trim().length;
   const queueLabel = count > 1 ? `Queue ${count} jobs` : "Queue generation";
@@ -426,6 +428,12 @@ export function ImageComposer({
             <Notice tone="amber">
               Raw FLUX fp8 is slow and high-memory on 16 GB VRAM. Prefer a nunchaku FLUX entry when available.
             </Notice>
+          ) : null}
+          {selectedUnavailableReason ? (
+            <Notice tone="amber">{selectedUnavailableReason}</Notice>
+          ) : null}
+          {selectedImgModel?.compatibility_warnings?.length ? (
+            <Notice tone="sky">{selectedImgModel.compatibility_warnings[0]}</Notice>
           ) : null}
           {selectedFamily === "flux2" && isNunchaku(selectedImgModel) ? (
             <Notice tone="emerald">
@@ -618,6 +626,7 @@ export function ImageComposer({
           <button
             onClick={generate}
             disabled={!canQueue}
+            title={selectedUnavailableReason || undefined}
             className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-hover disabled:opacity-40"
           >
             {queueLabel}
