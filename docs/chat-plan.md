@@ -1,5 +1,9 @@
 # Chat workspace — plan ("local LLM tool", superapp foundation)
 
+> **Archived / historical.** All phases below (C1–C4) shipped in 2026-06 and are
+> in use; this file is kept as the design record, not an active plan. Current work
+> lives in [ROADMAP.md](../ROADMAP.md).
+
 > Goal: grow the **LLM tab** from a single-shot prompt helper into a real,
 > ChatGPT-class local tool — and make the app a clean base for a **personal
 > superapp**: several tabbed workspaces over one shared GPU arbiter.
