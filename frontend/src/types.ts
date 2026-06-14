@@ -119,6 +119,51 @@ export interface CapabilityProfile {
   sources: Record<string, string>;
 }
 
+export interface LlamaVersion {
+  id: string;
+  tag: string;
+  variant: string;
+  installed_at: string | null;
+  size_bytes: number | null;
+  active: boolean;
+  binaries: string[];
+}
+
+export interface LlamaInstallStatus {
+  state: "idle" | "running" | "done" | "error" | string;
+  tag: string | null;
+  variant: string | null;
+  message: string;
+  asset: string | null;
+  progress: { done: number; total: number };
+  version: LlamaVersion | null;
+  updated_at: number;
+}
+
+export interface LlamaUpdateInfo {
+  latest_tag: string;
+  active_tag: string | null;
+  variant: string;
+  asset_available: boolean;
+  variant_matched: boolean;
+  selection_reason: string;
+  update_available: boolean;
+  checked_at: number;
+}
+
+export interface LlamaState {
+  managed_root: string;
+  system: string;
+  machine: string;
+  variant: string;
+  active: string | null;
+  versions: LlamaVersion[];
+  keep_versions: number;
+  legacy_binary_present: boolean;
+  install_status: LlamaInstallStatus;
+  update: LlamaUpdateInfo | null;
+}
+
 export interface HealthStatus {
   status: string;
   stub_mode: boolean;

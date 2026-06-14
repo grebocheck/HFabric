@@ -553,6 +553,23 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   real Mac before promoting any model from "advanced" to "recommended". This is
   the prerequisite for treating non-CUDA accelerators as first-class rather than
   routing them to STUB.
+- [~] **P20.10 — Managed, updatable llama.cpp runtime.** Stop making users
+  hand-place `llama-server`/`llama-tts`/`llama-mtmd-cli`. Auto-download the right
+  prebuilt build on setup, allow in-app updates, and keep old builds for rollback
+  when an update breaks something.
+  - First slice: `scripts/llama_release.py` (stdlib core) picks the GitHub release
+    asset for the host + accelerator (cuda/hip/vulkan/cpu, +cudart on win-cuda),
+    extracts into `bin/llama/versions/<id>/`, and tracks `installed.json`; keeps
+    up to 3 builds and never prunes the active one. `app/services/llama_manager.py`
+    + `/api/llama` expose install (background, polled status) / check-update /
+    activate (rollback) / remove, and repoint `settings.llama_*_bin` at the active
+    build on startup. `scripts/fetch_llama.py` runs in the REAL `setup.ps1`/
+    `setup.sh` path to auto-install. The Settings tab gains an "LLM runtime"
+    panel: versions, active marker, install/update/rollback/remove, live download
+    progress, and toast notifications. Core + manager + API are unit-tested with
+    the network mocked (no real downloads in CI).
+  - Next: surface a "verify build" health check (run `llama-server --version`),
+    and let the model download manager (P18.4) flag GGUFs needing a newer build.
 
 ### P19 — Generation features (growth — after the foundation phases)
 

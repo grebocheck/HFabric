@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../api/client";
+import { LlamaRuntime } from "./LlamaRuntime";
 import { Panel, SectionTitle, SkeletonRows, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import { Toggle } from "./Toggle";
 import { toast } from "./Toast";
@@ -220,6 +221,7 @@ export function SettingsPanel() {
 
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto max-[1180px]:col-span-2 max-[860px]:col-span-1">
           <RuntimeSummary settings={settings} />
+          <LlamaRuntime />
           <Panel>
             <SectionTitle title="System .env" subtitle="Kept outside the Settings tab" />
             <div className="space-y-2 p-3 text-xs">

@@ -234,11 +234,13 @@ if [ "$MODE" = "all" ]; then
   fi
 fi
 
-# --- llama.cpp note ----------------------------------------------------------
-if [ "$REAL" -eq 1 ] && [ ! -x "bin/llama/llama-server" ]; then
-  warn "LLM/RAG/TTS/Vision need a llama.cpp CUDA build at bin/llama/ (no .exe on Linux):"
-  printf '      %sbin/llama/llama-server, llama-tts, llama-mtmd-cli%s\n' "$C_DIM" "$C_RST"
-  printf '      %sBuild llama.cpp with -DGGML_CUDA=ON or grab a release, then copy the binaries there.%s\n' "$C_DIM" "$C_RST"
+# --- llama.cpp runtime -------------------------------------------------------
+if [ "$REAL" -eq 1 ]; then
+  section "Installing llama.cpp runtime"
+  printf '  Downloading the matching prebuilt build (LLM/RAG/TTS/Vision)...\n'
+  if ! "$PYBIN" scripts/fetch_llama.py; then
+    warn "llama.cpp auto-install failed; install it later from Settings -> LLM runtime."
+  fi
 fi
 
 # --- summary -----------------------------------------------------------------
