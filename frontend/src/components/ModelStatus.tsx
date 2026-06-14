@@ -1,7 +1,7 @@
 import { Logo } from "./Logo";
 import type { AppTheme, GpuStatus, MemSnapshot } from "../types";
 
-export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "voice" | "system";
+export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "voice" | "system" | "settings";
 
 const familyColor: Record<string, string> = {
   flux: "bg-accent",
@@ -29,7 +29,6 @@ export function ModelStatus({
   onView,
   onFree,
   onTheme,
-  onSettings,
   onPalette,
 }: {
   gpu: GpuStatus;
@@ -42,7 +41,6 @@ export function ModelStatus({
   onView: (v: View) => void;
   onFree: () => void;
   onTheme: () => void;
-  onSettings: () => void;
   onPalette: () => void;
 }) {
   return (
@@ -138,12 +136,6 @@ export function ModelStatus({
           className="rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10"
         >
           {themeLabel[theme]}
-        </button>
-        <button
-          onClick={onSettings}
-          className="rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10"
-        >
-          Settings
         </button>
         <button
           onClick={onPalette}

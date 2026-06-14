@@ -124,16 +124,49 @@ export interface ModelProfile {
   updated_at: string;
 }
 
+export type SettingsValue = string | number | boolean | null;
+
+export interface SettingsOverrideValues {
+  default_steps: number;
+  default_guidance: number;
+  default_width: number;
+  default_height: number;
+  keep_warm_models: boolean;
+  keep_warm_max_models: number;
+  [key: string]: SettingsValue;
+}
+
+export interface SettingsChoice {
+  value: string;
+  label: string;
+}
+
+export interface SettingsSchemaEntry {
+  key: string;
+  label: string;
+  group: string;
+  kind: "boolean" | "integer" | "number" | "text" | "choice" | "path";
+  description?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  multiple_of?: number;
+  choices?: SettingsChoice[];
+  nullable?: boolean;
+  restart_required?: boolean;
+}
+
+export interface SettingsGroup {
+  id: string;
+  label: string;
+  description: string;
+}
+
 export interface SettingsOverrides {
-  values: {
-    default_steps: number;
-    default_guidance: number;
-    default_width: number;
-    default_height: number;
-    keep_warm_models: boolean;
-    keep_warm_max_models: number;
-  };
+  values: SettingsOverrideValues;
   writable_keys: string[];
+  groups: SettingsGroup[];
+  schema: SettingsSchemaEntry[];
   path: string;
 }
 

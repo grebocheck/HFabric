@@ -377,18 +377,91 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   vs. real mode stays an env concern (`HFAB_STUB_MODE`).
   - Phase G: `run.bat`, `scripts/run.ps1`, and `run.sh` support prod mode with
     stale dist detection, health wait, and browser open on the backend port.
-- [x] **P18.3 — Writable settings (safe subset).** Promote the read-only settings
-  drawer: persist a whitelisted subset (defaults for steps/size, keep-warm
-  toggle, theme already local) to a `data/settings-overrides.json` loaded at
-  startup. Anything memory-safety-related stays env-only by design.
-  - Phase G: GET/PUT `/api/settings/overrides` validates the whitelist, clamps
-    values, persists the file, applies live settings, and the drawer edits only
-    the safe subset while noting memory-safety knobs are env-only.
+- [x] **P18.3 — Settings tab + minimal env.** Promote the read-only settings
+  drawer into a first-class workspace tab and move day-to-day runtime knobs out
+  of `.env`. Keep `.env` for system startup posture only: host, port, optional
+  API token, frontend serving, and Vite dev-server host/port. Everything else
+  is typed, grouped, searchable, saved to `data/settings-overrides.json`, and
+  loaded at startup.
+  - Phase G: GET/PUT `/api/settings/overrides` now returns a schema for the
+    Settings tab (groups, types, min/max, choices, restart-required markers),
+    validates/clamps values, persists the file, applies live settings, and
+    re-runs directory creation after path overrides load. The topbar Settings
+    button is gone because Settings is a workspace tab. `.env.example` documents
+    the minimal system-only env surface. Empty/unset `HFAB_API_TOKEN` is the
+    supported local-no-auth mode.
 - [ ] **P18.4 — Model download manager.** Surface `scripts/fetch_models.py` in
   the UI: a curated list of the verified models (from
   [imagefabric-models](docs) + MODEL_NOTICE.md) with size, license note, target
   dir, and a progress bar; refuses to start a download the RAM/disk budget can't
   hold.
+
+### P20 — Universal GPU & installer story (NEW — make it usable beyond this machine)
+
+> Goal: the app should make the hard installation/runtime decisions itself.
+> A normal user should see "Recommended" and "Use safe defaults", not CUDA/ROCm
+> wheel archaeology. The installer detects the machine, chooses the best backend
+> profile, installs compatible packages, writes only system env when needed, and
+> stores runtime choices in Settings.
+>
+> Current upstream facts to anchor the plan: PyTorch publishes separate CPU,
+> CUDA, and ROCm pip install paths and verifies GPU availability with
+> `torch.cuda.is_available()`; NVIDIA exposes per-GPU compute capability tables;
+> AMD's official ROCm support matrix is Linux-focused and says unsupported GPUs
+> are not officially supported. Keep source links in the installer docs:
+> PyTorch local install, NVIDIA CUDA GPU Compute Capability, AMD ROCm system
+> requirements / compatibility matrix, and AMD ROCm PyTorch install.
+
+- [ ] **P20.1 — Hardware probe + support report.** Add one cross-platform probe
+  (`scripts/hardware_probe.py` + PowerShell wrapper) that emits JSON:
+  OS/build, Python version, RAM, disk free, GPU vendor/model/VRAM, NVIDIA driver
+  + compute capability when present, AMD ROCm-visible device + LLVM target when
+  present, and whether `torch` can see the accelerator. The app and installer
+  both consume this report; no duplicate detection logic in batch scripts.
+- [ ] **P20.2 — Installer profile resolver.** Replace "pick these packages by
+  hand" with a resolver that chooses one profile:
+  `nvidia-cuda`, `amd-rocm-linux`, `cpu-safe`, and later optional
+  `amd-directml-windows` if it proves useful. Each profile has a package index,
+  lockfile, verification command, and post-install health check. The installer
+  asks only when there are two valid choices; otherwise it chooses the safest
+  working profile automatically.
+- [ ] **P20.3 — NVIDIA beyond RTX 50 / Blackwell.** Support NVIDIA 50xx, 40xx,
+  30xx, and practical lower tiers by capability and VRAM, not by one validated
+  RTX 5070 Ti path. Runtime policy must auto-disable Blackwell-only fast paths
+  where they do not apply, choose attention/compile/cache defaults per compute
+  capability, and clamp model recommendations by VRAM. Minimum viable tiers:
+  8 GB = SDXL/LLM-small safe mode; 12 GB = SDXL + selected quantized LLMs;
+  16 GB+ = current richer image/LLM paths. Tests should fake probe reports for
+  multiple compute capabilities and prove the resolver never recommends an
+  impossible package/model path.
+- [ ] **P20.4 — AMD GPU path.** Implement a first-class AMD profile instead of
+  treating non-NVIDIA as "CPU only". Linux ROCm is the primary target because
+  PyTorch ROCm wheels and AMD's support matrix are Linux-centered. The probe
+  should mark AMD GPUs as: official ROCm-supported, community/experimental, or
+  unsupported. Official path installs ROCm-compatible PyTorch wheels, verifies
+  `torch.cuda.is_available()` under the ROCm build, and automatically disables
+  CUDA-only libraries/features (`nunchaku`, CUDA llama binaries, CUDA-specific
+  attention assumptions) in favor of ROCm-safe or CPU fallbacks.
+- [ ] **P20.5 — Runtime capability gates.** Move backend feature decisions from
+  env assumptions to a `CapabilityProfile`: vendor, backend (`cuda`/`rocm`/`cpu`),
+  VRAM, supported dtypes/attention, available binaries, and known unsafe
+  features. The model registry, Settings tab, and composer should hide or label
+  incompatible options instead of letting users choose combinations that will
+  fail after a long load.
+- [ ] **P20.6 — User-facing installer UX.** Build a simple "Setup doctor" page:
+  detected hardware, selected profile, missing driver/runtime, package status,
+  and one action button. Text should be plain: "NVIDIA GPU detected, installing
+  CUDA build" / "AMD GPU detected, ROCm works on Linux for this card" /
+  "GPU path unavailable, using CPU-safe mode." Advanced details stay expandable.
+- [ ] **P20.7 — Model recommendation by hardware.** Tie the model download
+  manager (P18.4) to the capability profile. Users should see curated models
+  that fit their VRAM/RAM/disk budget, with "Recommended" preselected and
+  impossible models hidden behind an Advanced filter.
+- [ ] **P20.8 — CI and smoke matrix without owning every GPU.** Add fake-probe
+  unit tests for NVIDIA/AMD/CPU resolver decisions, plus optional self-hosted or
+  manual smoke scripts for real CUDA and ROCm machines. Store every real-machine
+  validation in `docs/gpu-smoke.md` with date, GPU, driver, package profile, and
+  pass/fail notes.
 
 ### P19 — Generation features (growth — after the foundation phases)
 

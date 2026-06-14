@@ -58,7 +58,6 @@ export default function App() {
   // making it depend on (and re-subscribe to) gpu state.
   const gpuRef = useRef<GpuStatus>(gpu);
   useEffect(() => { gpuRef.current = gpu; }, [gpu]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [view, setView] = useState<View>(() => (localStorage.getItem("hfabric.view") as View) || "images");
   const [theme, setTheme] = useState<AppTheme>(() => readTheme());
   const [health, setHealth] = useState<HealthStatus | null>(null);
@@ -230,7 +229,7 @@ export default function App() {
   );
 
   const { connected } = useEvents(onEvent);
-  const lockVisible = authLocked || Boolean(health?.security.token_required && !authTokenDraft.trim());
+  const lockVisible = Boolean(health?.security.token_required && (authLocked || !authTokenDraft.trim()));
   const saveToken = useCallback(() => {
     apiAuth.setToken(authTokenDraft);
     setAuthLocked(false);
@@ -239,7 +238,7 @@ export default function App() {
   const clearToken = useCallback(() => {
     setAuthTokenDraft("");
     apiAuth.clearToken();
-    setAuthLocked(true);
+    setAuthLocked(false);
     setAuthRevision((n) => n + 1);
   }, []);
   const dismissSecurityWarning = useCallback(() => {
@@ -432,13 +431,21 @@ export default function App() {
         </main>
       ),
     },
+    {
+      id: "settings",
+      label: "Settings",
+      render: () => (
+        <main className="flex-1 overflow-hidden p-4">
+          <SettingsPanel />
+        </main>
+      ),
+    },
   ];
   const active = workspaces.find((w) => w.id === view) ?? workspaces[0];
   tabIdsRef.current = workspaces.map((w) => w.id);
 
   const commands = useMemo<Command[]>(() => [
     ...workspaces.map((w) => ({ id: `go-${w.id}`, label: `Go to ${w.label}`, hint: "tab", run: () => setView(w.id) })),
-    { id: "settings", label: "Open Settings", run: () => setSettingsOpen(true) },
     { id: "theme", label: "Cycle Theme", hint: theme, run: cycleTheme },
     { id: "free", label: "Free GPU", hint: "unload models", run: onFree },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -457,7 +464,6 @@ export default function App() {
         onView={setView}
         onFree={onFree}
         onTheme={cycleTheme}
-        onSettings={() => setSettingsOpen(true)}
         onPalette={() => setPaletteOpen(true)}
       />
 
@@ -477,7 +483,6 @@ export default function App() {
 
       {active.render()}
 
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {lockVisible ? (
         <AuthLockScreen

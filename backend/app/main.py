@@ -80,6 +80,7 @@ async def _prime_learned_profiles() -> None:
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     settings_overrides.load()
+    settings.ensure_dirs()
     configure_file_logging(settings)
     install_unhandled_exception_logging(logger, asyncio.get_running_loop())
     reap_known_pidfiles(logger)

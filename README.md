@@ -219,17 +219,18 @@ Or PowerShell:
 
 **Environment file (optional):**
 
-Create `.env` in the repo root to override defaults (e.g., CUDA device, step cache mode):
+Copy `.env.example` to `.env` only for system-level settings such as host,
+port, optional API token, or production frontend serving:
 
 ```env
-HFAB_STUB_MODE=false
-HFAB_FLUX_STEP_CACHE=fb
-HFAB_TORCH_COMPILE=true
+HFAB_HOST=127.0.0.1
 HFAB_PORT=8260
-HFAB_LLAMA_NGL=999
+# HFAB_API_TOKEN=change-me
+HFAB_SERVE_FRONTEND=false
 ```
 
-See [Configuration](#configuration) section for all knobs.
+Generation defaults, model paths, acceleration, memory policy, LLM runtime,
+RAG/vision/speech, and voice defaults are managed from the app's Settings tab.
 
 #### Step 6: Verify GPU usage
 
@@ -254,15 +255,15 @@ PyTorch not installed or virtual environment not activated:
 
 #### **"CUDA out of memory"**
 Model is too large for your GPU, or swap settings need tuning:
-- Reduce `HFAB_LLAMA_NGL` (e.g., `HFAB_LLAMA_NGL=32` to offload only 32 layers to GPU)
-- Disable compile: `HFAB_TORCH_COMPILE=false`
+- Reduce Settings -> LLM runtime -> GPU layers (for example, `32` to offload only 32 layers to GPU)
+- Disable Settings -> Acceleration -> torch.compile
 - Try smaller models or lower resolution requests
-- Check [Configuration](#configuration) for memory tuning knobs
+- Check Settings -> Memory policy for memory tuning knobs
 
 #### **Models not found / "No image models discovered"**
 Models are in the wrong folder or not yet downloaded:
 - Ensure files exist in `models/image/`, `models/llm/`, `models/lora/`, etc.
-- Verify paths in the Configuration table (`HFAB_*_MODELS_DIR`)
+- Verify paths in Settings -> Model and binary paths
 - Re-run `huggingface-cli download` commands above
 
 #### **Vite dev server won't start**
@@ -349,41 +350,27 @@ actions such as "Show in folder" are loopback-only regardless of token.
 
 ## Configuration
 
-Env vars (prefix `HFAB_`, or a `.env` file in repo root). Highlights:
+Use `.env` for system settings that need to exist before the app starts.
+Most day-to-day runtime knobs are edited in the app's **Settings** tab and
+persisted to `data/settings-overrides.json`.
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `HFAB_STUB_MODE` | `true` | Run without GPU/ML stack (foundation mode). |
 | `HFAB_HOST` | `127.0.0.1` | Backend bind host. Use a LAN address only with `HFAB_API_TOKEN`. |
 | `HFAB_PORT` | `8260` | Backend port. |
-| `HFAB_API_TOKEN` | unset | Optional bearer token required for API and WebSocket access when set. |
-| `HFAB_LLAMA_SERVER_BIN` | `bin/llama/llama-server.exe` | CUDA(sm_120) llama.cpp build. |
-| `HFAB_LLAMA_NGL` | `999` | GPU layers to offload (999 = full offload). |
-| `HFAB_LLAMA_CTX` | `8192` | llama.cpp context size. |
-| `HFAB_LORA_MODELS_DIR` | `models/lora` | Local SDXL/FLUX LoRA files. |
-| `HFAB_TTS_MODELS_DIR` | `models/tts` | Local llama-tts GGUF voice/acoustic models. |
-| `HFAB_TRANSCRIPTION_MODELS_DIR` | `models/transcribe` | Local Whisper model folders or `.pt` files. |
-| `HFAB_TRANSCRIPTION_DEVICE` | `cpu` | Transcription device; CPU-first so it does not bypass the GPU arbiter by default. |
-| `HFAB_EMBED_MODELS_DIR` | `models/embed` | Local GGUF embedding models for RAG. |
-| `HFAB_EMBED_GPU_LAYERS` | `0` | GPU layers for the RAG embedding server; CPU-only by default. |
-| `HFAB_VISION_MODELS_DIR` | `models/vision` | Local multimodal GGUF + mmproj files. |
-| `HFAB_LLAMA_MTMD_BIN` | `bin/llama/llama-mtmd-cli.exe` | llama.cpp multimodal CLI. |
-| `HFAB_VISION_GPU_LAYERS` | `0` | GPU layers for vision analysis; CPU-only by default. |
-| `HFAB_FLUX_STEP_CACHE` | `fb` | FLUX acceleration: `fb`, `teacache`, or `off`. |
-| `HFAB_ATTENTION_BACKEND` | `auto` | PyTorch SDPA selector: `auto`, `flash`, `efficient`, `math`, or `cudnn`. |
-| `HFAB_TORCH_COMPILE` | `false` | Compile FLUX transformer and run a warmup pass. |
-| `HFAB_QWEN_IMAGE_QUANT` | `bnb-nf4` | Qwen-Image-2512 repo quantization: `bnb-nf4`, `bnb-fp4`, or `none`. |
-| `HFAB_QWEN_IMAGE_OFFLOAD` | `model` | Qwen-Image placement when not using bnb quant: `model`, `sequential`, or `none`. |
-| `HFAB_Z_IMAGE_OFFLOAD` | `model` | Z-Image placement: `model`, `sequential`, or `none`. |
-| `HFAB_SDXL_TURBO_LORA` | unset | Optional SDXL DMD2/Lightning-style LoRA source. |
-| `HFAB_IMAGE_CLEANUP_AFTER_EACH_JOB` | `true` | Release per-image temporary allocations while keeping the resident model loaded. |
-| `HFAB_IMAGE_LORA_CACHE_MAX` | `2` | Max runtime LoRA adapters to keep in a resident image pipeline. |
-| `HFAB_KEEP_WARM_MODELS` | `false` | Park one image pipeline in CPU RAM between swaps. |
+| `HFAB_API_TOKEN` | unset | Optional bearer token. Leave unset for local-only use without API authentication. |
+| `HFAB_SERVE_FRONTEND` | `false` | Serve the built frontend from FastAPI instead of using Vite. |
+| `HFAB_FRONTEND_HOST` | unset | Optional Vite dev-server bind host. |
+| `HFAB_FRONTEND_PORT` | `5173` | Optional Vite dev-server port. |
+
+The Settings tab covers the former `.env` tuning surface: `HFAB_STUB_MODE`,
+model/bin paths, `HFAB_LLAMA_*`, image defaults, acceleration, memory guards,
+keep-warm policy, speech/RAG/vision placement, and voice defaults.
 
 ### llama.cpp memory knobs
 
-The LLM backend starts `llama-server` as a subprocess with `-ngl
-HFAB_LLAMA_NGL` and `--fit off`. The default `999` keeps the GGUF fully
+The LLM backend starts `llama-server` as a subprocess with `-ngl`
+from Settings -> LLM runtime -> GPU layers and `--fit off`. The default `999` keeps the GGUF fully
 offloaded to VRAM, while `--fit off` prevents llama.cpp from silently reducing
 offload when another process has touched CUDA.
 
@@ -394,48 +381,49 @@ is the expected way to release llama.cpp VRAM completely.
 
 ### Image acceleration knobs
 
-`HFAB_FLUX_STEP_CACHE=fb` enables nunchaku's native first-block cache for FLUX
-pipelines. Use `teacache` for the TeaCache context manager, or `off` to compare
-baseline quality/speed.
+Settings -> Acceleration -> FLUX step cache enables nunchaku's native
+first-block cache for FLUX pipelines. Use `teacache` for the TeaCache context
+manager, or `off` to compare baseline quality/speed.
 
-`HFAB_ATTENTION_BACKEND=auto` leaves scaled-dot-product attention backend
-selection to PyTorch. Set it to `flash`, `efficient`, `math`, or `cudnn` to force
-a native `torch.nn.attention.sdpa_kernel` backend when the installed torch build
-and CUDA device expose it. The load report records available native SDPA
-backends, float8 dtype support, and whether external `flash_attn`/`xformers`
-packages are installed; the local environment currently uses PyTorch native SDPA
-rather than those external packages.
+Settings -> Acceleration -> Attention backend leaves scaled-dot-product
+attention backend selection to PyTorch when set to `auto`. Set it to `flash`,
+`efficient`, `math`, or `cudnn` to force a native
+`torch.nn.attention.sdpa_kernel` backend when the installed torch build and CUDA
+device expose it. The load report records available native SDPA backends,
+float8 dtype support, and whether external `flash_attn`/`xformers` packages are
+installed; the local environment currently uses PyTorch native SDPA rather than
+those external packages.
 
-`HFAB_ATTENTION_ALLOW_TF32=true` and
-`HFAB_ATTENTION_MATMUL_PRECISION=high` set the CUDA matmul/precision policy
-before image generation.
+Settings -> Acceleration -> Allow TF32 and Matmul precision set the CUDA
+matmul/precision policy before image generation.
 
-`HFAB_TORCH_COMPILE=true` wraps the FLUX transformer with `torch.compile` using
-`HFAB_TORCH_COMPILE_MODE` (default `max-autotune`) and runs a 1-step warmup.
+Settings -> Acceleration -> torch.compile wraps the FLUX transformer with
+`torch.compile` using the selected compile mode and runs a 1-step warmup.
 The `model.loaded` WebSocket event includes a `load_report` with RAM/VRAM before
 and after compile/warmup. Compile is best-effort: if the installed torch/nunchaku
 combination fails during compile or warmup, the backend rolls back to the
 original transformer, records the failure in `load_report`, and continues
 generation without compile.
 
-Set `HFAB_SDXL_TURBO_LORA` to a local `.safetensors`, folder, or Hugging Face
-repo id to load an SDXL turbo LoRA. When active, untouched default steps/guidance
-are replaced by `HFAB_SDXL_TURBO_STEPS` and `HFAB_SDXL_TURBO_GUIDANCE`.
+Set Settings -> Acceleration -> SDXL turbo LoRA to a local `.safetensors`,
+folder, or Hugging Face repo id to load an SDXL turbo LoRA. When active,
+untouched default steps/guidance are replaced by the SDXL turbo steps and
+guidance settings.
 
 Long image sessions run a lightweight post-job stabilization pass by default:
 `gc.collect()`, `torch.cuda.empty_cache()`, `torch.cuda.ipc_collect()`, bounded
 runtime LoRA adapter cleanup, and an adaptive soft-recycle if CUDA allocated
 memory drifts above the loaded baseline. Tune with
-`HFAB_IMAGE_CLEANUP_AFTER_EACH_JOB`, `HFAB_IMAGE_LORA_CACHE_MAX`,
-`HFAB_IMAGE_RECYCLE_CUDA_GROWTH_GB`, and `HFAB_IMAGE_RECYCLE_MIN_JOBS`.
+Settings -> Acceleration -> Cleanup after each job, LoRA cache max, Recycle
+CUDA growth GB, and Recycle min jobs.
 Use `python scripts\sdxl_resident_drift_test.py --jobs 8` against a running
 REAL backend to validate repeated same-model SDXL generations without unloading.
 
 ### LoRA management
 
-Drop SDXL/FLUX LoRA files under `models/lora` (or set
-`HFAB_LORA_MODELS_DIR`). The backend scans `.safetensors`, `.pt`, and `.bin`
-files on startup, exposes them at `/api/loras`, and validates queued
+Drop SDXL/FLUX LoRA files under `models/lora` or change Settings -> Model and
+binary paths -> LoRA models. The backend scans `.safetensors`, `.pt`, and
+`.bin` files on startup, exposes them at `/api/loras`, and validates queued
 `params.loras` against the selected image model. The composer filters compatible
 LoRAs and stores only public `{id,name,family,weight}` metadata in jobs/presets;
 local file paths are resolved by the worker right before generation.
@@ -495,20 +483,21 @@ The gallery history supports `/api/images?q=...` search across image ids, job id
 seeds, prompts, models, and JSON metadata. Each image has a PNG download endpoint
 and `/api/images/{id}/metadata` for reproducibility export.
 
-`/api/settings` exposes a read-only runtime snapshot for the settings drawer:
-model paths, memory guard values, acceleration knobs, model/LoRA counts, GPU
-status, and current memory telemetry.
+`/api/settings` exposes a runtime snapshot for the Settings tab: model paths,
+memory guard values, acceleration knobs, model/LoRA counts, GPU status, and
+current memory telemetry. Writable settings are served by
+`/api/settings/overrides` and stored in `data/settings-overrides.json`.
 
 ### Keep-warm policy
 
-`HFAB_KEEP_WARM_MODELS=true` lets the arbiter park up to
-`HFAB_KEEP_WARM_MAX_MODELS` image pipeline(s) in CPU RAM when switching to a
+Settings -> Memory policy -> Keep models warm lets the arbiter park up to the
+configured warm model limit in CPU RAM when switching to a
 different model. Parked models are not VRAM residents; `/api/gpu` and the header
 show them as `CPU warm`, and `/api/gpu/free` unloads them.
 
 Parking is skipped unless available RAM can satisfy the model estimate plus
-`HFAB_KEEP_WARM_MIN_AVAILABLE_RAM_GB` headroom, so this feature should not push
-Windows toward the pagefile. It is off by default.
+the configured warm RAM headroom, so this feature should not push Windows
+toward the pagefile. It is off by default.
 
 ### Runtime checks
 

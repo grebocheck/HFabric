@@ -63,9 +63,10 @@ async def test_settings_overrides_get_put_validation_and_persistence(
                 "default_height": 2049,
                 "keep_warm_models": True,
                 "keep_warm_max_models": 3,
+                "min_free_ram_gb": 0,
             },
         )
-        rejected = await client.put("/api/settings/overrides", json={"min_free_ram_gb": 0})
+        rejected = await client.put("/api/settings/overrides", json={"host": "0.0.0.0"})
         roundtrip = (await client.get("/api/settings/overrides")).json()
 
     assert current["values"]["default_steps"] == 28
@@ -77,7 +78,9 @@ async def test_settings_overrides_get_put_validation_and_persistence(
     assert values["default_height"] == 2048
     assert values["keep_warm_models"] is True
     assert values["keep_warm_max_models"] == 3
+    assert values["min_free_ram_gb"] == 0.5
     assert rejected.status_code == 422
+    assert "host" in rejected.text
     assert roundtrip["values"] == values
 
     path = isolated_runtime["data_dir"] / "settings-overrides.json"
