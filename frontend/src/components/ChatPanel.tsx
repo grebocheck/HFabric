@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
-import { useEvents } from "../api/useEvents";
-import type { BusEvent, ChatConversation, ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
+import type { ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
 import { ModelPicker } from "./ModelPicker";
 import { Select } from "./Select";
-import { AssistantContent } from "./Thinking";
 import { Toggle } from "./Toggle";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
 import {
@@ -13,7 +11,6 @@ import {
   hasActiveSelection,
   loadDefaults,
   loadPromptHistory,
-  modelTitle,
   numOrUndef,
   parseImportBundle,
   parseStop,
@@ -22,12 +19,12 @@ import {
   promptHistoryLimit,
   type NumOrEmpty,
 } from "./chatHelpers";
+import { setLastAssistant, useChatStream, useConversation } from "./ChatPanelHooks";
+import { MessageComposer, MessageList } from "./ChatPanelParts";
 
 const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
 const numField = "w-full rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs outline-none focus:border-emerald-500";
 const label = "text-xs uppercase tracking-wide text-white/40";
-
-type Stats = { tokens: number; tps: number; ttft: number };
 
 export type ChatJump = { conversationId: string; jobId?: string; nonce: number };
 
@@ -35,8 +32,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const llmModels = models.filter((m) => m.job_type === "llm");
   const saved = loadDefaults();
 
-  const [convs, setConvs] = useState<ChatConversation[]>([]);
-  const [convsLoading, setConvsLoading] = useState(true);
+  const { convs, convsLoading, refreshConvs, setConvs } = useConversation();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
@@ -46,7 +42,6 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const setInput = setDraft;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
-  const [stats, setStats] = useState<Stats | null>(null);
   const [convQuery, setConvQuery] = useState("");
   const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
 
@@ -79,26 +74,11 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const [cfgNote, setCfgNote] = useState("");
   const [importNote, setImportNote] = useState("");
 
-  const activeJob = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const stickToBottom = useRef(true);
-  // streaming-stat trackers
-  const sendStart = useRef(0);
-  const firstAt = useRef<number | null>(null);
-  const tokCount = useRef(0);
-
-  const refreshConvs = useCallback(async () => {
-    setConvsLoading(true);
-    try {
-      setConvs(await api.listConversations());
-    } catch {
-      // Keep stale conversations visible if refresh fails.
-    } finally {
-      setConvsLoading(false);
-    }
-  }, []);
+  const { activeJob, beginStream, setActiveJob, setStats, stats, trackJump } = useChatStream({ refreshConvs, setBusy, setMessages });
   const refreshPersonas = useCallback(async () => {
     setPersonasLoading(true);
     try {
@@ -183,44 +163,6 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [input]);
 
-  // --- live streaming + stats for the in-flight assistant message ---
-  const onChatEvent = useCallback((e: BusEvent) => {
-    if (e.job_id !== activeJob.current) return;
-    if (e.type === "llm.token") {
-      if (firstAt.current === null) firstAt.current = Date.now();
-      tokCount.current += 1;
-      setMessages((p) => appendToLastAssistant(p, e.token as string));
-    } else if (e.type === "job.done") {
-      const childJob = typeof e.tool_child_job_id === "string" ? e.tool_child_job_id : null;
-      if (childJob) {
-        activeJob.current = childJob;
-        setBusy(true);
-        if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
-        return;
-      }
-      activeJob.current = null;
-      setBusy(false);
-      if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
-      if (firstAt.current && tokCount.current > 0) {
-        const secs = Math.max(0.001, (Date.now() - firstAt.current) / 1000);
-        setStats({ tokens: tokCount.current, tps: tokCount.current / secs, ttft: firstAt.current - sendStart.current });
-      }
-      refreshConvs();
-    } else if (e.type === "job.error") {
-      activeJob.current = null;
-      setBusy(false);
-      setMessages((p) => setLastAssistant(p, `⚠ ${(e.error as string) ?? "generation failed"}`, true));
-    } else if (e.type === "job.progress") {
-      // image jobs (the /image bridge) report progress but stream no tokens
-      const pct = Math.round(((e.progress as number) ?? 0) * 100);
-      setMessages((p) => setLastAssistant(p, `*generating image… ${pct}%*`));
-    } else if (e.type === "job.cancelled") {
-      activeJob.current = null;
-      setBusy(false);
-    }
-  }, [refreshConvs]);
-  useEvents(onChatEvent);
-
   const selectConversation = useCallback(async (id: string) => {
     stickToBottom.current = true;
     setActiveId(id);
@@ -245,7 +187,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     } catch {
       setMessages([]);
     }
-  }, []);
+  }, [setStats]);
 
   useEffect(() => {
     if (!activeId && convs[0]) void selectConversation(convs[0].id);
@@ -253,16 +195,10 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
 
   useEffect(() => {
     if (!jump?.conversationId) return;
-    activeJob.current = jump.jobId ?? null;
-    if (jump.jobId) {
-      setBusy(true);
-      sendStart.current = Date.now();
-      firstAt.current = null;
-      tokCount.current = 0;
-    }
+    trackJump(jump.jobId);
     refreshConvs();
     void selectConversation(jump.conversationId);
-  }, [jump, refreshConvs, selectConversation]);
+  }, [jump, refreshConvs, selectConversation, trackJump]);
 
   const newChat = useCallback(async () => {
     const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
@@ -272,13 +208,13 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     setMessages([]);
     setEditingId(null);
     setStats(null);
-  }, [modelId, llmModels]);
+  }, [modelId, llmModels, setConvs, setStats]);
 
   const deleteConversation = useCallback(async (id: string) => {
     await api.deleteConversation(id).catch(() => {});
     setConvs((p) => p.filter((c) => c.id !== id));
     if (activeId === id) { setActiveId(null); setMessages([]); }
-  }, [activeId]);
+  }, [activeId, setConvs]);
 
   const sampling = useCallback((): Omit<ChatSendBody, "content" | "model_id"> => ({
     system: system.trim() || undefined,
@@ -296,11 +232,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     const mdl = modelId || llmModels[0]?.id;
     if (!mdl) return;
     stickToBottom.current = true;
-    setBusy(true);
-    setStats(null);
-    sendStart.current = Date.now();
-    firstAt.current = null;
-    tokCount.current = 0;
+    beginStream();
     setMessages((p) => [...p, { id: "tmp-u", role: "user", content }, { id: "tmp-a", role: "assistant", content: "" }]);
     try {
       const img = imageTool ? pickImageModel(models) : undefined;
@@ -311,17 +243,17 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
         ...(imageTool && img ? { image_tool: true, image_model_id: img.id } : {}),
         ...(documentTool ? { document_tool: true, rag_top_k: ragTopK } : {}),
       });
-      activeJob.current = res.job_id;
+      setActiveJob(res.job_id);
       setMessages((p) => p.map((m) =>
         m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
       ));
       setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
     } catch (err) {
-      activeJob.current = null;
+      setActiveJob(null);
       setBusy(false);
       setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
     }
-  }, [documentTool, imageTool, modelId, llmModels, models, ragTopK, sampling]);
+  }, [beginStream, documentTool, imageTool, modelId, llmModels, models, ragTopK, sampling, setActiveJob, setConvs]);
 
   const submitImage = useCallback(async (prompt: string, convId: string) => {
     const img = pickImageModel(models);
@@ -331,23 +263,22 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
         { id: "tmp-a", role: "assistant", content: "⚠ no image model available", error: true }]);
       return;
     }
-    setBusy(true);
-    setStats(null);
+    beginStream();
     setMessages((p) => [...p, { id: "tmp-u", role: "user", content: `/image ${prompt}` },
       { id: "tmp-a", role: "assistant", content: "" }]);
     try {
       const res = await api.sendChatImage(convId, { prompt, model_id: img.id });
-      activeJob.current = res.job_id;
+      setActiveJob(res.job_id);
       setMessages((p) => p.map((m) =>
         m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
       ));
       setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
     } catch (err) {
-      activeJob.current = null;
+      setActiveJob(null);
       setBusy(false);
       setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
     }
-  }, [models]);
+  }, [beginStream, models, setActiveJob, setConvs]);
 
   const send = useCallback(async () => {
     const content = input.trim();
@@ -364,12 +295,12 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
     if (imgCmd) await submitImage(imgCmd[1].trim(), cid);
     else await submit(content, cid);
-  }, [input, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage, setInput]);
+  }, [input, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage, setConvs, setInput]);
 
   const stop_ = useCallback(async () => {
     await api.stopLlm().catch(() => {});
     if (activeJob.current) await api.cancelJob(activeJob.current).catch(() => {});
-  }, []);
+  }, [activeJob]);
 
   const regenerate = useCallback(async () => {
     if (busy || !activeId) return;
@@ -599,125 +530,48 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
 
       {/* --- conversation --- */}
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-white/10">
-        <div ref={scrollRef} onScroll={updateScrollStickiness} className="flex-1 space-y-4 overflow-y-auto p-4">
-          {messages.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-center text-sm text-white/30">
-              Start a conversation with the local model.
-            </div>
-          ) : (
-            messages.map((m) => (
-              <Bubble
-                key={m.id}
-                msg={m}
-                editing={editingId === m.id}
-                editText={editText}
-                setEditText={setEditText}
-                onStartEdit={() => startEdit(m)}
-                onSaveEdit={() => void saveEdit()}
-                onCancelEdit={() => setEditingId(null)}
-                pending={m.id === pendingAssistantId}
-              />
-            ))
-          )}
-        </div>
-
-        <div className="border-t border-white/10 p-3">
-          <div className="mb-2 flex flex-col gap-2">
-            {modelsLoading && quickModels.length === 0 ? (
-              <QuickRail label="Model">
-                <SkeletonChips count={3} />
-              </QuickRail>
-            ) : quickModels.length > 0 ? (
-              <QuickRail label="Model">
-                {quickModels.map((model) => (
-                  <QuickChip
-                    key={model.id}
-                    active={model.id === modelId}
-                    onClick={() => setModelId(model.id)}
-                    title={modelTitle(model)}
-                  >
-                    {model.name}
-                  </QuickChip>
-                ))}
-                {selectedModel && !quickModels.some((model) => model.id === selectedModel.id) ? (
-                  <QuickChip active onClick={() => setModelId(selectedModel.id)} title={modelTitle(selectedModel)}>
-                    {selectedModel.name}
-                  </QuickChip>
-                ) : null}
-              </QuickRail>
-            ) : null}
-
-            {personasLoading && personas.length === 0 ? (
-              <QuickRail label="Persona">
-                <SkeletonChips count={2} />
-              </QuickRail>
-            ) : (personas.length > 0 || personaId) ? (
-              <QuickRail label="Persona">
-                <QuickChip active={!personaId} onClick={() => applyPersona("")}>None</QuickChip>
-                {quickPersonas.map((persona) => (
-                  <QuickChip
-                    key={persona.id}
-                    active={persona.id === personaId}
-                    onClick={() => applyPersona(persona.id)}
-                  >
-                    {persona.name}
-                  </QuickChip>
-                ))}
-              </QuickRail>
-            ) : null}
-
-            {visiblePromptHistory.length > 0 ? (
-              <QuickRail label="Recent">
-                {visiblePromptHistory.map((prompt) => (
-                  <QuickChip key={prompt} onClick={() => { setInput(prompt); inputRef.current?.focus(); }} title={prompt}>
-                    {prompt}
-                  </QuickChip>
-                ))}
-              </QuickRail>
-            ) : null}
-          </div>
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={2}
-            placeholder={modelId ? "Message…  (Enter to send, Shift+Enter for newline)" : "no LLM model available"}
-            disabled={!modelId}
-            className={`${field} max-h-[200px] resize-none`}
-          />
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs text-white/35">
-              ~{approxTokens} / {cfg?.ctx ?? "?"} tokens
-              <span className="ml-2 text-white/25">· /image &lt;prompt&gt; to generate</span>
-              {imageTool && <span className="ml-2 text-white/25">· image tool on</span>}
-              {documentTool && <span className="ml-2 text-white/25">· document tool on</span>}
-              {stats && <span className="ml-2 text-white/30">· {stats.tps.toFixed(1)} tok/s · TTFT {Math.round(stats.ttft)}ms</span>}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => void regenerate()}
-                disabled={busy || !messages.some((m) => m.role === "assistant")}
-                className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/10 disabled:opacity-30"
-              >
-                Regenerate
-              </button>
-              {busy ? (
-                <button onClick={() => void stop_()} className="rounded-md border border-red-400/40 px-4 py-1.5 text-sm font-medium text-red-200 hover:bg-red-400/10">
-                  Stop
-                </button>
-              ) : (
-                <button
-                  onClick={() => void send()}
-                  disabled={!input.trim() || !modelId}
-                  className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
-                >
-                  Send
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <MessageList
+          editText={editText}
+          editingId={editingId}
+          fieldClass={field}
+          messages={messages}
+          onCancelEdit={() => setEditingId(null)}
+          onSaveEdit={() => void saveEdit()}
+          onScroll={updateScrollStickiness}
+          onStartEdit={startEdit}
+          pendingAssistantId={pendingAssistantId}
+          scrollRef={scrollRef}
+          setEditText={setEditText}
+        />
+        <MessageComposer
+          approxTokens={approxTokens}
+          busy={busy}
+          cfg={cfg}
+          documentTool={documentTool}
+          fieldClass={field}
+          imageTool={imageTool}
+          input={input}
+          inputRef={inputRef}
+          messages={messages}
+          modelId={modelId}
+          modelsLoading={modelsLoading}
+          onInput={setInput}
+          onKeyDown={onKeyDown}
+          onRegenerate={() => void regenerate()}
+          onSend={() => void send()}
+          onStop={() => void stop_()}
+          personas={personas}
+          personasLoading={personasLoading}
+          personaId={personaId}
+          quickModels={quickModels}
+          quickPersonas={quickPersonas}
+          selectedModel={selectedModel}
+          setModelId={setModelId}
+          setPromptFromHistory={(prompt) => { setInput(prompt); inputRef.current?.focus(); }}
+          stats={stats}
+          visiblePromptHistory={visiblePromptHistory}
+          applyPersona={applyPersona}
+        />
       </div>
 
       {/* --- settings --- */}
@@ -934,52 +788,6 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   );
 }
 
-function QuickRail({ label: railLabel, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="w-12 shrink-0 text-[10px] uppercase tracking-wide text-white/30">{railLabel}</span>
-      <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">{children}</div>
-    </div>
-  );
-}
-
-function SkeletonChips({ count }: { count: number }) {
-  return (
-    <>
-      {Array.from({ length: count }, (_, i) => (
-        <SkeletonLine key={i} className={`h-7 rounded-md ${i === 0 ? "w-28" : i === 1 ? "w-36" : "w-24"}`} />
-      ))}
-    </>
-  );
-}
-
-function QuickChip({
-  active = false,
-  children,
-  onClick,
-  title,
-}: {
-  active?: boolean;
-  children: string;
-  onClick: () => void;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title ?? children}
-      className={`max-w-44 shrink-0 truncate rounded-md border px-2 py-1 text-xs transition ${
-        active
-          ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
-          : "border-white/10 bg-black/20 text-white/55 hover:border-white/20 hover:bg-white/10 hover:text-white/85"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 function NumOpt({ label: l, v, set, step }: { label: string; v: NumOrEmpty; set: (n: NumOrEmpty) => void; step: number }) {
   return (
     <label>
@@ -994,77 +802,4 @@ function NumOpt({ label: l, v, set, step }: { label: string; v: NumOrEmpty; set:
       />
     </label>
   );
-}
-
-function Bubble({
-  msg, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, pending,
-}: {
-  msg: ChatMessage;
-  editing: boolean;
-  editText: string;
-  setEditText: (v: string) => void;
-  onStartEdit: () => void;
-  onSaveEdit: () => void;
-  onCancelEdit: () => void;
-  pending: boolean;
-}) {
-  const isUser = msg.role === "user";
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard?.writeText(msg.content).then(() => {
-      setCopied(true); setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {});
-  };
-
-  if (editing) {
-    return (
-      <div className="flex justify-end">
-        <div className="w-[80%]">
-          <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={3} className={`${field} resize-none`} />
-          <div className="mt-1 flex justify-end gap-2">
-            <button onClick={onCancelEdit} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10">Cancel</button>
-            <button onClick={onSaveEdit} className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium hover:bg-emerald-500">Save &amp; resend</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[80%] rounded-lg px-3 py-2 ${
-        isUser ? "bg-accent/30 text-white"
-          : msg.error ? "border border-red-400/30 bg-red-400/10 text-red-200"
-          : "border border-white/10 bg-white/[0.04]"
-      }`}>
-        {isUser ? (
-          <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-        ) : (
-          <AssistantContent content={msg.content} pending={pending} />
-        )}
-        <div className="mt-1 flex gap-2 opacity-0 transition group-hover:opacity-100">
-          <button onClick={copy} className="text-[11px] text-white/40 hover:text-white/80">{copied ? "copied" : "copy"}</button>
-          {isUser && !msg.id.startsWith("tmp") && (
-            <button onClick={onStartEdit} className="text-[11px] text-white/40 hover:text-white/80">edit</button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function appendToLastAssistant(msgs: ChatMessage[], token: string): ChatMessage[] {
-  const out = [...msgs];
-  for (let i = out.length - 1; i >= 0; i--) {
-    if (out[i].role === "assistant") { out[i] = { ...out[i], content: out[i].content + token }; return out; }
-  }
-  return out;
-}
-
-function setLastAssistant(msgs: ChatMessage[], content: string, error = false): ChatMessage[] {
-  const out = [...msgs];
-  for (let i = out.length - 1; i >= 0; i--) {
-    if (out[i].role === "assistant") { out[i] = { ...out[i], content, error }; return out; }
-  }
-  return out;
 }

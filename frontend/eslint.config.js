@@ -26,12 +26,26 @@ const browserGlobals = {
   window: "readonly",
 };
 
+const nodeGlobals = {
+  console: "readonly",
+  process: "readonly",
+  URL: "readonly",
+};
+
 export default tseslint.config(
   {
     ignores: ["dist", "node_modules", "tsconfig.tsbuildinfo"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: nodeGlobals,
+    },
+  },
   {
     files: ["src/**/*.{ts,tsx}", "vite.config.ts"],
     languageOptions: {

@@ -1,26 +1,14 @@
-export type JobType = "llm" | "image";
-export type JobStatus = "queued" | "running" | "done" | "error" | "cancelled";
-export type ModelFamily = "flux" | "flux2" | "qwen-image" | "z-image" | "sdxl" | "gguf" | "unknown";
+import type { components } from "./types.generated";
+
+type Api = components["schemas"];
+type JsonRecord = Record<string, unknown>;
+
+export type JobType = Api["JobType"];
+export type JobStatus = Api["JobStatus"];
+export type ModelFamily = Api["ModelFamily"];
 export type AppTheme = "dark" | "dim" | "light";
 
-export interface Model {
-  id: string;
-  name: string;
-  family: ModelFamily;
-  job_type: JobType;
-  size_bytes: number;
-  loaded: boolean;
-  warm?: boolean;
-  quant?: string | null;
-  estimated_vram_gb?: number | null;
-  vram_measured?: boolean;
-  slow?: boolean;
-  available?: boolean;
-  runtime_mode?: "real" | "stub" | "disabled" | string;
-  unavailable_reason?: string | null;
-  compatibility_warnings?: string[];
-  recommendation?: "recommended" | "advanced" | "hidden" | "neutral" | string;
-}
+export type Model = Api["ModelOut"];
 
 export interface WarmModel {
   resident: string;
@@ -29,12 +17,7 @@ export interface WarmModel {
   family: string;
 }
 
-export interface Lora {
-  id: string;
-  name: string;
-  family: ModelFamily | null;
-  size_bytes: number;
-}
+export type Lora = Api["LoraOut"];
 
 export interface GpuStatus {
   resident: string | null;
@@ -107,15 +90,7 @@ export interface StarterModelPlan {
   dry_run_command: string;
 }
 
-export interface PromptSnippet {
-  id: string;
-  name: string;
-  body: string;
-  negative: string | null;
-  tags: string[];
-  created_at: string;
-  updated_at: string;
-}
+export type PromptSnippet = Api["PromptSnippetOut"];
 
 export interface ModelDownloadItem {
   key: string;
@@ -284,16 +259,7 @@ export interface ArbiterNote {
   ts: number;
 }
 
-export interface ModelProfile {
-  model_id: string;
-  model: string;
-  family: string;
-  quant: string | null;
-  ram_gb: number | null;
-  vram_gb: number | null;
-  samples: number;
-  updated_at: string;
-}
+export type ModelProfile = Api["ModelProfileOut"];
 
 export type SettingsValue = string | number | boolean | null;
 
@@ -353,36 +319,17 @@ export interface RuntimeSettings {
   capability?: CapabilityProfile;
 }
 
-export interface Job {
-  id: string;
-  type: JobType;
-  status: JobStatus;
-  priority: number;
-  model_id: string;
-  params: Record<string, unknown>;
-  progress: number;
-  result: Record<string, unknown> | null;
-  error: string | null;
+export type Job = Omit<Api["JobOut"], "params" | "result"> & {
+  params: JsonRecord;
+  result: JsonRecord | null;
   progress_note?: string | null;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-}
+};
 
-export interface ImageItem {
-  id: string;
-  job_id: string;
-  seed: number | null;
-  width: number | null;
-  height: number | null;
-  family: ModelFamily | "unknown";
-  favorite: boolean;
+export type ImageItem = Omit<Api["ImageOut"], "family" | "params" | "tags"> & {
+  family: ModelFamily | "unknown" | string | null;
   tags: string[];
-  params: Record<string, unknown>;
-  created_at: string;
-  url: string;
-  thumb_url: string | null;
-}
+  params: JsonRecord;
+};
 
 export interface ImageStats {
   total: number;
@@ -400,20 +347,12 @@ export interface ComposerApply {
   nonce: number;
 }
 
-export interface Preset {
-  id: string;
-  name: string;
-  type: JobType;
-  params: Record<string, unknown>;
-  created_at: string;
-}
+export type Preset = Omit<Api["PresetOut"], "params"> & { params: JsonRecord };
 
-export interface JobCreate {
-  type: JobType;
-  model_id: string;
-  params: Record<string, unknown>;
+export type JobCreate = Omit<Api["JobCreate"], "params" | "priority"> & {
+  params: JsonRecord;
   priority?: number;
-}
+};
 
 export interface BusEvent {
   type: string;
@@ -432,48 +371,27 @@ export interface ChatMessage {
   created_at?: string;
 }
 
-export interface ChatConversation {
-  id: string;
-  title: string;
-  model_id: string | null;
-  system: string | null;
-  params: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
+export type ChatConversation = Omit<Api["ConversationOut"], "params"> & { params: JsonRecord };
 
-export interface ChatConversationDetail extends ChatConversation {
+export type ChatConversationDetail = Omit<Api["ConversationDetailOut"], "params" | "messages"> & {
+  params: JsonRecord;
   messages: ChatMessage[];
-}
+};
 
-export interface ChatImportMessage {
-  role: ChatRole;
-  content: string;
-  error?: boolean;
-  created_at?: string;
-}
+export type ChatImportMessage = Omit<Api["MessageImport"], "role"> & { role: ChatRole };
 
-export interface ChatConversationImport {
-  title?: string;
-  model_id?: string | null;
-  system?: string | null;
-  params?: Record<string, unknown>;
-  created_at?: string;
-  updated_at?: string;
+export type ChatConversationImport = Omit<Api["ConversationImport"], "params" | "messages"> & {
+  params?: JsonRecord;
   messages?: ChatImportMessage[];
-}
+};
 
-export interface ChatImportResult {
-  imported: number;
-  conversations: ChatConversationDetail[];
-}
+export type ChatImportResult = Omit<Api["ChatImportOut"], "conversations"> & { conversations: ChatConversationDetail[] };
 
-export interface ChatSendResult {
-  job_id: string;
+export type ChatSendResult = Omit<Api["ChatSendOut"], "conversation" | "user_message" | "assistant_message"> & {
   conversation: ChatConversation;
   user_message: ChatMessage;
   assistant_message: ChatMessage;
-}
+};
 
 export interface ChatSendBody {
   content: string;
@@ -520,25 +438,11 @@ export interface LlmConfig {
   defaults: { temperature: number; max_tokens: number };
 }
 
-export interface PresetImportItem {
-  name: string;
-  type: JobType;
-  params: Record<string, unknown>;
-}
+export type PresetImportItem = Omit<Api["PresetImportItem"], "params"> & { params: JsonRecord };
 
-export interface PresetImportResult {
-  imported: number;
-  skipped: number;
-  presets: Preset[];
-}
+export type PresetImportResult = Omit<Api["PresetImportOut"], "presets"> & { presets: Preset[] };
 
-export interface Note {
-  id: string;
-  title: string;
-  content: string;
-  created_at: string;
-  updated_at: string;
-}
+export type Note = Api["NoteOut"];
 
 export interface TtsModel {
   id: string;
@@ -741,32 +645,7 @@ export interface VoiceEngineSettings {
   };
 }
 
-export interface VoiceEngineSettingsUpdate {
-  pitch?: number | null;
-  speaker_id?: number | null;
-  index_ratio?: number | null;
-  protect?: number | null;
-  noise_scale?: number | null;
-  f0_smoothing?: number | null;
-  f0_detector?: string | null;
-  input_highpass_hz?: number | string | null;
-  input_gate_db?: number | string | null;
-  input_formant?: number | null;
-  input_denoise?: "off" | "dtln" | string | null;
-  silence_threshold_db?: number | string | null;
-  silence_hold_ms?: number | null;
-  server_input_device_id?: number | null;
-  server_output_device_id?: number | null;
-  server_monitor_device_id?: number | null;
-  server_input_gain?: number | null;
-  server_output_gain?: number | null;
-  server_monitor_gain?: number | null;
-  server_audio_sample_rate?: number | null;
-  server_read_chunk_size?: number | null;
-  cross_fade_overlap_size?: number | null;
-  extra_convert_size?: number | null;
-  pass_through?: boolean | null;
-}
+export type VoiceEngineSettingsUpdate = Api["VoiceEngineSettingsUpdate"];
 
 export interface VoiceEnginePreset {
   id: string;

@@ -71,27 +71,25 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > Pure-logic helper extraction proved the pattern; the hard splits remain. Behavior
 > frozen by a flow test written *first*; GPU files validated by the smoke checklist.
 
-- [ ] **P17.1 — Split `VoicePanel.tsx` (1651, now the worst monolith).** Promoted to
-  the top of P17: the P6R rework doubled it. Extract the session/state machine and
-  the tuning/audio control blocks (`VoicePanelParts.tsx`/`VoiceMeters.tsx` exist as
-  a start).
-- [ ] **P17.2 — Split `backends/image_diffusers.py` (1461, GPU).** One module per
-  family loader (`sdxl`/`flux`/`flux2`/`qwen_z`) + shared `memory.py` /
-  `pipelines.py`. Pure import-shuffle commits, each followed by a smoke run.
-- [ ] **P17.3 — Split `ChatPanel.tsx` (1070).** `useConversation` + `useChatStream`
-  hooks + `MessageList` / `MessageComposer`.
-- [ ] **P17.4 — Split `ImageComposer.tsx` (732) and `Gallery.tsx` (632).** Extract
-  the mask/source block + param form; filter bar + detail modal.
-- [ ] **P17.5 — Generate API types from OpenAPI.** Replace the hand-maintained
-  `types.ts` (825) with `openapi-typescript` output + a CI freshness check. Kills
-  the backend↔frontend drift class.
-- [~] **P17.6 — Repo hygiene.** `frontend/tsconfig.tsbuildinfo` untracked +
-  gitignored (`*.tsbuildinfo`) so it no longer churns the diff. *Remaining:* a
-  friendly-message layer over raw `repr(exc)` job errors while the full trace goes
-  to `data/logs/`.
-- [ ] **P17.7 — Environment lockfile.** Freeze the verified GPU stack
-  (`pip freeze > requirements-gpu.lock`) so M0/M1 can be rebuilt after a disk
-  failure without archaeology.
+- [x] **P17.1 — Split `VoicePanel.tsx`.** Control/presentation helpers now live in
+  `VoicePanelControls.tsx`, leaving `VoicePanel` focused on state and orchestration.
+- [x] **P17.2 — Split `backends/image_diffusers.py`.** GPU family loaders now live
+  under `image_diffusers_parts/` (`sdxl`/`flux`/`flux2`/`qwen_z`) with shared
+  `memory.py` and `pipelines.py`; the original module is a facade.
+- [x] **P17.3 — Split `ChatPanel.tsx`.** Conversation/stream hooks live in
+  `ChatPanelHooks.ts`; message list/composer UI lives in `ChatPanelParts.tsx`.
+- [x] **P17.4 — Split `ImageComposer.tsx` and `Gallery.tsx`.** Source/param/LoRA
+  composer blocks moved to `ImageComposerParts.tsx`; gallery chips/detail modal
+  moved to `GalleryParts.tsx`.
+- [x] **P17.5 — Generate API types from OpenAPI.** Added generated
+  `frontend/src/types.generated.ts`, the exported schema, npm generate/check
+  scripts, and CI freshness checks for schema + TypeScript drift.
+- [x] **P17.6 — Repo hygiene.** `*.tsbuildinfo` stays ignored, job failures now use
+  friendly user-facing messages, and full exception traces go through the `hfabric`
+  rotating log in `data/logs/`.
+- [x] **P17.7 — Environment lockfile.** Added `backend/requirements-gpu.lock` from
+  the verified CUDA stack so M0/M1 can be rebuilt after a disk failure without
+  archaeology.
 
 ### P19 — Generation features (growth — after the foundation)
 

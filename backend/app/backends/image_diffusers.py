@@ -13,23 +13,34 @@ arbiter swap, progress events and gallery can all be exercised today.
 from __future__ import annotations
 
 import asyncio
-from contextlib import nullcontext
-import importlib
-import importlib.util
-from importlib.util import find_spec
 from pathlib import Path
 import random
-import sys
 from typing import Any
 
 from ..config import settings
 from ..core.enums import ModelFamily
 from ..services import accelerator_runtime
-from ..util import imaging, sysmon
+from ..util import imaging
 from .base import GenerationCancelled, ImageBackend, ModelDescriptor, ProgressCb
+from .image_diffusers_parts import (
+    DiffusersMemoryMixin,
+    DiffusersPipelineMixin,
+    Flux2LoaderMixin,
+    FluxLoaderMixin,
+    QwenZLoaderMixin,
+    SdxlLoaderMixin,
+)
 
 
-class DiffusersImageBackend(ImageBackend):
+class DiffusersImageBackend(
+    QwenZLoaderMixin,
+    Flux2LoaderMixin,
+    FluxLoaderMixin,
+    SdxlLoaderMixin,
+    DiffusersMemoryMixin,
+    DiffusersPipelineMixin,
+    ImageBackend,
+):
     def __init__(self, descriptor: ModelDescriptor) -> None:
         super().__init__(descriptor)
         self._pipe: Any = None  # diffusers pipeline in real mode
@@ -78,7 +89,6 @@ class DiffusersImageBackend(ImageBackend):
     def _load_pipeline_sync(self) -> None:
         # Loaders verified on RTX 5070 Ti (Blackwell) in M0.
         import os  # noqa: PLC0415
-        import re  # noqa: PLC0415
 
         import torch  # noqa: PLC0415  (lazy: only when GPU mode is on)
 
@@ -106,928 +116,53 @@ class DiffusersImageBackend(ImageBackend):
         elif self._is_nunchaku_quant():
             pipe = self._load_nunchaku_flux(torch)
         elif self.descriptor.family is ModelFamily.FLUX:
-            from diffusers import FluxPipeline  # noqa: PLC0415
-
-            # The local file is an fp8 ComfyUI all-in-one checkpoint. Load it
-            # *keeping fp8* (loading as bf16 would balloon to ~24 GB and OOM the
-            # CPU during conversion). A non-gated config repo supplies the
-            # pipeline config + tokenizers; weights come from the local file.
-            pipe = FluxPipeline.from_single_file(
-                str(self.descriptor.path),
-                config=settings.flux_config_repo,
-                torch_dtype=torch.float8_e4m3fn,
-            )
-            # Keep the big linears fp8 in VRAM, upcast per-layer to bf16 for
-            # compute (Forge-style). NOTE (M0): this still materializes bf16 and
-            # is slow / memory-heavy at 1024 on 16 GB — a fast FLUX needs a 4-bit
-            # model (Nunchaku/GGUF) or true fp8 GEMM (torchao). Tracked for M4.
-            pipe.transformer.enable_layerwise_casting(
-                storage_dtype=torch.float8_e4m3fn, compute_dtype=torch.bfloat16
-            )
-            skip = re.compile(r"pos_embed|patch_embed|norm")
-            for name, mod in pipe.transformer.named_modules():
-                if skip.search(name) or name.split(".")[-1] in ("proj_in", "proj_out"):
-                    mod.to(torch.bfloat16)
-            pipe.text_encoder.to(torch.bfloat16)
-            pipe.text_encoder_2.to(torch.bfloat16)
-            pipe.vae.to(torch.bfloat16)
-            pipe.vae.enable_tiling()
-            self._runtime().enable_model_cpu_offload(pipe)  # frugal VRAM: encoders idle in RAM
-        else:  # SDXL — fits fully in 16 GB, keep resident & fast (~5 s / image)
-            from diffusers import StableDiffusionXLPipeline  # noqa: PLC0415
-
-            pipe = StableDiffusionXLPipeline.from_single_file(
-                str(self.descriptor.path), torch_dtype=torch.float16
-            )
-            pipe = self._runtime().move(pipe)
+            pipe = self._load_flux(torch)
+        else:
+            pipe = self._load_sdxl(torch)
         self._pipe = pipe
         self._apply_acceleration(torch, pipe, report)
         report["memory"]["end"] = self._memory_snapshot(torch)
         self._remember_accelerator_baseline(torch)
         self._load_report = report
 
-    def _runtime(self) -> accelerator_runtime.AcceleratorRuntime:
-        if self._accelerator is None:
-            self._accelerator = accelerator_runtime.current()
-        return self._accelerator
 
-    def _ensure_runtime_support(self, runtime: accelerator_runtime.AcceleratorRuntime) -> None:
-        if runtime.cpu:
-            raise RuntimeError("CPU-safe profile cannot load real image models; use STUB mode.")
-        if self._is_nunchaku_quant() and not runtime.cuda_family:
-            raise RuntimeError("Nunchaku image models require the NVIDIA CUDA/Nunchaku profile.")
-        if runtime.backend == "mps" and self.descriptor.family is not ModelFamily.SDXL:
-            raise RuntimeError("Apple MPS image loading is currently enabled only for SDXL models.")
-        if runtime.backend == "rocm" and self.descriptor.family is not ModelFamily.SDXL:
-            raise RuntimeError("ROCm image loading is currently enabled only for SDXL models.")
-        if runtime.backend in {"rocm", "mps"} and str(self.descriptor.quant or "").startswith("bnb-"):
-            raise RuntimeError(f"bitsandbytes-quantized image models are disabled on {runtime.backend}.")
 
-    def _load_nunchaku_flux(self, torch) -> Any:
-        """SVDQuant fp4 FLUX (Blackwell turbo): ~8 s/1024, peak RAM ~13 GB.
 
-        Assembled from light components so a single load stays well within the RAM
-        budget (P0.1): nunchaku fp4 transformer + int4 T5 (~3 GB, not ~10 GB bf16),
-        with CLIP/VAE/tokenizers/scheduler from the non-gated config repo. We do
-        NOT read the local 16 GB fp8 checkpoint here."""
-        from diffusers import FluxPipeline  # noqa: PLC0415
-        from nunchaku import (  # noqa: PLC0415
-            NunchakuFluxTransformer2dModel,
-            NunchakuT5EncoderModel,
-        )
 
-        transformer = NunchakuFluxTransformer2dModel.from_pretrained(str(self.descriptor.path))
-        text_encoder_2 = NunchakuT5EncoderModel.from_pretrained(settings.flux_t5_nunchaku)
-        pipe = FluxPipeline.from_pretrained(
-            settings.flux_config_repo,
-            transformer=transformer,
-            text_encoder_2=text_encoder_2,
-            torch_dtype=torch.bfloat16,
-        )
-        pipe.vae.enable_tiling()
-        self._runtime().enable_model_cpu_offload(pipe)
-        return pipe
 
-    def _load_qwen_image(self, torch) -> Any:
-        """Qwen-Image-2512 multi-file Diffusers repo.
 
-        The full bf16 repo is large, so the default path quantizes transformer
-        and text encoder through Diffusers' bitsandbytes loader and uses model
-        offload. Generation maps the UI guidance field to Qwen's true_cfg_scale.
 
-        When the descriptor is a Nunchaku SVDQuant fp4 transformer (a single
-        ~12 GB file), the much faster fp4 path is used instead — see
-        ``_load_nunchaku_qwen_image``.
-        """
-        if self._is_nunchaku_quant():
-            return self._load_nunchaku_qwen_image(torch)
 
-        from diffusers import QwenImagePipeline  # noqa: PLC0415
 
-        kwargs = self._quantized_repo_kwargs(
-            torch,
-            settings.qwen_image_quant,
-            "HFAB_QWEN_IMAGE_QUANT",
-            ["transformer", "text_encoder"],
-        )
-        pipe = QwenImagePipeline.from_pretrained(str(self.descriptor.path), **kwargs)
-        if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
-            pipe.vae.enable_tiling()
-        quant = settings.qwen_image_quant.lower().strip()
-        if quant in ("bnb-nf4", "bnb-fp4"):
-            if hasattr(getattr(pipe, "vae", None), "to"):
-                self._runtime().move(pipe.vae)
-            placement = "bnb-loader"
-        else:
-            self._place_repo_pipeline(pipe, settings.qwen_image_offload, "HFAB_QWEN_IMAGE_OFFLOAD")
-            placement = settings.qwen_image_offload
-        self._active_features["qwen_image"] = {
-            "quant": settings.qwen_image_quant,
-            "offload": settings.qwen_image_offload,
-            "placement": placement,
-            "guidance_arg": "true_cfg_scale",
-        }
-        return pipe
 
-    @staticmethod
-    def _patch_nunchaku_qwen_forward(cls) -> None:
-        """Fix a signature drift between Nunchaku 1.3.0 and diffusers 0.38.
 
-        Diffusers 0.38's QwenImagePipeline no longer passes the (now deprecated)
-        ``txt_seq_lens`` to the transformer — it relies on ``encoder_hidden_states_mask``
-        and derives the RoPE text length internally. Nunchaku's forward still hands
-        ``txt_seq_lens`` (defaulting to None) straight to ``QwenEmbedRope``, which then
-        raises ``Either max_txt_seq_len or txt_seq_lens must be provided``. Wrap the
-        forward to reconstruct ``txt_seq_lens`` from the mask (or the encoder hidden
-        states shape) when the pipeline omits it. Idempotent."""
-        if getattr(cls, "_hfab_txt_seq_patched", False):
-            return
-        orig_forward = cls.forward
 
-        def forward(self, *args, **kwargs):
-            if kwargs.get("txt_seq_lens") is None and kwargs.get("encoder_hidden_states") is not None:
-                ehs = kwargs["encoder_hidden_states"]
-                mask = kwargs.get("encoder_hidden_states_mask")
-                if mask is not None:
-                    kwargs["txt_seq_lens"] = mask.sum(dim=1).tolist()
-                else:
-                    kwargs["txt_seq_lens"] = [int(ehs.shape[1])] * int(ehs.shape[0])
-            return orig_forward(self, *args, **kwargs)
 
-        cls.forward = forward
-        cls._hfab_txt_seq_patched = True
 
-    def _load_nunchaku_qwen_image(self, torch) -> Any:
-        """Qwen-Image-2512 via a Nunchaku SVDQuant fp4 transformer (Blackwell).
 
-        The fp4 transformer is a single transformer-only file; the Qwen2.5-VL text
-        encoder, VAE, tokenizer and scheduler come from the local base repo folder.
-        On 16 GB cards the bf16 text encoder (~16 GB) would exhaust the 32 GB RAM
-        under sequential offload, so it is quantized to 4-bit by default. The fp4
-        transformer keeps ``blocks_on_gpu`` of its 60 blocks resident (the rest
-        stream per-layer); VRAM is the slack resource here, so a higher block count
-        trades free VRAM for far fewer CPU<->GPU swaps and much faster steps.
-        """
-        from diffusers import QwenImagePipeline  # noqa: PLC0415
-        from nunchaku.models.transformers.transformer_qwenimage import (  # noqa: PLC0415
-            NunchakuQwenImageTransformer2DModel,
-        )
 
-        self._patch_nunchaku_qwen_forward(NunchakuQwenImageTransformer2DModel)
-        # Load to CPU then let set_offload() stage blocks onto the GPU. (device="cuda"
-        # here would materialize all 13 GB on the GPU before offloading and OOM
-        # alongside the resident text encoder.)
-        transformer = NunchakuQwenImageTransformer2DModel.from_pretrained(str(self.descriptor.path))
-        base = settings.qwen_image_base_repo
 
-        te_quant = settings.qwen_image_nunchaku_text_encoder_quant.lower().strip()
-        if te_quant not in ("bnb-nf4", "bnb-fp4", "", "none", "bf16"):
-            raise ValueError(
-                "HFAB_QWEN_IMAGE_NUNCHAKU_TEXT_ENCODER_QUANT must be one of: "
-                f"bnb-nf4, bnb-fp4, none (got {te_quant!r})"
-            )
-        kwargs: dict[str, Any] = {"transformer": transformer, "torch_dtype": torch.bfloat16}
-        # Prefer a pre-quantized text encoder on disk (scripts/prequant_qwen_text_
-        # encoder.py): loading the ~5 GB nf4 checkpoint avoids the ~16 GB bf16 RAM
-        # spike and ~50 s requant that an on-the-fly bitsandbytes load incurs.
-        te_dir = base / "text_encoder_nf4"
-        te_cached = te_quant in ("bnb-nf4", "bnb-fp4") and te_dir.is_dir() and any(te_dir.glob("*.safetensors"))
-        te_on_gpu = te_quant in ("bnb-nf4", "bnb-fp4")
-        if te_cached:
-            from transformers import AutoModel  # noqa: PLC0415
 
-            kwargs["text_encoder"] = AutoModel.from_pretrained(
-                str(te_dir), dtype=torch.bfloat16, device_map=self._runtime().torch_device
-            )
-        elif te_quant in ("bnb-nf4", "bnb-fp4"):
-            from diffusers import PipelineQuantizationConfig  # noqa: PLC0415
 
-            kwargs["quantization_config"] = PipelineQuantizationConfig(
-                quant_backend="bitsandbytes_4bit",
-                quant_kwargs={
-                    "load_in_4bit": True,
-                    "bnb_4bit_quant_type": "nf4" if te_quant == "bnb-nf4" else "fp4",
-                    "bnb_4bit_compute_dtype": torch.bfloat16,
-                },
-                components_to_quantize=["text_encoder"],
-            )
-        pipe = QwenImagePipeline.from_pretrained(str(base), **kwargs)
-        if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
-            pipe.vae.enable_tiling()
 
-        blocks = max(1, int(settings.qwen_image_nunchaku_blocks_on_gpu))
-        # Per-layer transformer offload: `blocks` of the 60 blocks stay resident,
-        # the rest stream. Nunchaku manages the transformer's device moves itself.
-        transformer.set_offload(True, use_pin_memory=False, num_blocks_on_gpu=blocks)
-        if te_on_gpu:
-            # The 4-bit text encoder lives on the GPU (~5 GB; it runs once per image).
-            # bitsandbytes 4-bit modules can't ride the sequential/model offload hooks
-            # ("Cannot copy out of meta tensor"), so just move the VAE on-device.
-            if hasattr(getattr(pipe, "vae", None), "to"):
-                self._runtime().move(pipe.vae)
-            placement = f"nunchaku-per-layer({blocks})+bnb-te{'(cached)' if te_cached else ''}"
-        else:
-            # bf16 text encoder: stream it from RAM via sequential offload (exclude
-            # the transformer, which Nunchaku already offloads per-layer).
-            if "transformer" not in pipe._exclude_from_cpu_offload:
-                pipe._exclude_from_cpu_offload.append("transformer")
-            self._runtime().enable_sequential_cpu_offload(pipe)
-            placement = f"nunchaku-per-layer({blocks})+sequential"
-        self._active_features["qwen_image"] = {
-            "quant": self.descriptor.quant,
-            "placement": placement,
-            "blocks_on_gpu": blocks,
-            "text_encoder_quant": (te_quant or "bf16") + (" (cached)" if te_cached else ""),
-            "guidance_arg": "true_cfg_scale",
-        }
-        return pipe
 
-    @staticmethod
-    def _patch_nunchaku_zimage_forward(cls) -> None:
-        """Fix a signature drift between Nunchaku 1.3.0 and diffusers 0.38.
 
-        Nunchaku's ``NunchakuZImageTransformer2DModel.forward`` calls the diffusers
-        parent positionally as ``(x, t, cap_feats, patch_size, f_patch_size,
-        return_dict)``, but diffusers 0.38 reordered ZImage's forward to
-        ``(x, t, cap_feats, return_dict, controlnet_block_samples, siglip_feats,
-        image_noise_mask, patch_size, f_patch_size)``. The positional call leaks
-        ``patch_size`` into ``return_dict`` and ``f_patch_size`` (an int) into
-        ``controlnet_block_samples`` -> ``TypeError: 'int' is not iterable``. Re-issue
-        the parent call with keywords (what Nunchaku intended). Idempotent."""
-        if getattr(cls, "_hfab_forward_patched", False):
-            return
-        from diffusers.models.transformers.transformer_z_image import (  # noqa: PLC0415
-            ZImageTransformer2DModel,
-        )
-        from nunchaku.models.transformers.transformer_zimage import (  # noqa: PLC0415
-            NunchakuZImageRopeHook,
-        )
 
-        def forward(self, x, t, cap_feats, patch_size=2, f_patch_size=1, return_dict=True):
-            rope_hook = NunchakuZImageRopeHook()
-            self.register_rope_hook(rope_hook)
-            try:
-                return ZImageTransformer2DModel.forward(
-                    self,
-                    x,
-                    t,
-                    cap_feats,
-                    patch_size=patch_size,
-                    f_patch_size=f_patch_size,
-                    return_dict=return_dict,
-                )
-            finally:
-                self.unregister_rope_hook()
-                del rope_hook
 
-        cls.forward = forward
-        cls._hfab_forward_patched = True
 
-    def _load_z_image(self, torch) -> Any:
-        """Z-Image-Turbo multi-file Diffusers repo.
-
-        A Nunchaku SVDQuant fp4 transformer (~4 GB) takes the place of the bf16
-        transformer when the descriptor is a Nunchaku checkpoint, borrowing the
-        Qwen3 text encoder / VAE from the local base repo folder.
-        """
-        from diffusers import ZImagePipeline  # noqa: PLC0415
-
-        if self._is_nunchaku_quant():
-            from nunchaku.models.transformers.transformer_zimage import (  # noqa: PLC0415
-                NunchakuZImageTransformer2DModel,
-            )
-
-            self._patch_nunchaku_zimage_forward(NunchakuZImageTransformer2DModel)
-            transformer = NunchakuZImageTransformer2DModel.from_pretrained(str(self.descriptor.path))
-            pipe = ZImagePipeline.from_pretrained(
-                str(settings.z_image_base_repo),
-                transformer=transformer,
-                torch_dtype=torch.bfloat16,
-            )
-            if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
-                pipe.vae.enable_tiling()
-            offload = settings.z_image_nunchaku_offload.lower().strip()
-            if offload in ("", "none"):
-                self._runtime().move(pipe)
-            else:  # "model": frugal — fp4 transformer is small, encoders idle in RAM
-                self._runtime().enable_model_cpu_offload(pipe)
-            self._active_features["z_image"] = {
-                "quant": self.descriptor.quant,
-                "offload": offload or "none",
-                "default_steps": settings.z_image_default_steps,
-                "default_guidance": settings.z_image_default_guidance,
-            }
-            return pipe
-
-        pipe = ZImagePipeline.from_pretrained(
-            str(self.descriptor.path),
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=False,
-        )
-        if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
-            pipe.vae.enable_tiling()
-        self._place_repo_pipeline(pipe, settings.z_image_offload, "HFAB_Z_IMAGE_OFFLOAD")
-        self._active_features["z_image"] = {
-            "offload": settings.z_image_offload,
-            "default_steps": settings.z_image_default_steps,
-            "default_guidance": settings.z_image_default_guidance,
-        }
-        return pipe
-
-    @staticmethod
-    def _quantized_repo_kwargs(
-        torch,
-        quant: str,
-        env_name: str,
-        components_to_quantize: list[str],
-    ) -> dict[str, Any]:
-        quant = quant.lower().strip()
-        if quant not in ("bnb-nf4", "bnb-fp4", "", "none", "bf16"):
-            raise ValueError(
-                f"{env_name} must be one of: bnb-nf4, bnb-fp4, none "
-                f"(got {quant!r})"
-            )
-        kwargs: dict[str, Any] = {"torch_dtype": torch.bfloat16}
-        if quant in ("bnb-nf4", "bnb-fp4"):
-            from diffusers import PipelineQuantizationConfig  # noqa: PLC0415
-
-            kwargs["quantization_config"] = PipelineQuantizationConfig(
-                quant_backend="bitsandbytes_4bit",
-                quant_kwargs={
-                    "load_in_4bit": True,
-                    "bnb_4bit_quant_type": "nf4" if quant == "bnb-nf4" else "fp4",
-                    "bnb_4bit_compute_dtype": torch.bfloat16,
-                },
-                components_to_quantize=components_to_quantize,
-            )
-        return kwargs
-
-    def _place_repo_pipeline(self, pipe: Any, offload: str, env_name: str) -> None:
-        offload = offload.lower().strip()
-        if offload == "sequential":
-            self._runtime().enable_sequential_cpu_offload(pipe)
-        elif offload in ("", "none"):
-            self._runtime().move(pipe)
-        elif offload == "model":
-            self._runtime().enable_model_cpu_offload(pipe)
-        else:
-            raise ValueError(
-                f"{env_name} must be one of: model, sequential, none "
-                f"(got {offload!r})"
-            )
-
-    def _load_flux2_klein(self, torch) -> Any:
-        """FLUX.2 [klein] via diffusers (nunchaku has no FLUX.2 transformer yet).
-
-        klein's text encoder is a small Qwen3 (not FLUX.2 [dev]'s 24 GB Mistral),
-        so the 9B model in bitsandbytes 4-bit + model-offload fits a 16 GB card.
-        Supports two layouts:
-          * a multi-file diffusers repo folder under models/image/, or
-          * a single-file transformer checkpoint (then the Qwen3 text encoder,
-            VAE, tokenizer and scheduler come from HFAB_FLUX2_KLEIN_REPO)."""
-        from diffusers import Flux2KleinPipeline  # noqa: PLC0415
-
-        path = self.descriptor.path
-        quant = settings.flux2_quant.lower().strip()
-        if quant not in ("bnb-nf4", "bnb-fp4", "", "none", "bf16"):
-            raise ValueError(
-                "HFAB_FLUX2_QUANT must be one of: bnb-nf4, bnb-fp4, none "
-                f"(got {settings.flux2_quant!r})"
-            )
-        use_bnb = quant in ("bnb-nf4", "bnb-fp4")
-        qtype = "nf4" if quant == "bnb-nf4" else "fp4"
-
-        def _pipe_quant(components: list[str]):
-            from diffusers import PipelineQuantizationConfig  # noqa: PLC0415
-
-            return PipelineQuantizationConfig(
-                quant_backend="bitsandbytes_4bit",
-                quant_kwargs={
-                    "load_in_4bit": True,
-                    "bnb_4bit_quant_type": qtype,
-                    "bnb_4bit_compute_dtype": torch.bfloat16,
-                },
-                components_to_quantize=components,
-            )
-
-        if path.is_dir():
-            kwargs: dict[str, Any] = {"torch_dtype": torch.bfloat16}
-            if use_bnb:
-                kwargs["quantization_config"] = _pipe_quant(["transformer", "text_encoder"])
-            pipe = Flux2KleinPipeline.from_pretrained(str(path), **kwargs)
-        else:
-            # single-file transformer: 4-bit it, borrow the rest from the repo
-            from diffusers import Flux2Transformer2DModel  # noqa: PLC0415
-
-            tkwargs: dict[str, Any] = {
-                "config": settings.flux2_klein_repo,
-                "subfolder": "transformer",
-                "torch_dtype": torch.bfloat16,
-            }
-            if use_bnb:
-                from diffusers import BitsAndBytesConfig as DBnb  # noqa: PLC0415
-
-                tkwargs["quantization_config"] = DBnb(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type=qtype,
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                )
-            transformer = Flux2Transformer2DModel.from_single_file(str(path), **tkwargs)
-            kwargs = {"transformer": transformer, "torch_dtype": torch.bfloat16}
-            if use_bnb:
-                kwargs["quantization_config"] = _pipe_quant(["text_encoder"])
-            pipe = Flux2KleinPipeline.from_pretrained(settings.flux2_klein_repo, **kwargs)
-
-        if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
-            pipe.vae.enable_tiling()
-
-        offload = settings.flux2_offload.lower().strip()
-        if use_bnb:
-            # Diffusers' bitsandbytes loader places quantized components via its
-            # own device_map. Calling pipe.to()/offload hooks afterwards can try
-            # to copy meta tensors and fail ("Cannot copy out of meta tensor").
-            if hasattr(getattr(pipe, "vae", None), "to"):
-                self._runtime().move(pipe.vae)
-            self._active_features["flux2_placement"] = {
-                "mode": "bnb-loader",
-                "requested_offload": offload or "model",
-                "vae": self._runtime().torch_device,
-            }
-        elif offload == "sequential":
-            self._runtime().enable_sequential_cpu_offload(pipe)
-        elif offload in ("", "none"):
-            self._runtime().move(pipe)
-        else:  # "model" (default): encoders idle in RAM, frugal VRAM
-            self._runtime().enable_model_cpu_offload(pipe)
-        return pipe
-
-    def _load_nunchaku_flux2_klein(self, torch) -> Any:
-        """Experimental FLUX.2 [klein] SVDQuant transformer fast path.
-
-        Official nunchaku releases on this machine do not yet expose a top-level
-        NunchakuFlux2Transformer2DModel, so this can load the sidecar runtime
-        shipped beside the local model weights in models/image/flux2-klein-9b-
-        nunchaku. The Qwen3 text encoder still uses diffusers bitsandbytes 4-bit,
-        which keeps the path within the local 16 GB GPU budget without requiring
-        the separate Nunchaku Qwen3 text-encoder PR."""
-        from diffusers import Flux2KleinPipeline, PipelineQuantizationConfig  # noqa: PLC0415
-
-        NunchakuFlux2Transformer2DModel = self._import_nunchaku_flux2_transformer()
-        transformer = NunchakuFlux2Transformer2DModel.from_pretrained(
-            str(self.descriptor.path),
-            device=self._runtime().torch_device,
-            torch_dtype=torch.bfloat16,
-        )
-
-        base = settings.flux2_nunchaku_base_dir
-        base_path = str(base) if base.is_dir() else settings.flux2_klein_repo
-        quant = settings.flux2_quant.lower().strip()
-        kwargs: dict[str, Any] = {
-            "transformer": transformer,
-            "torch_dtype": torch.bfloat16,
-        }
-        if quant in ("bnb-nf4", "bnb-fp4"):
-            qtype = "nf4" if quant == "bnb-nf4" else "fp4"
-            kwargs["quantization_config"] = PipelineQuantizationConfig(
-                quant_backend="bitsandbytes_4bit",
-                quant_kwargs={
-                    "load_in_4bit": True,
-                    "bnb_4bit_quant_type": qtype,
-                    "bnb_4bit_compute_dtype": torch.bfloat16,
-                },
-                components_to_quantize=["text_encoder"],
-            )
-
-        pipe = Flux2KleinPipeline.from_pretrained(base_path, **kwargs)
-        if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
-            pipe.vae.enable_tiling()
-        if hasattr(getattr(pipe, "vae", None), "to"):
-            self._runtime().move(pipe.vae)
-        self._active_features["flux2_nunchaku"] = {
-            "mode": "sidecar" if self._using_flux2_sidecar() else "native",
-            "transformer": str(self.descriptor.path),
-            "text_encoder": quant if quant in ("bnb-nf4", "bnb-fp4") else "bf16",
-            "base": base_path,
-        }
-        self._active_features["flux2_placement"] = {
-            "mode": "nunchaku-transformer",
-            "transformer": self._runtime().torch_device,
-            "vae": self._runtime().torch_device,
-        }
-        return pipe
-
-    def _import_nunchaku_flux2_transformer(self):
-        try:
-            from nunchaku import NunchakuFlux2Transformer2DModel  # type: ignore[attr-defined] # noqa: PLC0415
-
-            return NunchakuFlux2Transformer2DModel
-        except (ImportError, AttributeError):
-            pass
-        try:
-            module = importlib.import_module("nunchaku.models.transformers.transformer_flux2")
-            return module.NunchakuFlux2Transformer2DModel
-        except (ImportError, AttributeError):
-            return self._import_nunchaku_flux2_sidecar()
-
-    def _using_flux2_sidecar(self) -> bool:
-        module = sys.modules.get("nunchaku.models.transformers.transformer_flux2")
-        filename = getattr(module, "__file__", "") if module else ""
-        return bool(filename and settings.flux2_nunchaku_dir.as_posix() in Path(filename).as_posix())
-
-    def _import_nunchaku_flux2_sidecar(self):
-        code_dir = settings.flux2_nunchaku_dir
-        transfer_src = code_dir / "torch_transfer_utils.py"
-        transformer_src = code_dir / "transformer_flux2.py"
-        if not transfer_src.is_file() or not transformer_src.is_file():
-            raise RuntimeError(
-                "FLUX.2 nunchaku sidecar files are missing. Expected "
-                f"{transfer_src} and {transformer_src}."
-            )
-
-        self._load_module_from_file("nunchaku.torch_transfer_utils", transfer_src)
-        module = self._load_module_from_file(
-            "nunchaku.models.transformers.transformer_flux2",
-            transformer_src,
-        )
-        return module.NunchakuFlux2Transformer2DModel
-
-    @staticmethod
-    def _load_module_from_file(module_name: str, path: Path):
-        existing = sys.modules.get(module_name)
-        if existing is not None and getattr(existing, "__file__", None) == str(path):
-            return existing
-        spec = importlib.util.spec_from_file_location(module_name, path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Could not import {module_name} from {path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        return module
-
-    def _is_nunchaku_quant(self) -> bool:
-        return bool(self.descriptor.quant and self.descriptor.quant.startswith("nunchaku"))
-
-    def _apply_acceleration(self, torch, pipe: Any, report: dict[str, Any]) -> None:
-        self._configure_attention(torch, report)
-        self._maybe_apply_flux_step_cache(pipe, report)
-        self._maybe_apply_sdxl_turbo_lora(pipe, report)
-        self._maybe_compile_transformer(torch, pipe, report)
-
-    def _configure_attention(self, torch, report: dict[str, Any]) -> None:
-        mode = settings.attention_backend.lower().strip() or "auto"
-        precision = settings.attention_matmul_precision.lower().strip()
-        if precision not in ("highest", "high", "medium"):
-            raise ValueError(
-                "HFAB_ATTENTION_MATMUL_PRECISION must be one of: highest, high, medium "
-                f"(got {settings.attention_matmul_precision!r})"
-            )
-        if hasattr(torch, "set_float32_matmul_precision"):
-            torch.set_float32_matmul_precision(precision)
-
-        runtime = self._runtime()
-        cuda_available = runtime.cuda_available(torch)
-        if cuda_available:
-            matmul = getattr(getattr(torch.backends, "cuda", None), "matmul", None)
-            if matmul is not None and hasattr(matmul, "allow_tf32"):
-                matmul.allow_tf32 = settings.attention_allow_tf32
-
-        attention = getattr(torch.nn, "attention", None)
-        sdp_backend = getattr(attention, "SDPBackend", None) if attention else None
-        sdpa_kernel = getattr(attention, "sdpa_kernel", None) if attention else None
-        native_backends = self._native_sdp_backend_names(sdp_backend)
-        backend_map = {
-            "flash": "FLASH_ATTENTION",
-            "efficient": "EFFICIENT_ATTENTION",
-            "math": "MATH",
-            "cudnn": "CUDNN_ATTENTION",
-        }
-        aliases = {"default": "auto", "sdpa": "auto", "native": "auto"}
-        mode = aliases.get(mode, mode)
-        if mode not in {"auto", *backend_map}:
-            raise ValueError(
-                "HFAB_ATTENTION_BACKEND must be one of: auto, flash, efficient, math, cudnn "
-                f"(got {settings.attention_backend!r})"
-            )
-        if mode != "auto":
-            enum_name = backend_map[mode]
-            if sdpa_kernel is None or sdp_backend is None or enum_name not in native_backends:
-                raise ValueError(
-                    f"HFAB_ATTENTION_BACKEND={mode!r} requires torch.nn.attention."
-                    f"SDPBackend.{enum_name}, but this torch build does not expose it."
-                )
-            if mode in {"flash", "efficient", "cudnn"} and not cuda_available:
-                raise ValueError(
-                    f"HFAB_ATTENTION_BACKEND={mode!r} requires a CUDA torch build/device."
-                )
-
-        feature = {
-            "requested": settings.attention_backend,
-            "mode": mode,
-            "native_sdpa": sdpa_kernel is not None and sdp_backend is not None,
-            "native_backends": native_backends,
-            "forced_backend": backend_map.get(mode),
-            "cuda_available": cuda_available,
-            "external_flash_attn": find_spec("flash_attn") is not None,
-            "xformers": find_spec("xformers") is not None,
-            "float8_dtypes": self._torch_float8_dtypes(torch),
-            "allow_tf32": settings.attention_allow_tf32,
-            "matmul_precision": precision,
-            "backend": runtime.backend,
-            "torch_device": runtime.torch_device,
-        }
-        self._active_features["attention"] = feature
-        report["acceleration"]["attention"] = feature
-
-    @staticmethod
-    def _native_sdp_backend_names(sdp_backend: Any) -> list[str]:
-        if sdp_backend is None:
-            return []
-        return [
-            name
-            for name in ("FLASH_ATTENTION", "EFFICIENT_ATTENTION", "MATH", "CUDNN_ATTENTION")
-            if hasattr(sdp_backend, name)
-        ]
-
-    @staticmethod
-    def _torch_float8_dtypes(torch) -> list[str]:
-        return sorted(name for name in dir(torch) if name.startswith("float8_"))
-
-    def _maybe_apply_flux_step_cache(self, pipe: Any, report: dict[str, Any]) -> None:
-        if self.descriptor.family is not ModelFamily.FLUX:
-            return
-
-        mode = settings.flux_step_cache.lower().strip()
-        if mode in ("", "off", "none", "false"):
-            return
-        if mode == "fb":
-            from nunchaku.caching.diffusers_adapters.flux import apply_cache_on_pipe  # noqa: PLC0415
-
-            apply_cache_on_pipe(
-                pipe,
-                residual_diff_threshold=settings.flux_fb_cache_threshold,
-                use_double_fb_cache=settings.flux_fb_cache_double,
-            )
-            self._active_features["flux_step_cache"] = {
-                "mode": "fb",
-                "threshold": settings.flux_fb_cache_threshold,
-                "double": settings.flux_fb_cache_double,
-            }
-        elif mode == "teacache":
-            self._active_features["flux_step_cache"] = {
-                "mode": "teacache",
-                "threshold": settings.flux_teacache_threshold,
-                "skip_steps": settings.flux_teacache_skip_steps,
-            }
-        else:
-            raise ValueError(
-                "HFAB_FLUX_STEP_CACHE must be one of: off, fb, teacache "
-                f"(got {settings.flux_step_cache!r})"
-            )
-        report["acceleration"]["flux_step_cache"] = self._active_features["flux_step_cache"]
-
-    def _maybe_apply_sdxl_turbo_lora(self, pipe: Any, report: dict[str, Any]) -> None:
-        if self.descriptor.family is not ModelFamily.SDXL or not settings.sdxl_turbo_lora:
-            return
-
-        source = settings.sdxl_turbo_lora
-        path = Path(source)
-        if path.suffix.lower() == ".safetensors":
-            pipe.load_lora_weights(str(path.parent), weight_name=path.name, adapter_name="turbo")
-        else:
-            pipe.load_lora_weights(source, adapter_name="turbo")
-        if hasattr(pipe, "set_adapters"):
-            pipe.set_adapters(["turbo"], adapter_weights=[settings.sdxl_turbo_lora_weight])
-
-        self._active_features["sdxl_turbo_lora"] = {
-            "source": source,
-            "weight": settings.sdxl_turbo_lora_weight,
-            "default_steps": settings.sdxl_turbo_steps,
-            "default_guidance": settings.sdxl_turbo_guidance,
-        }
-        report["acceleration"]["sdxl_turbo_lora"] = self._active_features["sdxl_turbo_lora"]
-
-    def _maybe_compile_transformer(self, torch, pipe: Any, report: dict[str, Any]) -> None:
-        if not settings.torch_compile:
-            return
-        if not hasattr(pipe, "transformer"):
-            report["acceleration"]["torch_compile"] = {"skipped": "pipeline has no transformer"}
-            return
-
-        compile_report: dict[str, Any] = {
-            "mode": settings.torch_compile_mode,
-            "before": self._memory_snapshot(torch),
-        }
-        original_transformer = pipe.transformer
-        try:
-            self._runtime().reset_peak_memory_stats(torch)
-            pipe.transformer = torch.compile(pipe.transformer, mode=settings.torch_compile_mode)
-            compile_report["after_wrap"] = self._memory_snapshot(torch)
-
-            if settings.torch_compile_warmup:
-                self._warmup_pipeline(torch, pipe)
-                compile_report["after_warmup"] = self._memory_snapshot(torch)
-                compile_report.update(self._runtime().peak_memory(torch))
-        except Exception as exc:
-            import gc  # noqa: PLC0415
-
-            pipe.transformer = original_transformer
-            compile_report["failed"] = repr(exc)
-            compile_report["after_rollback"] = self._memory_snapshot(torch)
-            gc.collect()
-            self._runtime().empty_cache(torch)
-            report["acceleration"]["torch_compile"] = compile_report
-            return
-
-        self._active_features["torch_compile"] = {"mode": settings.torch_compile_mode}
-        report["acceleration"]["torch_compile"] = compile_report
-
-    def _warmup_pipeline(self, torch, pipe: Any) -> None:
-        size = int(settings.torch_compile_warmup_size)
-        size = max(256, (size // 64) * 64)
-        kwargs = {
-            "prompt": "warmup",
-            "width": size,
-            "height": size,
-            "num_inference_steps": 1,
-            "guidance_scale": settings.default_guidance,
-            "generator": self._runtime().generator(torch, 0),
-        }
-        with torch.inference_mode(), self._attention_context(torch):
-            pipe(**kwargs)
-
-    def _memory_snapshot(self, torch) -> dict[str, Any]:
-        snap = sysmon.snapshot()
-        runtime = self._runtime()
-        process_memory = runtime.process_memory(torch)
-        if process_memory:
-            snap["accelerator_process"] = process_memory
-            if runtime.memory_key == "cuda_process":
-                snap["cuda_process"] = process_memory
-        return snap
 
     # --------------------------------------------------------------- unload
-    async def unload(self) -> None:
-        if not self._loaded and not self._warm:
-            return
-        try:
-            if not settings.stub_mode and self._pipe is not None:
-                await asyncio.to_thread(self._free_pipeline_sync)
-        finally:
-            self._clear_resident_state(reset_generation=True)
 
-    async def park(self) -> bool:
-        if not self._loaded:
-            return False
-        if settings.stub_mode:
-            await asyncio.sleep(0.1)
-            self._loaded = False
-            self._warm = True
-            return True
-        if self._pipe is None:
-            return False
-        await asyncio.to_thread(self._park_pipeline_sync)
-        self._loaded = False
-        self._warm = True
-        return True
 
-    def _park_pipeline_sync(self) -> None:
-        import gc  # noqa: PLC0415
 
-        import torch  # noqa: PLC0415
 
-        if hasattr(self._pipe, "maybe_free_model_hooks"):
-            self._pipe.maybe_free_model_hooks()
-        if self.descriptor.family is ModelFamily.SDXL and hasattr(self._pipe, "to"):
-            self._pipe.to("cpu")
-        gc.collect()
-        self._runtime().empty_cache(torch)
 
-    def _resume_pipeline_sync(self) -> None:
-        import torch  # noqa: PLC0415
 
-        report: dict[str, Any] = {
-            "keep_warm": {"resumed": True},
-            "memory": {"start": self._memory_snapshot(torch)},
-        }
-        if self.descriptor.family is ModelFamily.SDXL and hasattr(self._pipe, "to"):
-            self._runtime().move(self._pipe)
-        elif hasattr(self._pipe, "enable_model_cpu_offload"):
-            self._runtime().enable_model_cpu_offload(self._pipe)
-        report["memory"]["end"] = self._memory_snapshot(torch)
-        self._remember_accelerator_baseline(torch)
-        self._load_report = report
-
-    def _free_pipeline_sync(self) -> None:
-        import gc  # noqa: PLC0415
-
-        import torch  # noqa: PLC0415
-
-        del self._pipe
-        self._pipe = None
-        self._img2img_pipe = None  # shares _pipe's weights; drop the view too
-        self._inpaint_pipe = None
-        gc.collect()
-        self._runtime().empty_cache(torch)
-
-    def _clear_resident_state(self, *, reset_generation: bool) -> None:
-        self._pipe = None
-        self._img2img_pipe = None
-        self._inpaint_pipe = None
-        self._loaded = False
-        self._warm = False
-        self._active_features = {}
-        self._loaded_loras = {}
-        self._loaded_lora_last_used = {}
-        self._accelerator_allocated_baseline_gb = None
-        self._accelerator = None
-        if reset_generation:
-            self._generation_index = 0
-
-    def _recycle_pipeline_sync(self) -> None:
-        try:
-            self._free_pipeline_sync()
-        finally:
-            self._clear_resident_state(reset_generation=False)
-        self._load_pipeline_sync()
-        self._loaded = True
 
     # ------------------------------------------------------- post-job hygiene
-    async def after_job(self, job_id: str, params: dict[str, Any], *, failed: bool = False) -> dict[str, Any] | None:
-        if settings.stub_mode or not settings.image_cleanup_after_each_job or self._pipe is None:
-            return None
-        return await asyncio.to_thread(self._stabilize_after_job_sync, params, failed)
 
-    def _stabilize_after_job_sync(self, params: dict[str, Any], failed: bool) -> dict[str, Any]:
-        import gc  # noqa: PLC0415
 
-        import torch  # noqa: PLC0415
 
-        before = self._memory_snapshot(torch)
-        prune_error: str | None = None
-        try:
-            pruned_loras = self._prune_lora_cache(self._requested_lora_ids(params))
-        except Exception as exc:  # noqa: BLE001
-            pruned_loras = []
-            prune_error = repr(exc)
-
-        # Offload-style pipelines can leave their last active module on device
-        # until the next call. Freeing hooks keeps the one-resident invariant honest
-        # without unloading the pipeline object itself.
-        if self.descriptor.family is not ModelFamily.SDXL and hasattr(self._pipe, "maybe_free_model_hooks"):
-            self._pipe.maybe_free_model_hooks()
-
-        gc.collect()
-        self._runtime().empty_cache(torch, reset_peak=True)
-
-        after_cleanup = self._memory_snapshot(torch)
-        recycled = False
-        recycle_reason = self._recycle_reason(after_cleanup)
-        if recycle_reason:
-            self._recycle_pipeline_sync()
-            recycled = True
-
-        after = self._memory_snapshot(torch)
-        return {
-            "backend": self.resident_key,
-            "family": self.descriptor.family.value,
-            "failed": failed,
-            "cleanup": {
-                "before": before.get(self._runtime().memory_key),
-                "after": after.get(self._runtime().memory_key),
-                "accelerator": self._runtime().public(),
-                "pruned_loras": pruned_loras,
-                "lora_prune_error": prune_error,
-                "cached_loras": len(self._loaded_loras),
-                "recycled": recycled,
-                "recycle_reason": recycle_reason,
-                "generation_index": self._generation_index,
-            },
-        }
-
-    def _recycle_reason(self, snapshot: dict[str, Any]) -> str | None:
-        threshold = float(settings.image_recycle_cuda_growth_gb)
-        if threshold <= 0 or self._accelerator_allocated_baseline_gb is None:
-            return None
-        if self._generation_index < max(1, int(settings.image_recycle_min_jobs)):
-            return None
-        memory = snapshot.get(self._runtime().memory_key) or {}
-        allocated = memory.get("allocated_gb")
-        if allocated is None:
-            return None
-        growth = float(allocated) - self._accelerator_allocated_baseline_gb
-        if growth > threshold:
-            return (
-                f"{self._runtime().backend} allocated grew {growth:.2f} GB over loaded baseline "
-                f"{self._accelerator_allocated_baseline_gb:.2f} GB"
-            )
-        return None
-
-    def _remember_accelerator_baseline(self, torch) -> None:
-        memory = self._runtime().process_memory(torch)
-        if not memory or memory.get("allocated_gb") is None:
-            self._accelerator_allocated_baseline_gb = None
-            return
-        self._accelerator_allocated_baseline_gb = float(memory["allocated_gb"])
 
     # ------------------------------------------------------------- generate
     async def generate(
@@ -1215,23 +350,7 @@ class DiffusersImageBackend(ImageBackend):
             raise ValueError("inpainting mask not found (re-upload it)")
         return PILImage.open(path).convert("L").resize((width, height))
 
-    def _sdxl_img2img_pipe(self):
-        """A SDXL Img2Img pipeline sharing the resident text2img pipeline's
-        weights (built once, no extra VRAM). GPU-smoke validated on Blackwell."""
-        if self._img2img_pipe is None:
-            from diffusers import StableDiffusionXLImg2ImgPipeline  # noqa: PLC0415
 
-            self._img2img_pipe = StableDiffusionXLImg2ImgPipeline(**self._pipe.components)
-        return self._img2img_pipe
-
-    def _sdxl_inpaint_pipe(self):
-        """A SDXL Inpaint pipeline sharing the resident text2img pipeline's
-        weights (built once, no extra VRAM). GPU-smoke validated on Blackwell."""
-        if self._inpaint_pipe is None:
-            from diffusers import StableDiffusionXLInpaintPipeline  # noqa: PLC0415
-
-            self._inpaint_pipe = StableDiffusionXLInpaintPipeline(**self._pipe.components)
-        return self._inpaint_pipe
 
     def _dimension(self, params: dict[str, Any], key: str, default: int, flux2_default: int) -> int:
         if key not in params:
@@ -1283,41 +402,8 @@ class DiffusersImageBackend(ImageBackend):
                 return settings.sdxl_turbo_guidance
         return guidance
 
-    def _is_sdxl_lightning_checkpoint(self) -> bool:
-        if self.descriptor.family is not ModelFamily.SDXL:
-            return False
-        haystack = f"{self.descriptor.id} {self.descriptor.name} {self.descriptor.path.name}".lower()
-        return "sdxl" in haystack and "lightning" in haystack
 
-    def _generation_context(self, steps: int):
-        feature = self._active_features.get("flux_step_cache")
-        if not feature or feature.get("mode") != "teacache":
-            return nullcontext()
 
-        from nunchaku.caching.teacache import TeaCache  # noqa: PLC0415
-
-        return TeaCache(
-            self._pipe.transformer,
-            num_steps=steps,
-            rel_l1_thresh=settings.flux_teacache_threshold,
-            skip_steps=settings.flux_teacache_skip_steps,
-            enabled=True,
-            model_name="flux",
-        )
-
-    def _attention_context(self, torch):
-        forced_backend = (self._active_features.get("attention") or {}).get("forced_backend")
-        if not forced_backend:
-            return nullcontext()
-
-        attention = getattr(torch.nn, "attention", None)
-        if attention is None:
-            return nullcontext()
-        sdpa_kernel = getattr(attention, "sdpa_kernel", None)
-        sdp_backend = getattr(attention, "SDPBackend", None)
-        if sdpa_kernel is None or sdp_backend is None or not hasattr(sdp_backend, forced_backend):
-            return nullcontext()
-        return sdpa_kernel([getattr(sdp_backend, forced_backend)])
 
     def _apply_runtime_loras(self, params: dict[str, Any]) -> None:
         adapters: list[str] = []

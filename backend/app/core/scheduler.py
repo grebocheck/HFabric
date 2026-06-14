@@ -13,6 +13,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
+import logging
 import re
 from typing import Any
 
@@ -28,6 +29,7 @@ from .enums import EventType, JobStatus, JobType
 from .events import Event, EventBus
 
 _THINK_RE = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.IGNORECASE | re.DOTALL)
+logger = logging.getLogger("hfabric")
 
 
 def _coerce_int(value: Any, default: int, *, min_value: int, max_value: int) -> int:
@@ -40,6 +42,24 @@ def _coerce_int(value: Any, default: int, *, min_value: int, max_value: int) -> 
 
 def _type_value(t: Any) -> str:
     return t.value if isinstance(t, JobType) else str(t)
+
+
+def friendly_job_error(exc: BaseException) -> str:
+    detail = str(exc).strip()
+    lower = detail.lower()
+    if "out of memory" in lower or "cuda oom" in lower:
+        return (
+            "The job ran out of accelerator memory. Try a smaller size, fewer images, "
+            "or a lighter model."
+        )
+    if isinstance(exc, FileNotFoundError):
+        return f"Required file was not found: {detail}" if detail else "Required file was not found."
+    if isinstance(exc, (ImportError, ModuleNotFoundError)):
+        return f"Missing runtime dependency: {detail}" if detail else "Missing runtime dependency."
+    if isinstance(exc, ValueError):
+        return detail or "Invalid job parameters."
+    name = type(exc).__name__
+    return f"{name}: {detail}" if detail else f"{name}: job failed."
 
 
 def select_in_tier(tier: list, resident_model: str | None, resident_type: str | None):
@@ -274,7 +294,16 @@ class Worker:
             await self._mark_cancelled(snap)
         except Exception as exc:  # noqa: BLE001
             failed = True
-            await self._fail(snap, repr(exc))
+            error = friendly_job_error(exc)
+            logger.exception(
+                "event=job.failed job_id=%s job_type=%s model_id=%s user_error=%s raw_error=%r",
+                snap.id,
+                snap.type.value,
+                snap.model_id,
+                error,
+                exc,
+            )
+            await self._fail(snap, error)
         finally:
             if backend is not None:
                 try:
@@ -282,7 +311,14 @@ class Worker:
                     if cleanup:
                         await self._bus.publish(Event("job.cleanup", job_id=snap.id, **cleanup))
                 except Exception as exc:  # noqa: BLE001
-                    await self._bus.publish(Event("job.cleanup", job_id=snap.id, error=repr(exc)))
+                    error = friendly_job_error(exc)
+                    logger.exception(
+                        "event=job.cleanup.failed job_id=%s user_error=%s raw_error=%r",
+                        snap.id,
+                        error,
+                        exc,
+                    )
+                    await self._bus.publish(Event("job.cleanup", job_id=snap.id, error=error))
             self._current_job_id = None
             self._cancel_current = False
 

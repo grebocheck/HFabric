@@ -57,8 +57,8 @@ export function SettingsPanel() {
     void load();
   }, [load]);
 
-  const specs = overrides?.schema ?? [];
-  const groups = overrides?.groups ?? [];
+  const specs = useMemo(() => overrides?.schema ?? [], [overrides?.schema]);
+  const groups = useMemo(() => overrides?.groups ?? [], [overrides?.groups]);
   const cleanQuery = query.trim().toLowerCase();
   const visibleSpecs = useMemo(
     () => specs.filter((spec) => matchesQuery(spec, cleanQuery)),

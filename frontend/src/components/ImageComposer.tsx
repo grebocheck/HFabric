@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
-import { Badge } from "./Badge";
-import { MaskEditor } from "./MaskEditor";
 import { ModelPicker } from "./ModelPicker";
 import { PromptLibrary } from "./PromptLibrary";
 import { Select, type SelectOption } from "./Select";
-import { Slider } from "./Slider";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
-import { Toggle } from "./Toggle";
+import { ImageParamForm, LoraCard, Notice, SourceImageBlock } from "./ImageComposerParts";
 import type { ComposerApply, Lora, Model, Preset } from "../types";
 import {
   DEFAULT_GUIDANCE,
   DEFAULT_SIZE,
   DEFAULT_STEPS,
-  familyColor,
-  formatSize,
   imageFamilyDefaults,
   imageModelRank,
   isKnownGuidanceDefault,
@@ -478,100 +473,42 @@ export function ImageComposer({
         </section>
 
         {img2imgSupported ? (
-          <section className={section}>
-            <div className="flex items-center justify-between">
-              <div className={label}>Source image (img2img)</div>
-              {initImage ? (
-                <button
-                  onClick={() => {
-                    setInitImage(null);
-                    setMaskDraft(null);
-                  }}
-                  className="text-[11px] text-white/45 transition hover:text-white/80"
-                >
-                  clear
-                </button>
-              ) : null}
-            </div>
-            {initImage ? (
-              <div className="mt-1.5 space-y-2">
-                <img
-                  src={initImage.url}
-                  alt="source"
-                  className="max-h-40 w-full rounded-md border border-white/10 bg-black/30 object-contain"
-                />
-                <div className="flex items-center justify-between text-[11px] text-white/40">
-                  <span>Strength</span>
-                  <span className="font-mono text-white/60">{strength.toFixed(2)}</span>
-                </div>
-                <Slider value={strength} min={0.05} max={1} step={0.05} onChange={setStrength} />
-                <p className="text-[11px] text-white/35">Lower keeps the source; higher follows the prompt.</p>
-                <MaskEditor src={initImage.url} onMaskChange={setMaskDraft} />
-              </div>
-            ) : (
-              <label
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  onPickInitImage(e.dataTransfer.files?.[0]);
-                }}
-                className={`mt-1.5 flex cursor-pointer items-center justify-center rounded-md border border-dashed border-white/15 px-3 py-4 text-center text-xs text-white/45 transition hover:border-white/30 hover:text-white/70 ${
-                  uploadBusy ? "pointer-events-none opacity-50" : ""
-                }`}
-              >
-                {uploadBusy ? "uploading…" : "drop or click to add a source image"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={uploadBusy}
-                  onChange={(e) => {
-                    onPickInitImage(e.target.files?.[0]);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            )}
-            {uploadError ? <Notice tone="amber">{uploadError}</Notice> : null}
-          </section>
+          <SourceImageBlock
+            initImage={initImage}
+            labelClass={label}
+            onClear={() => {
+              setInitImage(null);
+              setMaskDraft(null);
+            }}
+            onPickInitImage={(file) => void onPickInitImage(file)}
+            sectionClass={section}
+            setMaskDraft={setMaskDraft}
+            setStrength={setStrength}
+            strength={strength}
+            uploadBusy={uploadBusy}
+            uploadError={uploadError}
+          />
         ) : null}
 
-        <section className={section}>
-          <div className="flex items-center justify-between">
-            <div className={label}>Canvas</div>
-            <span className="text-[11px] text-white/35">{activeRatio}</span>
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {RATIOS.map((r) => {
-              const active = isRatio(width, height, r.w, r.h);
-              return (
-                <button
-                  key={r.label}
-                  onClick={() => applyRatio(r.w, r.h)}
-                  className={`h-7 rounded-md border px-2.5 text-xs transition ${
-                    active ? "border-accent/70 bg-accent/20 text-white" : "border-white/15 text-white/60 hover:bg-white/10"
-                  }`}
-                >
-                  {r.label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <Num label="Width" v={width} set={setWidth} step={64} />
-            <Num label="Height" v={height} set={setHeight} step={64} />
-          </div>
-        </section>
-
-        <section className={section}>
-          <div className={label}>Sampling</div>
-          <div className="mt-1.5 grid grid-cols-2 gap-2">
-            <Num label="Steps" v={steps} set={setSteps} />
-            <Num label="Guidance" v={guidance} set={setGuidance} step={0.1} />
-            <Num label="Seed" v={seed} set={setSeed} />
-            <Num label="Batch" v={batch} set={setBatch} />
-          </div>
-        </section>
+        <ImageParamForm
+          activeRatio={activeRatio}
+          batch={batch}
+          guidance={guidance}
+          height={height}
+          labelClass={label}
+          onApplyRatio={applyRatio}
+          ratios={RATIOS}
+          sectionClass={section}
+          seed={seed}
+          setBatch={setBatch}
+          setGuidance={setGuidance}
+          setHeight={setHeight}
+          setSeed={setSeed}
+          setSteps={setSteps}
+          setWidth={setWidth}
+          steps={steps}
+          width={width}
+        />
 
         <section className={section}>
           <div className="flex items-center justify-between gap-2">
@@ -661,69 +598,6 @@ export function ImageComposer({
         </div>
       </div>
     </section>
-  );
-}
-
-function Notice({ tone, children }: { tone: "amber" | "emerald" | "sky"; children: string }) {
-  const classes = {
-    amber: "border-amber-500/30 bg-amber-500/10 text-amber-100",
-    emerald: "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
-    sky: "border-sky-500/30 bg-sky-500/10 text-sky-100",
-  };
-  return <div className={`mt-2 rounded-md border px-2.5 py-2 text-xs leading-5 ${classes[tone]}`}>{children}</div>;
-}
-
-function LoraCard({
-  lora,
-  selected,
-  onToggle,
-  onWeight,
-}: {
-  lora: Lora;
-  selected?: LoraSelection;
-  onToggle: (enabled: boolean) => void;
-  onWeight: (weight: number) => void;
-}) {
-  const enabled = Boolean(selected);
-  const weight = selected?.weight ?? 1;
-
-  return (
-    <div className={`rounded-md border px-2.5 py-2 transition ${
-      enabled ? "border-accent/45 bg-accent/10" : "border-white/10 bg-black/20"
-    }`}>
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium text-white/75" title={lora.name}>{lora.name}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <Badge color={familyColor(lora.family ?? "unknown")}>{lora.family ?? "any"}</Badge>
-            <Badge>{formatSize(lora.size_bytes)}</Badge>
-          </div>
-        </div>
-        <Toggle checked={enabled} onChange={onToggle} ariaLabel={`Toggle ${lora.name}`} />
-      </div>
-      <div className={`mt-2 ${enabled ? "" : "pointer-events-none opacity-35"}`}>
-        <div className="mb-1 flex items-center justify-between text-[11px] text-white/40">
-          <span>Weight</span>
-          <span className="font-mono text-white/60">{weight.toFixed(2)}</span>
-        </div>
-        <Slider value={weight} min={-2} max={2} step={0.05} onChange={onWeight} />
-      </div>
-    </div>
-  );
-}
-
-function Num({ label: l, v, set, step = 1 }: { label: string; v: number; set: (n: number) => void; step?: number }) {
-  return (
-    <label className="block">
-      <div className={label}>{l}</div>
-      <input
-        type="number"
-        value={v}
-        step={step}
-        onChange={(e) => set(Number(e.target.value))}
-        className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm outline-none focus:border-accent"
-      />
-    </label>
   );
 }
 

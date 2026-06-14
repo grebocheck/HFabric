@@ -94,7 +94,7 @@ export function asMessageImport(v: unknown): ChatImportMessage | null {
   return {
     role,
     content: typeof v.content === "string" ? v.content : "",
-    error: typeof v.error === "boolean" ? v.error : undefined,
+    error: typeof v.error === "boolean" ? v.error : false,
     created_at: typeof v.created_at === "string" ? v.created_at : undefined,
   };
 }

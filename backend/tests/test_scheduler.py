@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.core.enums import JobType
-from app.core.scheduler import Worker, plan_queue, select_in_tier
+from app.core.scheduler import Worker, friendly_job_error, plan_queue, select_in_tier
 
 _BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -148,3 +148,16 @@ def test_strip_reasoning_is_multiline():
 
 def test_strip_reasoning_leaves_plain_text():
     assert Worker._strip_reasoning("  just an answer  ") == "just an answer"
+
+
+# ---------------------------------------------------------- friendly errors
+
+
+def test_friendly_job_error_uses_message_not_repr():
+    assert friendly_job_error(ValueError("bad width")) == "bad width"
+
+
+def test_friendly_job_error_summarizes_oom():
+    assert friendly_job_error(RuntimeError("CUDA out of memory while allocating")).startswith(
+        "The job ran out of accelerator memory"
+    )

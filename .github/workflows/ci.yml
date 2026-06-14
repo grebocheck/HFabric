@@ -25,7 +25,9 @@ jobs:
       - name: Install light deps + test tools
         run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov ruff
       - name: Lint
-        run: ruff check app tests
+        run: ruff check app tests scripts
+      - name: Check OpenAPI schema
+        run: python scripts/export_openapi.py ../frontend/openapi.json --check
       - name: Test (stub mode)
         run: |
           set -o pipefail
@@ -54,6 +56,8 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Check generated API types
+        run: npm run openapi:check
       - name: Typecheck
         run: npx tsc -b
       - name: Build frontend
