@@ -32,7 +32,7 @@ def test_strength_is_clamped_and_defaulted():
     assert DiffusersImageBackend._effective_strength({"strength": 0.35}, 2) == 0.5
 
 
-async def test_img2img_rejected_for_non_sdxl():
+async def test_img2img_allowed_for_flux_families():
     desc = ModelDescriptor(
         id="f", name="F", family=ModelFamily.FLUX, path=Path("x"), size_bytes=0, quant="nunchaku-fp4"
     )
@@ -41,8 +41,27 @@ async def test_img2img_rejected_for_non_sdxl():
     async def progress(frac, note=None):
         return None
 
-    with pytest.raises(ValueError, match="img2img"):
+    rows = await backend.generate({"init_image": "a" * 32, "prompt": "x", "steps": 1}, progress)
+    assert rows[0]["params"]["family"] == "flux"
+
+
+async def test_img2img_rejected_for_qwen_z_families():
+    desc = ModelDescriptor(
+        id="q", name="Q", family=ModelFamily.QWEN_IMAGE, path=Path("x"), size_bytes=0, quant="bnb-nf4"
+    )
+    backend = DiffusersImageBackend(desc)
+
+    async def progress(frac, note=None):
+        return None
+
+    with pytest.raises(ValueError, match="SDXL, FLUX, and FLUX.2"):
         await backend.generate({"init_image": "a" * 32, "prompt": "x"}, progress)
+
+
+def test_control_scale_is_clamped_and_defaulted():
+    assert DiffusersImageBackend._control_scale({}) == settings.sdxl_controlnet_default_scale
+    assert DiffusersImageBackend._control_scale({"control_scale": 5}) == 2.0
+    assert DiffusersImageBackend._control_scale({"control_scale": "bad"}) == settings.sdxl_controlnet_default_scale
 
 
 async def test_inpaint_requires_source_image():
@@ -56,6 +75,32 @@ async def test_inpaint_requires_source_image():
 
     with pytest.raises(ValueError, match="requires"):
         await backend.generate({"mask_image": "b" * 32, "prompt": "x"}, progress)
+
+
+async def test_controlnet_rejected_for_non_sdxl():
+    desc = ModelDescriptor(
+        id="f", name="F", family=ModelFamily.FLUX, path=Path("x"), size_bytes=0, quant="nunchaku-fp4"
+    )
+    backend = DiffusersImageBackend(desc)
+
+    async def progress(frac, note=None):
+        return None
+
+    with pytest.raises(ValueError, match="ControlNet"):
+        await backend.generate({"control_image": "a" * 32, "prompt": "x"}, progress)
+
+
+async def test_controlnet_rejected_with_img2img():
+    desc = ModelDescriptor(
+        id="s", name="S", family=ModelFamily.SDXL, path=Path("x"), size_bytes=0
+    )
+    backend = DiffusersImageBackend(desc)
+
+    async def progress(frac, note=None):
+        return None
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        await backend.generate({"init_image": "a" * 32, "control_image": "b" * 32, "prompt": "x"}, progress)
 
 
 # ------------------------------------------------------------- ASGI plumbing

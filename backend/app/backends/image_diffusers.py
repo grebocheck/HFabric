@@ -46,6 +46,8 @@ class DiffusersImageBackend(
         self._pipe: Any = None  # diffusers pipeline in real mode
         self._img2img_pipe: Any = None  # lazily-built img2img view sharing _pipe's weights
         self._inpaint_pipe: Any = None  # lazily-built inpaint view sharing _pipe's weights
+        self._controlnet_pipe: Any = None
+        self._controlnet_model: Any = None
         self._active_features: dict[str, Any] = {}
         self._loaded_loras: dict[str, str] = {}
         self._loaded_lora_last_used: dict[str, int] = {}
@@ -176,13 +178,18 @@ class DiffusersImageBackend(
         if base_seed in (None, -1):
             base_seed = random.randint(0, 2**31 - 1)
 
-        # img2img/inpainting (P13.4/P13.5): a source image steers generation;
-        # an optional mask constrains the repaint region. Only SDXL is wired so
-        # far; fail fast with a clear message for other families.
+        # img2img/inpainting (P13.4/P13.5/P19.1): a source image steers
+        # generation; an optional mask constrains the repaint region.
         if params.get("mask_image") and not params.get("init_image"):
             raise ValueError("inpainting requires an img2img source image")
-        if (params.get("init_image") or params.get("mask_image")) and self.descriptor.family is not ModelFamily.SDXL:
-            raise ValueError("img2img/inpainting is currently supported only for SDXL models")
+        edit_families = {ModelFamily.SDXL, ModelFamily.FLUX, ModelFamily.FLUX2}
+        if (params.get("init_image") or params.get("mask_image")) and self.descriptor.family not in edit_families:
+            raise ValueError("img2img/inpainting is currently supported only for SDXL, FLUX, and FLUX.2 models")
+        if params.get("control_image"):
+            if self.descriptor.family is not ModelFamily.SDXL:
+                raise ValueError("ControlNet is currently supported only for SDXL models")
+            if params.get("init_image") or params.get("mask_image"):
+                raise ValueError("ControlNet cannot be combined with img2img/inpainting yet")
 
         self._stop = False
         results: list[dict[str, Any]] = []
@@ -205,6 +212,11 @@ class DiffusersImageBackend(
                 "model": self.descriptor.name, "family": self.descriptor.family.value, "stub": True,
                 "acceleration": self._active_features}
         self._add_strength_meta(meta, params, steps)
+        if params.get("control_image"):
+            meta["controlnet"] = {
+                "type": params.get("control_type") or "canny",
+                "scale": self._control_scale(params),
+            }
         lines = [
             f"[STUB] {self.descriptor.name}",
             f"seed={seed}  {width}x{height}  steps={steps}",
@@ -214,6 +226,8 @@ class DiffusersImageBackend(
             lines.append(f"img2img strength={self._effective_strength(params, steps):.2f}")
         if params.get("mask_image"):
             lines.append("inpaint mask: enabled")
+        if params.get("control_image"):
+            lines.append(f"controlnet {params.get('control_type') or 'canny'} scale={self._control_scale(params):.2f}")
         img = imaging.make_placeholder(width, height, lines)
         return self._persist(img, meta, seed, width, height)
 
@@ -246,48 +260,71 @@ class DiffusersImageBackend(
 
         init_token = params.get("init_image")
         mask_token = params.get("mask_image")
+        control_token = params.get("control_image")
         strength = self._effective_strength(params, steps)
+        family = self.descriptor.family
 
         def _run():
             gen = self._runtime().generator(torch, seed)
             self._apply_runtime_loras(params)
+            callback = (
+                _step_cb_flux2
+                if family in (ModelFamily.FLUX2, ModelFamily.QWEN_IMAGE, ModelFamily.Z_IMAGE)
+                else _step_cb
+            )
             common = {
                 "prompt": params.get("prompt", ""),
                 "num_inference_steps": steps,
                 "guidance_scale": self._guidance(params),
                 "generator": gen,
                 "negative_prompt": params.get("negative") or None,
-                "callback_on_step_end": _step_cb,
+                "callback_on_step_end": callback,
             }
+            if family is ModelFamily.FLUX2:
+                common.pop("negative_prompt", None)
+            elif family is ModelFamily.QWEN_IMAGE:
+                common["true_cfg_scale"] = common.pop("guidance_scale")
             with self._generation_context(steps), self._attention_context(torch):
-                if init_token and mask_token:
-                    # Inpainting (SDXL only, guarded in generate()). Reuse the
-                    # loaded pipeline's weights via a SDXL Inpaint view.
+                if control_token:
+                    control = self._load_control_image(control_token, width, height, params.get("control_type"))
+                    out = self._sdxl_controlnet_pipe(torch)(
+                        image=control,
+                        width=width,
+                        height=height,
+                        controlnet_conditioning_scale=self._control_scale(params),
+                        **common,
+                    )
+                elif init_token and mask_token:
                     src = self._load_init_image(init_token, width, height)
                     mask = self._load_mask_image(mask_token, width, height)
-                    out = self._sdxl_inpaint_pipe()(
-                        image=src, mask_image=mask, strength=strength, **common
-                    )
+                    if family is ModelFamily.SDXL:
+                        out = self._sdxl_inpaint_pipe()(image=src, mask_image=mask, strength=strength, **common)
+                    elif family is ModelFamily.FLUX:
+                        out = self._flux_inpaint_pipe()(
+                            image=src, mask_image=mask, width=width, height=height, strength=strength, **common
+                        )
+                    else:
+                        out = self._flux2_inpaint_pipe()(
+                            image=src, mask_image=mask, width=width, height=height, strength=strength, **common
+                        )
                 elif init_token:
-                    # img2img (SDXL only, guarded in generate()). Reuse the loaded
-                    # pipeline's weights via a SDXL Img2Img view (no extra VRAM).
                     src = self._load_init_image(init_token, width, height)
-                    out = self._sdxl_img2img_pipe()(
-                        image=src, strength=strength, **common
-                    )
+                    if family is ModelFamily.SDXL:
+                        out = self._sdxl_img2img_pipe()(image=src, strength=strength, **common)
+                    elif family is ModelFamily.FLUX:
+                        out = self._flux_img2img_pipe()(
+                            image=src, width=width, height=height, strength=strength, **common
+                        )
+                    else:
+                        # FLUX.2 klein's pipeline accepts a source/reference
+                        # image but does not expose a denoise-strength knob.
+                        out = self._pipe(image=src, width=width, height=height, **common)
                 else:
                     call_kwargs = {
                         **common,
                         "width": width,
                         "height": height,
-                        "callback_on_step_end": _step_cb_flux2
-                        if self.descriptor.family in (ModelFamily.FLUX2, ModelFamily.QWEN_IMAGE, ModelFamily.Z_IMAGE)
-                        else _step_cb,
                     }
-                    if self.descriptor.family is ModelFamily.FLUX2:
-                        call_kwargs.pop("negative_prompt", None)
-                    elif self.descriptor.family is ModelFamily.QWEN_IMAGE:
-                        call_kwargs["true_cfg_scale"] = call_kwargs.pop("guidance_scale")
                     out = self._pipe(**call_kwargs)
             return out.images[0]
 
@@ -299,6 +336,11 @@ class DiffusersImageBackend(
         self._add_strength_meta(meta, params, steps)
         if mask_token:
             meta["inpaint"] = True
+        if control_token:
+            meta["controlnet"] = {
+                "type": params.get("control_type") or "canny",
+                "scale": self._control_scale(params),
+            }
         return self._persist(img, meta, seed, width, height)
 
     @staticmethod
@@ -349,6 +391,31 @@ class DiffusersImageBackend(
         if path is None or not path.exists():
             raise ValueError("inpainting mask not found (re-upload it)")
         return PILImage.open(path).convert("L").resize((width, height))
+
+    @staticmethod
+    def _control_scale(params: dict[str, Any]) -> float:
+        try:
+            value = float(params.get("control_scale", settings.sdxl_controlnet_default_scale))
+        except (TypeError, ValueError):
+            value = settings.sdxl_controlnet_default_scale
+        return max(0.0, min(2.0, value))
+
+    def _load_control_image(self, token: str, width: int, height: int, control_type: Any):
+        from PIL import Image as PILImage  # noqa: PLC0415
+        from PIL import ImageFilter, ImageOps  # noqa: PLC0415
+
+        from ..util import uploads as uploads_util  # noqa: PLC0415
+
+        control = str(control_type or "canny").lower().strip()
+        if control != "canny":
+            raise ValueError("only canny ControlNet is supported")
+        path = uploads_util.resolve_upload(token)
+        if path is None or not path.exists():
+            raise ValueError("ControlNet source image not found (re-upload it)")
+        img = PILImage.open(path).convert("RGB").resize((width, height))
+        edges = ImageOps.grayscale(img).filter(ImageFilter.FIND_EDGES)
+        edges = ImageOps.autocontrast(edges)
+        return PILImage.merge("RGB", (edges, edges, edges))
 
 
 

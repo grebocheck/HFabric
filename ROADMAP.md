@@ -93,19 +93,20 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ### P19 — Generation features (growth — after the foundation)
 
-- [ ] **P19.1 — FLUX / FLUX.2 img2img + inpaint.** Wire both families through the
-  existing `init_image`/`mask_image` plumbing (currently SDXL-only); validate on
-  hardware; respect the klein 768² pin.
-- [ ] **P19.2 — Upscaler as an arbiter job.** Real-ESRGAN/SwinIR behind a new job
-  type loaded through the arbiter; "Upscale 2×/4×" on `ResultPreview` + History.
-- [ ] **P19.3 — ControlNet for SDXL.** One vetted ControlNet (canny or depth) as an
-  optional composer input, with VRAM cost measured into the model profile first.
-- [x] **P19.4 — Prompt library.** DB-backed `prompt_snippets` (name, body, negative,
-  tags) via `/api/prompts` (CRUD + search + JSON import); a `PromptLibrary` modal in
-  the image composer browses/searches, saves the current prompt, inserts a snippet
-  back into the prompt/negative fields, and exports/imports JSON. Backend + UI
-  unit-tested. *Remaining:* the same trigger in the chat `/image` composer (thin
-  follow-up; ChatPanel split P17.3 is the natural time).
+- [x] **P19.1 — FLUX / FLUX.2 img2img + inpaint.** `init_image`/`mask_image`
+  now route through FLUX and FLUX.2 pipeline views as well as SDXL. Hardware
+  smoke passed on RTX 5070 Ti: FLUX nunchaku img2img+inpaint at 512², FLUX.2
+  klein nunchaku img2img+inpaint at the 768² pin.
+- [x] **P19.2 — Upscaler as an arbiter job.** Added `upscale` job type,
+  virtual upscaler model, worker branch, gallery persistence, and "Upscale
+  2×/4×" actions in Result + History. Real-ESRGAN is an optional fast path when
+  installed with weights; PIL resize keeps the queue/UI flow testable by default.
+- [x] **P19.3 — ControlNet for SDXL.** Added optional SDXL canny ControlNet
+  composer input, backend canny preprocessing, lazy ControlNet pipeline view,
+  and model-profile refresh after lazy ControlNet load records the VRAM cost.
+- [x] **P19.4 — Prompt library.** DB-backed `prompt_snippets` plus image
+  composer modal remain in place; chat now has the same library trigger for
+  `/image` prompts, including snippet negative text via `--negative`.
 
 ---
 

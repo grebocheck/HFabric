@@ -104,6 +104,7 @@ const FAMILY_LABELS: Record<ModelFamily, string> = {
   "z-image": "Z-Image",
   sdxl: "SDXL",
   gguf: "GGUF",
+  upscaler: "Upscaler",
   unknown: "Unknown",
 };
 

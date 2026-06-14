@@ -39,10 +39,12 @@ export function Gallery({
   models,
   reloadSignal,
   onReproduce,
+  onUpscale,
 }: {
   models: Model[];
   reloadSignal: number;
   onReproduce: (image: ImageItem, opts: { keepSeed: boolean }) => void;
+  onUpscale: (image: ImageItem, scale: 2 | 4) => void;
 }) {
   // `applied` is what actually drives fetching; `query` is the live input box.
   const [query, setQuery] = useState("");
@@ -379,6 +381,7 @@ export function Gallery({
           models={models}
           onClose={() => setOpenId(null)}
           onReproduce={onReproduce}
+          onUpscale={onUpscale}
           onUpdate={handleImageUpdate}
           onDelete={() => void removeOne(open.id)}
         />

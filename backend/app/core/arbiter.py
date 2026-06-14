@@ -80,6 +80,9 @@ class GpuArbiter:
                 await self._unload_warm(backend)
             await self._publish_status()
 
+    async def record_profile(self, backend: GpuBackend) -> None:
+        await self._record_profile(backend)
+
     async def _unload_current(
         self, *, allow_keep_warm: bool = False, incoming: GpuBackend | None = None
     ) -> None:

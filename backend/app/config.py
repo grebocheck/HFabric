@@ -316,6 +316,18 @@ class Settings(BaseSettings):
     # (low = keep more of the source, high = follow the prompt more freely).
     image_upload_max_mb: int = 24
     img2img_default_strength: float = 0.6
+    # P19.3: optional SDXL ControlNet. Canny is the first vetted control type;
+    # the repo id can point to a local folder if you want zero network access.
+    sdxl_controlnet_canny_repo: str | None = "diffusers/controlnet-canny-sdxl-1.0"
+    sdxl_controlnet_default_scale: float = 0.75
+
+    # --- upscaler (P19.2) ---
+    # A virtual arbiter resident. If Real-ESRGAN is installed and the weight file
+    # exists, the backend uses it; otherwise it falls back to deterministic PIL
+    # resizing so the queue/history flow remains available in STUB/dev setups.
+    upscaler_model_id: str = "upscaler-realesrgan-x4plus"
+    upscaler_model_name: str = "Real-ESRGAN x4plus"
+    upscaler_model_path: Path = ROOT / "models" / "image" / "upscale" / "RealESRGAN_x4plus.pth"
 
     # --- image generation defaults ---
     default_steps: int = 28

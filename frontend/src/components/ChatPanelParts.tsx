@@ -72,6 +72,7 @@ export function MessageComposer({
   onKeyDown,
   onRegenerate,
   onSend,
+  onPromptLibrary,
   onStop,
   personas,
   personasLoading,
@@ -100,6 +101,7 @@ export function MessageComposer({
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onRegenerate: () => void;
   onSend: () => void;
+  onPromptLibrary: () => void;
   onStop: () => void;
   personas: Preset[];
   personasLoading: boolean;
@@ -184,6 +186,13 @@ export function MessageComposer({
           {stats && <span className="ml-2 text-white/30">{stats.tps.toFixed(1)} tok/s / TTFT {Math.round(stats.ttft)}ms</span>}
         </span>
         <div className="flex items-center gap-2">
+          <button
+            onClick={onPromptLibrary}
+            disabled={busy}
+            className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/10 disabled:opacity-30"
+          >
+            Library
+          </button>
           <button
             onClick={onRegenerate}
             disabled={busy || !messages.some((message) => message.role === "assistant")}

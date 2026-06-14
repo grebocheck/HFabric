@@ -17,6 +17,7 @@ from .base import GpuBackend, LoraDescriptor, ModelDescriptor
 from .image_diffusers import DiffusersImageBackend
 from .inspect import classify_diffusers_dir, classify_image_model, classify_lora_model
 from .llm_llamacpp import LlamaCppBackend
+from .upscaler import ImageUpscalerBackend
 
 LORA_EXTENSIONS = {".safetensors", ".pt", ".bin"}
 
@@ -116,6 +117,7 @@ class ModelRegistry:
             self._add(sub, family, quant=quant)
         for path in sorted(settings.llm_models_dir.glob("*.gguf")):
             self._add(path, ModelFamily.GGUF)
+        self._add_upscaler()
         for root in self._lora_scan_roots():
             if not root.exists():
                 continue
@@ -153,6 +155,17 @@ class ModelRegistry:
         size = self._path_size(path)
         self._descriptors[mid] = ModelDescriptor(
             id=mid, name=path.stem, family=family, path=path, size_bytes=size, quant=quant
+        )
+
+    def _add_upscaler(self) -> None:
+        path = settings.upscaler_model_path
+        size = self._path_size(path) if path.exists() else 0
+        self._descriptors[settings.upscaler_model_id] = ModelDescriptor(
+            id=settings.upscaler_model_id,
+            name=settings.upscaler_model_name,
+            family=ModelFamily.UPSCALER,
+            path=path,
+            size_bytes=size,
         )
 
     def _add_lora(self, path: Path) -> None:
@@ -199,6 +212,8 @@ class ModelRegistry:
         backend: GpuBackend
         if desc.family is ModelFamily.GGUF:
             backend = LlamaCppBackend(desc)
+        elif desc.family is ModelFamily.UPSCALER:
+            backend = ImageUpscalerBackend(desc)
         else:
             backend = DiffusersImageBackend(desc)
         self._backends[model_id] = backend

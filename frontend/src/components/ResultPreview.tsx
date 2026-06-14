@@ -9,11 +9,13 @@ export function ResultPreview({
   images,
   onOpenHistory,
   onReproduce,
+  onUpscale,
   generating = false,
 }: {
   images: ImageItem[];
   onOpenHistory: () => void;
   onReproduce?: (image: ImageItem, opts: { keepSeed: boolean }) => void;
+  onUpscale?: (image: ImageItem, scale: 2 | 4) => void;
   generating?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -142,6 +144,20 @@ export function ResultPreview({
               className={`${actionBtn} disabled:opacity-30`}
             >
               Vary
+            </button>
+            <button
+              onClick={() => selected && onUpscale?.(selected, 2)}
+              disabled={!selected || !onUpscale}
+              className={`${actionBtn} disabled:opacity-30`}
+            >
+              Upscale 2x
+            </button>
+            <button
+              onClick={() => selected && onUpscale?.(selected, 4)}
+              disabled={!selected || !onUpscale}
+              className={`${actionBtn} disabled:opacity-30`}
+            >
+              4x
             </button>
             <button onClick={reveal} disabled={!selected} className={`${actionBtn} disabled:opacity-30`}>Folder</button>
             {selected ? (

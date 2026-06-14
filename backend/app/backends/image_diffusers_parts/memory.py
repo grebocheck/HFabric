@@ -79,6 +79,8 @@ class DiffusersMemoryMixin:
         self._pipe = None
         self._img2img_pipe = None  # shares _pipe's weights; drop the view too
         self._inpaint_pipe = None
+        self._controlnet_pipe = None
+        self._controlnet_model = None
         gc.collect()
         self._runtime().empty_cache(torch)
 
@@ -86,6 +88,8 @@ class DiffusersMemoryMixin:
         self._pipe = None
         self._img2img_pipe = None
         self._inpaint_pipe = None
+        self._controlnet_pipe = None
+        self._controlnet_model = None
         self._loaded = False
         self._warm = False
         self._active_features = {}

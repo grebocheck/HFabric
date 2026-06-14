@@ -8,6 +8,7 @@ from enum import Enum
 class JobType(str, Enum):
     LLM = "llm"
     IMAGE = "image"
+    UPSCALE = "upscale"
 
 
 class JobStatus(str, Enum):
@@ -25,11 +26,16 @@ class ModelFamily(str, Enum):
     Z_IMAGE = "z-image"
     SDXL = "sdxl"
     GGUF = "gguf"
+    UPSCALER = "upscaler"
     UNKNOWN = "unknown"
 
     @property
     def job_type(self) -> JobType:
-        return JobType.LLM if self is ModelFamily.GGUF else JobType.IMAGE
+        if self is ModelFamily.GGUF:
+            return JobType.LLM
+        if self is ModelFamily.UPSCALER:
+            return JobType.UPSCALE
+        return JobType.IMAGE
 
 
 class EventType(str, Enum):

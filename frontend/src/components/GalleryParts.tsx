@@ -7,7 +7,10 @@ import type { ImageItem, Model } from "../types";
 const FAMILY_LABELS: Record<string, string> = {
   flux: "FLUX",
   flux2: "FLUX.2",
+  "qwen-image": "Qwen-Image",
+  "z-image": "Z-Image",
   sdxl: "SDXL",
+  upscaler: "Upscaler",
   unknown: "Unknown",
 };
 
@@ -25,6 +28,7 @@ export function DetailModal({
   models,
   onClose,
   onReproduce,
+  onUpscale,
   onUpdate,
   onDelete,
 }: {
@@ -32,6 +36,7 @@ export function DetailModal({
   models: Model[];
   onClose: () => void;
   onReproduce: (image: ImageItem, opts: { keepSeed: boolean }) => void;
+  onUpscale: (image: ImageItem, scale: 2 | 4) => void;
   onUpdate: (image: ImageItem) => void;
   onDelete: () => void;
 }) {
@@ -122,6 +127,12 @@ export function DetailModal({
             </button>
             <button onClick={() => onReproduce(image, { keepSeed: false })} className={actionBtn}>
               Variation
+            </button>
+            <button onClick={() => onUpscale(image, 2)} className={actionBtn}>
+              Upscale 2x
+            </button>
+            <button onClick={() => onUpscale(image, 4)} className={actionBtn}>
+              Upscale 4x
             </button>
           </div>
 

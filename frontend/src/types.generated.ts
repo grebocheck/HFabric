@@ -1870,7 +1870,7 @@ export interface components {
          * JobType
          * @enum {string}
          */
-        JobType: "llm" | "image";
+        JobType: "llm" | "image" | "upscale";
         /** LlmConfigUpdate */
         LlmConfigUpdate: {
             /** Backend */
@@ -1934,7 +1934,7 @@ export interface components {
          * ModelFamily
          * @enum {string}
          */
-        ModelFamily: "flux" | "flux2" | "qwen-image" | "z-image" | "sdxl" | "gguf" | "unknown";
+        ModelFamily: "flux" | "flux2" | "qwen-image" | "z-image" | "sdxl" | "gguf" | "upscaler" | "unknown";
         /** ModelOut */
         ModelOut: {
             /**

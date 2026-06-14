@@ -158,6 +158,8 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("default_height", "Height", "image_defaults", "integer", minimum=256, maximum=2048, step=64, multiple_of=64),
     SettingSpec("img2img_default_strength", "img2img strength", "image_defaults", "number", minimum=0, maximum=1, step=0.01),
     SettingSpec("image_upload_max_mb", "Image upload MB", "image_defaults", "integer", minimum=1, maximum=2048, step=1),
+    SettingSpec("sdxl_controlnet_canny_repo", "SDXL ControlNet canny", "image_defaults", "text", "Local folder or Hugging Face repo id.", nullable=True, restart_required=True),
+    SettingSpec("sdxl_controlnet_default_scale", "ControlNet scale", "image_defaults", "number", minimum=0, maximum=2, step=0.05),
 
     # Family defaults
     SettingSpec("flux2_quant", "FLUX.2 quant", "family_defaults", "choice", choices=_choices(("bnb-nf4", "bnb-fp4", "none"))),
@@ -251,6 +253,9 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("qwen_image_nunchaku_text_encoder_quant", "Qwen text encoder quant", "sources", "choice", choices=_choices(("bnb-nf4", "bnb-fp4", "none"))),
     SettingSpec("z_image_base_repo", "Z-Image base repo", "sources", "path", restart_required=True),
     SettingSpec("z_image_nunchaku_offload", "Z-Image nunchaku offload", "sources", "choice", choices=_choices(("model", "none"))),
+    SettingSpec("upscaler_model_id", "Upscaler model id", "sources", "text", restart_required=True),
+    SettingSpec("upscaler_model_name", "Upscaler model name", "sources", "text", restart_required=True),
+    SettingSpec("upscaler_model_path", "Upscaler weights", "sources", "path", restart_required=True),
 )
 
 SPEC_BY_KEY = {spec.key: spec for spec in SPECS}

@@ -183,10 +183,10 @@ export default function App() {
           break;
         case "job.done":
           refreshJobs();
-          if (e.job_type === "image") {
+          if (e.job_type === "image" || e.job_type === "upscale") {
             refreshImages();
             setImageEpoch((n) => n + 1);
-            toast.success("Image ready", { onClick: () => setView("history") });
+            toast.success(e.job_type === "upscale" ? "Upscale ready" : "Image ready", { onClick: () => setView("history") });
           }
           break;
         case "image.ready":
@@ -262,6 +262,24 @@ export default function App() {
     [models],
   );
 
+  const onUpscale = useCallback(
+    async (image: ImageItem, scale: 2 | 4) => {
+      const upscaler = models.find((model) => model.job_type === "upscale" && model.available);
+      if (!upscaler) {
+        toast.error("No upscaler model is available");
+        return;
+      }
+      try {
+        await api.createJobs([{ type: "upscale", model_id: upscaler.id, params: { image_id: image.id, scale } }]);
+        refreshJobs();
+        toast.success(`Queued upscale ${scale}x`);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not queue upscale");
+      }
+    },
+    [models, refreshJobs],
+  );
+
   // remember the last active tab
   useEffect(() => { localStorage.setItem("hfabric.view", view); }, [view]);
   useEffect(() => {
@@ -286,7 +304,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const imageJobs = jobs.filter((j) => j.type === "image");
+  const imageJobs = jobs.filter((j) => j.type === "image" || j.type === "upscale");
   const busy = jobs.some((j) => j.status === "running");
   // Changes whenever the pending queue changes, so the System tab can refetch
   // the swap-plan preview without polling.
@@ -321,6 +339,7 @@ export default function App() {
             images={images}
             onOpenHistory={() => setView("history")}
             onReproduce={onReproduce}
+            onUpscale={onUpscale}
             generating={imageJobs.some((j) => j.status === "running")}
           />
           <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />
@@ -332,7 +351,7 @@ export default function App() {
       label: "History",
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
-          <Gallery models={models} reloadSignal={imageEpoch} onReproduce={onReproduce} />
+          <Gallery models={models} reloadSignal={imageEpoch} onReproduce={onReproduce} onUpscale={onUpscale} />
         </main>
       ),
     },

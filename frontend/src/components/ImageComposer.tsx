@@ -4,7 +4,7 @@ import { ModelPicker } from "./ModelPicker";
 import { PromptLibrary } from "./PromptLibrary";
 import { Select, type SelectOption } from "./Select";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
-import { ImageParamForm, LoraCard, Notice, SourceImageBlock } from "./ImageComposerParts";
+import { ControlNetBlock, ImageParamForm, LoraCard, Notice, SourceImageBlock } from "./ImageComposerParts";
 import type { ComposerApply, Lora, Model, Preset } from "../types";
 import {
   DEFAULT_GUIDANCE,
@@ -97,13 +97,19 @@ export function ImageComposer({
 
   const selectedImgModel = imgModels.find((m) => m.id === imgModel);
   const selectedFamily = selectedImgModel?.family;
-  // img2img source (P13.4) — transient, not persisted. Only SDXL is wired so far.
+  // img2img/control inputs are transient and not persisted.
   const [initImage, setInitImage] = useState<{ token: string; url: string } | null>(null);
   const [maskDraft, setMaskDraft] = useState<File | null>(null);
   const [strength, setStrength] = useState(0.6);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const img2imgSupported = selectedFamily === "sdxl";
+  const [controlImage, setControlImage] = useState<{ token: string; url: string } | null>(null);
+  const [controlEnabled, setControlEnabled] = useState(true);
+  const [controlScale, setControlScale] = useState(0.75);
+  const [controlBusy, setControlBusy] = useState(false);
+  const [controlError, setControlError] = useState("");
+  const img2imgSupported = selectedFamily === "sdxl" || selectedFamily === "flux" || selectedFamily === "flux2";
+  const controlSupported = selectedFamily === "sdxl";
   const imagePresets = presets.filter((p) => p.type === "image");
   const compatibleLoras = loras
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
@@ -164,6 +170,7 @@ export function ImageComposer({
   }, [selectedFamily]);
 
   const useImg2img = img2imgSupported && initImage !== null;
+  const useControlNet = controlSupported && !useImg2img && controlEnabled && controlImage !== null;
   const imageParams = (maskToken?: string) => ({
     prompt: promptDraft.trim(),
     negative: negative.trim() || undefined,
@@ -177,6 +184,9 @@ export function ImageComposer({
     init_image: useImg2img ? initImage!.token : undefined,
     mask_image: useImg2img && maskToken ? maskToken : undefined,
     strength: useImg2img ? strength : undefined,
+    control_image: useControlNet ? controlImage!.token : undefined,
+    control_type: useControlNet ? "canny" : undefined,
+    control_scale: useControlNet ? controlScale : undefined,
   });
 
   const rememberPrompt = useCallback((content: string) => {
@@ -219,6 +229,24 @@ export function ImageComposer({
       setUploadError("upload failed");
     } finally {
       setUploadBusy(false);
+    }
+  };
+
+  const onPickControlImage = async (file: File | null | undefined) => {
+    if (!file) return;
+    setControlError("");
+    setControlBusy(true);
+    try {
+      const res = await api.uploadInitImage(file);
+      setControlImage({ token: res.init_image, url: res.url });
+      setControlEnabled(true);
+      const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
+      setWidth(round64(res.width));
+      setHeight(round64(res.height));
+    } catch {
+      setControlError("control upload failed");
+    } finally {
+      setControlBusy(false);
     }
   };
 
@@ -487,6 +515,23 @@ export function ImageComposer({
             strength={strength}
             uploadBusy={uploadBusy}
             uploadError={uploadError}
+          />
+        ) : null}
+
+        {controlSupported ? (
+          <ControlNetBlock
+            controlImage={controlImage}
+            controlScale={controlScale}
+            disabled={useImg2img}
+            enabled={controlEnabled}
+            labelClass={label}
+            onClear={() => setControlImage(null)}
+            onPickControlImage={(file) => void onPickControlImage(file)}
+            sectionClass={section}
+            setControlScale={setControlScale}
+            setEnabled={setControlEnabled}
+            uploadBusy={controlBusy}
+            uploadError={controlError}
           />
         ) : null}
 

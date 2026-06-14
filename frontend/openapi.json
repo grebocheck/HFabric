@@ -1276,7 +1276,8 @@
       "JobType": {
         "enum": [
           "llm",
-          "image"
+          "image",
+          "upscale"
         ],
         "title": "JobType",
         "type": "string"
@@ -1453,6 +1454,7 @@
           "z-image",
           "sdxl",
           "gguf",
+          "upscaler",
           "unknown"
         ],
         "title": "ModelFamily",
@@ -3359,7 +3361,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "pattern": "^(flux|flux2|qwen-image|z-image|sdxl|unknown)$",
+                  "pattern": "^(flux|flux2|qwen-image|z-image|sdxl|upscaler|unknown)$",
                   "type": "string"
                 },
                 {

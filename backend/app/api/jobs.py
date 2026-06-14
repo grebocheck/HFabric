@@ -15,7 +15,7 @@ from ..core.enums import EventType, JobStatus, JobType
 from ..core.events import EventBus
 from ..core.scheduler import Worker, plan_queue
 from ..schemas import JobCreate, JobOut, PriorityUpdate
-from ..services import model_compatibility, prompt_service, queue_service
+from ..services import gallery_service, model_compatibility, prompt_service, queue_service
 from .deps import get_arbiter, get_bus, get_registry, get_session, get_worker
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -84,6 +84,35 @@ def _normalize_loras(registry: ModelRegistry, desc: ModelDescriptor, payload: Jo
     payload.params = params
 
 
+async def _normalize_upscale_source(session: AsyncSession, payload: JobCreate) -> None:
+    if payload.type is not JobType.UPSCALE:
+        return
+    image_id = payload.params.get("image_id")
+    if not isinstance(image_id, str) or not image_id:
+        raise HTTPException(400, "params.image_id is required for upscale jobs")
+    image = await gallery_service.get_image(session, image_id)
+    if image is None:
+        raise HTTPException(404, f"unknown image_id: {image_id}")
+    scale = payload.params.get("scale", 2)
+    try:
+        scale = int(scale)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "params.scale must be 2 or 4")
+    if scale not in (2, 4):
+        raise HTTPException(400, "params.scale must be 2 or 4")
+    params = dict(payload.params)
+    params.update(
+        {
+            "image_id": image.id,
+            "scale": scale,
+            "_source_path": image.path,
+            "source_width": image.width,
+            "source_height": image.height,
+        }
+    )
+    payload.params = params
+
+
 @router.post("", response_model=list[JobOut])
 async def create_jobs(
     payloads: list[JobCreate],
@@ -99,6 +128,7 @@ async def create_jobs(
     for payload in payloads:
         desc = _validate_model(registry, payload)
         _normalize_loras(registry, desc, payload)
+        await _normalize_upscale_source(session, payload)
         job = await queue_service.create_job(session, payload)
         created.append(job)
     await session.commit()

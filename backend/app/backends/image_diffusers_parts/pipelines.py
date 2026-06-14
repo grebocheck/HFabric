@@ -289,3 +289,54 @@ class DiffusersPipelineMixin:
 
             self._inpaint_pipe = StableDiffusionXLInpaintPipeline(**self._pipe.components)
         return self._inpaint_pipe
+
+    def _flux_img2img_pipe(self):
+        if self._img2img_pipe is None:
+            from diffusers import FluxImg2ImgPipeline  # noqa: PLC0415
+
+            self._img2img_pipe = FluxImg2ImgPipeline(**self._pipe.components)
+        return self._img2img_pipe
+
+    def _flux_inpaint_pipe(self):
+        if self._inpaint_pipe is None:
+            from diffusers import FluxInpaintPipeline  # noqa: PLC0415
+
+            self._inpaint_pipe = FluxInpaintPipeline(**self._pipe.components)
+        return self._inpaint_pipe
+
+    def _flux2_inpaint_pipe(self):
+        if self._inpaint_pipe is None:
+            from diffusers import Flux2KleinInpaintPipeline  # noqa: PLC0415
+
+            self._inpaint_pipe = Flux2KleinInpaintPipeline(**self._pipe.components)
+        return self._inpaint_pipe
+
+    def _sdxl_controlnet_pipe(self, torch):
+        if self._controlnet_pipe is None:
+            repo = settings.sdxl_controlnet_canny_repo
+            if not repo:
+                raise RuntimeError("SDXL ControlNet canny repo is not configured.")
+            from diffusers import ControlNetModel, StableDiffusionXLControlNetPipeline  # noqa: PLC0415
+
+            dtype = getattr(getattr(self._pipe, "unet", None), "dtype", torch.float16)
+            before = self._memory_snapshot(torch)
+            controlnet = ControlNetModel.from_pretrained(repo, torch_dtype=dtype)
+            self._runtime().move(controlnet)
+            components = dict(self._pipe.components)
+            components["controlnet"] = controlnet
+            self._controlnet_model = controlnet
+            self._controlnet_pipe = StableDiffusionXLControlNetPipeline(**components)
+            after = self._memory_snapshot(torch)
+            feature = {
+                "type": "canny",
+                "repo": repo,
+                "memory": {
+                    "before": before.get(self._runtime().memory_key),
+                    "after": after.get(self._runtime().memory_key),
+                },
+            }
+            self._active_features["sdxl_controlnet"] = feature
+            if isinstance(self._load_report, dict):
+                self._load_report.setdefault("acceleration", {})["sdxl_controlnet"] = feature
+                self._load_report.setdefault("memory", {})["end"] = after
+        return self._controlnet_pipe

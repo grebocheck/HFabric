@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
 import { ModelPicker } from "./ModelPicker";
+import { PromptLibrary } from "./PromptLibrary";
 import { Select } from "./Select";
 import { Toggle } from "./Toggle";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
@@ -44,6 +45,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const [editText, setEditText] = useState("");
   const [convQuery, setConvQuery] = useState("");
   const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   // settings (per conversation)
   const [modelId, setModelId] = useState(saved.model_id ?? "");
@@ -255,7 +257,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     }
   }, [beginStream, documentTool, imageTool, modelId, llmModels, models, ragTopK, sampling, setActiveJob, setConvs]);
 
-  const submitImage = useCallback(async (prompt: string, convId: string) => {
+  const submitImage = useCallback(async (prompt: string, convId: string, negative?: string) => {
     const img = pickImageModel(models);
     stickToBottom.current = true;
     if (!img) {
@@ -267,7 +269,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     setMessages((p) => [...p, { id: "tmp-u", role: "user", content: `/image ${prompt}` },
       { id: "tmp-a", role: "assistant", content: "" }]);
     try {
-      const res = await api.sendChatImage(convId, { prompt, model_id: img.id });
+      const res = await api.sendChatImage(convId, { prompt, model_id: img.id, negative });
       setActiveJob(res.job_id);
       setMessages((p) => p.map((m) =>
         m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
@@ -293,9 +295,22 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     setInput("");
     rememberPrompt(content);
     const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
-    if (imgCmd) await submitImage(imgCmd[1].trim(), cid);
+    if (imgCmd) {
+      const parsed = parseImageCommand(imgCmd[1].trim());
+      if (!parsed.prompt) return;
+      await submitImage(parsed.prompt, cid, parsed.negative);
+    }
     else await submit(content, cid);
   }, [input, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage, setConvs, setInput]);
+
+  const applyImagePromptSnippet = useCallback((body: string, negative?: string | null) => {
+    const prompt = body.trim();
+    if (!prompt) return;
+    const neg = negative?.trim();
+    setInput(`/image ${prompt}${neg ? ` --negative ${neg}` : ""}`);
+    setLibraryOpen(false);
+    inputRef.current?.focus();
+  }, [setInput]);
 
   const stop_ = useCallback(async () => {
     await api.stopLlm().catch(() => {});
@@ -559,6 +574,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
           onKeyDown={onKeyDown}
           onRegenerate={() => void regenerate()}
           onSend={() => void send()}
+          onPromptLibrary={() => setLibraryOpen(true)}
           onStop={() => void stop_()}
           personas={personas}
           personasLoading={personasLoading}
@@ -571,6 +587,13 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
           stats={stats}
           visiblePromptHistory={visiblePromptHistory}
           applyPersona={applyPersona}
+        />
+        <PromptLibrary
+          open={libraryOpen}
+          onClose={() => setLibraryOpen(false)}
+          currentPrompt={imagePromptDraft(input)}
+          currentNegative=""
+          onApply={applyImagePromptSnippet}
         />
       </div>
 
@@ -786,6 +809,20 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
       </aside>
     </div>
   );
+}
+
+function parseImageCommand(value: string): { prompt: string; negative?: string } {
+  const match = value.match(/\s--(?:negative|neg)(?:\s+|=)([\s\S]*)$/i);
+  if (!match || match.index == null) return { prompt: value.trim() };
+  return {
+    prompt: value.slice(0, match.index).trim(),
+    negative: match[1].trim() || undefined,
+  };
+}
+
+function imagePromptDraft(input: string): string {
+  const match = input.match(/^\/(?:image|img)\s+([\s\S]+)/i);
+  return match ? parseImageCommand(match[1].trim()).prompt : "";
 }
 
 function NumOpt({ label: l, v, set, step }: { label: string; v: NumOrEmpty; set: (n: NumOrEmpty) => void; step: number }) {

@@ -117,6 +117,14 @@ class ImageBackend(GpuBackend):
         """Return a list of produced image records: ``{path, seed, width, height}``."""
 
 
+class UpscaleBackend(GpuBackend):
+    @abc.abstractmethod
+    async def upscale(
+        self, params: dict[str, Any], progress: ProgressCb
+    ) -> list[dict[str, Any]]:
+        """Return produced upscaled image records in the same shape as images."""
+
+
 class LLMBackend(GpuBackend):
     @abc.abstractmethod
     async def complete(

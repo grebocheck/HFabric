@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from ..backends.base import GenerationCancelled, ImageBackend, LLMBackend
+from ..backends.base import GenerationCancelled, ImageBackend, LLMBackend, UpscaleBackend
 from ..backends.registry import ModelRegistry
 from ..db.models import Image, Job
 from ..db.session import session_scope
@@ -276,6 +276,14 @@ class Worker:
                     await self._mark_cancelled(snap)
                 else:
                     await self._finish_image(snap, records)
+            elif snap.type is JobType.UPSCALE:
+                assert isinstance(backend, UpscaleBackend)
+                records = await backend.upscale(snap.params, progress)
+                if self._cancel_current:
+                    failed = True
+                    await self._mark_cancelled(snap)
+                else:
+                    await self._finish_image(snap, records)
             else:
                 assert isinstance(backend, LLMBackend)
 
@@ -307,6 +315,7 @@ class Worker:
         finally:
             if backend is not None:
                 try:
+                    await self._arbiter.record_profile(backend)
                     cleanup = await backend.after_job(snap.id, snap.params, failed=failed)
                     if cleanup:
                         await self._bus.publish(Event("job.cleanup", job_id=snap.id, **cleanup))

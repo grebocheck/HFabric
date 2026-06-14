@@ -84,6 +84,93 @@ export function SourceImageBlock({
   );
 }
 
+export function ControlNetBlock({
+  controlImage,
+  controlScale,
+  disabled,
+  enabled,
+  labelClass,
+  onClear,
+  onPickControlImage,
+  sectionClass,
+  setControlScale,
+  setEnabled,
+  uploadBusy,
+  uploadError,
+}: {
+  controlImage: { token: string; url: string } | null;
+  controlScale: number;
+  disabled: boolean;
+  enabled: boolean;
+  labelClass: string;
+  onClear: () => void;
+  onPickControlImage: (file: File | null | undefined) => void;
+  sectionClass: string;
+  setControlScale: (value: number) => void;
+  setEnabled: (value: boolean) => void;
+  uploadBusy: boolean;
+  uploadError: string;
+}) {
+  return (
+    <section className={sectionClass}>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className={labelClass}>ControlNet canny</div>
+          <div className="mt-0.5 text-[11px] text-white/35">SDXL edge guidance</div>
+        </div>
+        <Toggle checked={enabled} disabled={disabled || !controlImage} onChange={setEnabled} ariaLabel="Toggle ControlNet" />
+      </div>
+      {controlImage ? (
+        <div className={`mt-1.5 space-y-2 ${disabled ? "opacity-45" : ""}`}>
+          <div className="relative">
+            <img
+              src={controlImage.url}
+              alt="control"
+              className="max-h-32 w-full rounded-md border border-white/10 bg-black/30 object-contain"
+            />
+            <button
+              onClick={onClear}
+              className="absolute right-2 top-2 rounded border border-white/15 bg-black/60 px-2 py-0.5 text-[11px] text-white/65 hover:bg-white/10"
+            >
+              clear
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-white/40">
+            <span>Scale</span>
+            <span className="font-mono text-white/60">{controlScale.toFixed(2)}</span>
+          </div>
+          <Slider value={controlScale} min={0} max={2} step={0.05} onChange={setControlScale} />
+          {disabled ? <p className="text-[11px] text-amber-200/75">Disable img2img/inpaint to use ControlNet.</p> : null}
+        </div>
+      ) : (
+        <label
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            onPickControlImage(event.dataTransfer.files?.[0]);
+          }}
+          className={`mt-1.5 flex cursor-pointer items-center justify-center rounded-md border border-dashed border-white/15 px-3 py-4 text-center text-xs text-white/45 transition hover:border-white/30 hover:text-white/70 ${
+            uploadBusy ? "pointer-events-none opacity-50" : ""
+          }`}
+        >
+          {uploadBusy ? "uploading..." : "drop or click to add an edge source"}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={uploadBusy}
+            onChange={(event) => {
+              onPickControlImage(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      )}
+      {uploadError ? <Notice tone="amber">{uploadError}</Notice> : null}
+    </section>
+  );
+}
+
 export function ImageParamForm({
   activeRatio,
   guidance,
