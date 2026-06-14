@@ -23,6 +23,7 @@ from .api import (
     code,
     gallery,
     jobs,
+    llama,
     llm,
     models,
     notes,
@@ -98,12 +99,25 @@ def _autotune_acceleration(persisted_overrides: set[str]) -> None:
         logger.warning("event=startup.autotune.failed", exc_info=True)
 
 
+def _activate_managed_llama() -> None:
+    """Point settings at the active managed llama.cpp build, if one is installed."""
+    from .services import llama_manager
+
+    try:
+        applied = llama_manager.apply_active_to_settings()
+        if applied:
+            logger.info("event=startup.llama.active %s", {"binaries": applied})
+    except Exception:  # noqa: BLE001 - a bad managed dir must not block startup
+        logger.warning("event=startup.llama.failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     persisted_overrides = settings_overrides.load()
     settings.ensure_dirs()
     _autotune_acceleration(persisted_overrides)
+    _activate_managed_llama()
     configure_file_logging(settings)
     install_unhandled_exception_logging(logger, asyncio.get_running_loop())
     reap_known_pidfiles(logger)
@@ -162,6 +176,7 @@ async def api_token_middleware(request, call_next):
 
 app.include_router(models.router)
 app.include_router(jobs.router)
+app.include_router(llama.router)
 app.include_router(llm.router)
 app.include_router(chat.router)
 app.include_router(code.router)
