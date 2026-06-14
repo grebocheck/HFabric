@@ -104,6 +104,13 @@ def _image_unavailable_reason(
     if backend == "rocm" and quant.startswith("bnb-"):
         return "bitsandbytes-quantized image models are not enabled for the ROCm profile yet."
 
+    if backend == "mps" and desc.family is not ModelFamily.SDXL:
+        return "Apple MPS currently enables SDXL only; larger image families need real-Mac validation first."
+
+    hidden = set((((profile.get("model_policy") or {}).get("image")) or {}).get("hidden") or [])
+    if desc.family.value in hidden:
+        return "This image family is hidden by the active hardware profile."
+
     if backend == "cpu":
         return "Real image model loading requires an accelerator profile; use STUB/CPU-safe mode instead."
 

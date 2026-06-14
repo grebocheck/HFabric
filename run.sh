@@ -151,6 +151,9 @@ print_accelerator_install_hint() {
   if [ "${#hint_packages[@]}" -gt 0 ] && [ -n "$torch_index" ]; then
     printf '%s        "%s" -m pip install %s --index-url %s%s\n' \
       "$C_YELLOW" "$PYBIN" "${hint_packages[*]}" "$torch_index" "$C_RST"
+  elif [ "${#hint_packages[@]}" -gt 0 ]; then
+    printf '%s        "%s" -m pip install %s%s\n' \
+      "$C_YELLOW" "$PYBIN" "${hint_packages[*]}" "$C_RST"
   fi
   while IFS= read -r req; do
     [ -n "$req" ] && printf '%s        "%s" -m pip install -r %s%s\n' "$C_YELLOW" "$PYBIN" "$req" "$C_RST"

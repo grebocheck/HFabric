@@ -1,47 +1,246 @@
-"""Background fetcher for ungated enabler models.
+"""Download a profile-aware starter model set.
 
-Downloads the models that unblock model-gated roadmap items (RAG embeddings, TTS,
-vision) into the right local folders. Gated repos (e.g. FLUX.2 klein) are NOT
-fetched here — they need the user's license acceptance + HF token.
+The installer calls this in ``setup all`` / ``setup.ps1 -DownloadAll`` so a new
+machine gets models that match the selected accelerator profile instead of a
+CUDA-centric grab bag. The pure planning helpers are intentionally separate from
+the network download loop so CI can test the decisions without touching Hugging
+Face.
 
-    python scripts/fetch_models.py
+    python scripts/fetch_models.py --dry-run
+    python scripts/fetch_models.py --profile apple-mps --dry-run
 """
 
 from __future__ import annotations
 
+import argparse
+from dataclasses import dataclass
+import json
 from pathlib import Path
-
-from huggingface_hub import hf_hub_download
+import sys
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
 MODELS = ROOT / "models"
 
-# (repo_id, filename, destination_dir)
-JOBS = [
-    # SDXL turbo validation / optional acceleration
-    ("ByteDance/SDXL-Lightning", "sdxl_lightning_4step_lora.safetensors", MODELS / "lora"),
-    # RAG embeddings (served via llama-server --embeddings)
-    ("nomic-ai/nomic-embed-text-v1.5-GGUF", "nomic-embed-text-v1.5.f16.gguf", MODELS / "embed"),
-    # TTS workspace: OuteTTS model + WavTokenizer vocoder
-    ("OuteAI/OuteTTS-0.2-500M-GGUF", "OuteTTS-0.2-500M-Q8_0.gguf", MODELS / "tts"),
-    ("ggml-org/WavTokenizer", "WavTokenizer-Large-75-F16.gguf", MODELS / "tts"),
-    # Vision (multimodal): Qwen2.5-VL-3B + its mmproj projector
-    ("ggml-org/Qwen2.5-VL-3B-Instruct-GGUF", "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf", MODELS / "vision"),
-    ("ggml-org/Qwen2.5-VL-3B-Instruct-GGUF", "mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf", MODELS / "vision"),
+
+@dataclass(frozen=True)
+class FetchJob:
+    repo: str
+    filename: str
+    dest: Path
+    label: str
+    reason: str
+    profiles: tuple[str, ...] = ("nvidia-cuda", "amd-rocm-linux", "apple-mps")
+    feature: str | None = None
+
+    def as_dict(self) -> dict[str, str]:
+        out = {
+            "repo": self.repo,
+            "filename": self.filename,
+            "dest": str(self.dest.relative_to(ROOT)),
+            "label": self.label,
+            "reason": self.reason,
+        }
+        if self.feature:
+            out["feature"] = self.feature
+        return out
+
+
+STARTER_IMAGE_JOBS = [
+    FetchJob(
+        "ByteDance/SDXL-Lightning",
+        "sdxl_lightning_4step.safetensors",
+        MODELS / "image",
+        "SDXL Lightning 4-step checkpoint",
+        "profile-safe starter image model for CUDA, ROCm, and Apple MPS",
+    ),
+    FetchJob(
+        "nunchaku-tech/nunchaku-flux.1-dev",
+        "svdq-fp4_r32-flux.1-dev.safetensors",
+        MODELS / "image",
+        "FLUX.1 dev Nunchaku fp4",
+        "fast FLUX path when the NVIDIA CUDA/Nunchaku feature is available",
+        profiles=("nvidia-cuda",),
+        feature="nunchaku_cuda",
+    ),
+]
+
+COMMON_JOBS = [
+    FetchJob(
+        "ByteDance/SDXL-Lightning",
+        "sdxl_lightning_4step_lora.safetensors",
+        MODELS / "lora",
+        "SDXL Lightning LoRA",
+        "optional turbo LoRA for SDXL checkpoints",
+    ),
+    FetchJob(
+        "Gron1-ai/Gemma-3-12B-it-Heretic-v2-GGUF",
+        "gemma-3-12b-it-heretic-v2-Q4_K_M.gguf",
+        MODELS / "llm",
+        "Gemma 3 12B GGUF",
+        "starter local chat model for llama.cpp",
+    ),
+    FetchJob(
+        "nomic-ai/nomic-embed-text-v1.5-GGUF",
+        "nomic-embed-text-v1.5.f16.gguf",
+        MODELS / "embed",
+        "Nomic embedding GGUF",
+        "starter RAG embedding model",
+    ),
+    FetchJob(
+        "OuteAI/OuteTTS-0.2-500M-GGUF",
+        "OuteTTS-0.2-500M-Q8_0.gguf",
+        MODELS / "tts",
+        "OuteTTS GGUF",
+        "starter TTS acoustic model",
+    ),
+    FetchJob(
+        "ggml-org/WavTokenizer",
+        "WavTokenizer-Large-75-F16.gguf",
+        MODELS / "tts",
+        "WavTokenizer vocoder",
+        "required vocoder pair for the starter TTS model",
+    ),
+    FetchJob(
+        "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF",
+        "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
+        MODELS / "vision",
+        "Qwen2.5-VL 3B GGUF",
+        "starter local vision model",
+    ),
+    FetchJob(
+        "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF",
+        "mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf",
+        MODELS / "vision",
+        "Qwen2.5-VL projector",
+        "projector file paired with the starter vision model",
+    ),
 ]
 
 
-def main() -> None:
-    for repo, fname, dest in JOBS:
-        dest.mkdir(parents=True, exist_ok=True)
-        print(f"[fetch] {repo}/{fname} -> {dest}", flush=True)
+def synthetic_profile(profile_id: str) -> dict[str, Any]:
+    """Minimal planner-only profile used for cross-device dry-run demos."""
+    optional: list[str] = []
+    if profile_id == "nvidia-cuda":
+        optional = ["nunchaku_cuda"]
+    return {
+        "selected_profile": profile_id,
+        "hardware_tier": "synthetic_dry_run",
+        "optional_features": optional,
+    }
+
+
+def load_profile(profile_id: str | None = None, *, allow_synthetic: bool = False) -> dict[str, Any]:
+    import hardware_probe  # noqa: PLC0415
+    import install_profiles  # noqa: PLC0415
+
+    report = hardware_probe.collect_report(str(ROOT))
+    try:
+        return install_profiles.resolve_profile(report, profile_id)
+    except ValueError:
+        if profile_id and allow_synthetic:
+            return synthetic_profile(profile_id)
+        raise
+
+
+def plan_for_profile(profile: dict[str, Any], *, include_images: bool = True) -> list[FetchJob]:
+    profile_id = str(profile.get("selected_profile") or "cpu-safe")
+    if profile_id == "cpu-safe":
+        return []
+
+    optional = set(profile.get("optional_features") or [])
+    jobs: list[FetchJob] = []
+    if include_images:
+        jobs.extend(_filter_jobs(STARTER_IMAGE_JOBS, profile_id, optional))
+    jobs.extend(_filter_jobs(COMMON_JOBS, profile_id, optional))
+    return _dedupe(jobs)
+
+
+def _filter_jobs(jobs: list[FetchJob], profile_id: str, optional: set[str]) -> list[FetchJob]:
+    selected = []
+    for job in jobs:
+        if profile_id not in job.profiles:
+            continue
+        if job.feature and job.feature not in optional:
+            continue
+        selected.append(job)
+    return selected
+
+
+def _dedupe(jobs: list[FetchJob]) -> list[FetchJob]:
+    out: list[FetchJob] = []
+    seen: set[tuple[str, str, Path]] = set()
+    for job in jobs:
+        key = (job.repo, job.filename, job.dest)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(job)
+    return out
+
+
+def download_jobs(jobs: list[FetchJob]) -> bool:
+    try:
+        from huggingface_hub import hf_hub_download  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        print(f"[fetch] huggingface_hub is not installed: {exc}", flush=True)
+        return False
+
+    ok = True
+    for job in jobs:
+        job.dest.mkdir(parents=True, exist_ok=True)
+        print(f"[fetch] {job.label}: {job.repo}/{job.filename} -> {job.dest}", flush=True)
         try:
-            path = hf_hub_download(repo_id=repo, filename=fname, local_dir=str(dest))
+            path = hf_hub_download(repo_id=job.repo, filename=job.filename, local_dir=str(job.dest))
             print(f"[done]  {path}", flush=True)
         except Exception as exc:  # noqa: BLE001
-            print(f"[FAIL]  {repo}/{fname}: {type(exc).__name__}: {exc}", flush=True)
-    print("[all done]", flush=True)
+            ok = False
+            print(f"[FAIL]  {job.repo}/{job.filename}: {type(exc).__name__}: {exc}", flush=True)
+    print("[all done]" if ok else "[done with failures]", flush=True)
+    return ok
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Download starter models for the detected HFabric profile.")
+    parser.add_argument(
+        "--profile",
+        choices=("nvidia-cuda", "amd-rocm-linux", "apple-mps", "cpu-safe"),
+        help="Force a profile id. With --dry-run this can show a cross-device starter plan.",
+    )
+    parser.add_argument("--no-images", action="store_true", help="Only download LLM/RAG/TTS/Vision enabler models.")
+    parser.add_argument("--dry-run", action="store_true", help="Print the plan without downloading.")
+    parser.add_argument("--json", action="store_true", help="Emit the plan as JSON.")
+    args = parser.parse_args(argv)
+
+    try:
+        profile = load_profile(args.profile, allow_synthetic=args.dry_run)
+    except ValueError as exc:
+        print(f"[fetch] {exc}", file=sys.stderr, flush=True)
+        return 2
+    jobs = plan_for_profile(profile, include_images=not args.no_images)
+    payload = {
+        "profile": profile.get("selected_profile"),
+        "hardware_tier": profile.get("hardware_tier"),
+        "jobs": [job.as_dict() for job in jobs],
+    }
+    if args.json:
+        sys.stdout.write(json.dumps(payload, indent=2) + "\n")
+    else:
+        print(f"[profile] {payload['profile']} ({payload['hardware_tier']})", flush=True)
+        if not jobs:
+            print("[fetch] no real-model downloads for CPU-safe/STUB profile", flush=True)
+        for job in jobs:
+            print(f"[plan] {job.label}: {job.reason}", flush=True)
+    if args.dry_run:
+        return 0
+    if not jobs:
+        return 0
+    return 0 if download_jobs(jobs) else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

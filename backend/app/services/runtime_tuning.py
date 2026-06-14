@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 # Knobs autotune is allowed to adjust. Deliberately excludes torch_compile.
-AUTOTUNE_KEYS = ("attention_backend", "flux_step_cache", "attention_allow_tf32")
+AUTOTUNE_KEYS = ("attention_backend", "flux_step_cache", "attention_allow_tf32", "voice_device")
 
 
 def capability_acceleration(profile: dict[str, Any]) -> dict[str, Any]:
@@ -39,6 +39,11 @@ def capability_acceleration(profile: dict[str, Any]) -> dict[str, Any]:
     # TF32 tensor-core math is an NVIDIA Ampere+ feature; it is meaningless or
     # unsupported on pre-Ampere NVIDIA, ROCm, and CPU, so disable it there.
     desired["attention_allow_tf32"] = ampere_plus
+    # The realtime/native RVC voice path is CUDA-first today. On ROCm, MPS, and
+    # CPU-safe profiles, keep first run usable by sending it to CPU unless the
+    # user explicitly pinned a different device.
+    if backend != "cuda":
+        desired["voice_device"] = "cpu"
     return desired
 
 

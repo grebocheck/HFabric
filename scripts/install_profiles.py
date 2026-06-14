@@ -78,6 +78,25 @@ PROFILE_DEFS: dict[str, dict[str, Any]] = {
         "optional_features": [],
         "disabled_features": ["nunchaku_cuda", "cuda_llama_binaries", "onnxruntime_cuda"],
     },
+    "apple-mps": {
+        "label": "Apple Silicon (MPS)",
+        "torch_index_url": None,
+        "torch_packages": [
+            f"torch=={PYTORCH_VERSION}",
+            f"torchvision=={TORCHVISION_VERSION}",
+            f"torchaudio=={TORCHAUDIO_VERSION}",
+        ],
+        "requirements": ["backend/requirements-mps.txt"],
+        "verify": "import torch; assert torch.backends.mps.is_available(); print('mps', torch.__version__)",
+        "optional_features": ["metal_llama_binaries"],
+        "disabled_features": [
+            "nunchaku_cuda",
+            "cuda_llama_binaries",
+            "onnxruntime_cuda",
+            "realtime_cuda_voice",
+            "blackwell_fast_paths",
+        ],
+    },
     "cpu-safe": {
         "label": "CPU-safe",
         "torch_index_url": "https://download.pytorch.org/whl/cpu",
@@ -144,6 +163,7 @@ def resolve_profile(report: dict[str, Any], prefer: str | None = None) -> dict[s
             "nvidia_compute_capability": "https://developer.nvidia.com/cuda/gpus",
             "amd_rocm_system_requirements": "https://rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html",
             "amd_rocm_pytorch": "https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/3rd-party/pytorch-install.html",
+            "pytorch_mps": "https://pytorch.org/docs/stable/notes/mps.html",
         },
     }
 
@@ -170,15 +190,22 @@ def _candidate_profiles(report: dict[str, Any]) -> list[dict[str, Any]]:
     amd = _best_gpu(gpus, "amd")
     if amd:
         rocm_support = _amd_rocm_support(amd, report)
-        if os_name == "linux" and rocm_support in {"official", "visible"}:
+        if os_name == "linux" and rocm_support in {"official", "community_experimental", "visible"}:
+            warnings = ["CUDA-only acceleration is disabled on ROCm; expect feature parity work to continue."]
+            if rocm_support != "official":
+                warnings.append(
+                    "ROCm sees this AMD target, but it is not in the official support list; treating it as experimental."
+                )
             candidates.append({
                 "id": "amd-rocm-linux",
                 "confidence": "high" if rocm_support == "official" else "medium",
-                "reason": "AMD GPU with ROCm support detected on Linux.",
+                "reason": (
+                    "AMD GPU with official ROCm support detected on Linux."
+                    if rocm_support == "official"
+                    else "AMD GPU is visible to ROCm on Linux; experimental ROCm profile selected."
+                ),
                 "gpu": amd,
-                "warnings": [
-                    "CUDA-only acceleration is disabled on ROCm; expect feature parity work to continue."
-                ],
+                "warnings": warnings,
             })
         elif os_name == "linux":
             candidates.append({
@@ -197,10 +224,32 @@ def _candidate_profiles(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "warnings": ["Windows AMD acceleration is not auto-selected yet; CPU-safe mode is used."],
             })
 
+    apple = _best_gpu(gpus, "apple")
+    machine = str((report.get("os") or {}).get("machine") or "").lower()
+    if os_name == "darwin" and (apple or machine in {"arm64", "aarch64"}):
+        torch_info = report.get("torch") or {}
+        mps_available = bool(torch_info.get("mps_available"))
+        candidates.append({
+            "id": "apple-mps",
+            "confidence": "high" if mps_available else "medium",
+            "reason": (
+                "Apple Silicon detected; PyTorch MPS is the recommended accelerator path."
+            ),
+            "gpu": apple or {
+                "vendor": "apple",
+                "name": "Apple Silicon GPU",
+                "architecture": "apple-silicon",
+                "mps": {"potential": True},
+            },
+            "warnings": [] if mps_available else [
+                "PyTorch MPS visibility will be verified after installing the standard PyPI torch wheels."
+            ],
+        })
+
     if not candidates:
         reason = "No supported GPU accelerator detected."
         if os_name == "darwin":
-            reason = "macOS has no CUDA/ROCm path in this app; using CPU-safe mode."
+            reason = "macOS Intel or non-MPS machine detected; using CPU-safe mode."
         candidates.append({
             "id": "cpu-safe",
             "confidence": "high",
@@ -273,14 +322,16 @@ def _amd_rocm_support(gpu: dict[str, Any], report: dict[str, Any]) -> str:
     support = str(rocm.get("support") or "")
     if support == "official":
         return "official"
+    if support in {"community_experimental", "community_or_unknown"}:
+        return "community_experimental"
     if rocm.get("visible"):
-        return "visible"
+        return "community_experimental"
     global_rocm = report.get("rocm") or {}
     if global_rocm.get("official_targets"):
         return "official"
     if global_rocm.get("llvm_targets"):
-        return "visible"
-    return "not_visible"
+        return "community_experimental"
+    return "unsupported"
 
 
 def hardware_tier(gpu: dict[str, Any] | None) -> str:
@@ -316,6 +367,7 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
         viable = ampere_plus and tier not in {"low_vram", "unknown"}
         defaults.update({
             "backend": "cuda",
+            "torch_device": "cuda",
             "architecture": nvidia_architecture(cap),
             "torch_compile": viable,
             "attention_backend": "auto" if ampere_plus else "math",
@@ -327,6 +379,7 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
     elif profile_id == "amd-rocm-linux":
         defaults.update({
             "backend": "rocm",
+            "torch_device": "cuda",
             "architecture": "rocm",
             "torch_compile": False,
             "attention_backend": "auto",
@@ -334,9 +387,22 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
         })
+    elif profile_id == "apple-mps":
+        defaults.update({
+            "backend": "mps",
+            "torch_device": "mps",
+            "architecture": "apple-silicon",
+            "torch_compile": False,
+            "attention_backend": "math",
+            "allow_nunchaku": False,
+            "flux_step_cache": "off",
+            "blackwell_fast_paths": False,
+            "prefer_cpu_offload": False,
+        })
     else:
         defaults.update({
             "backend": "cpu",
+            "torch_device": "cpu",
             "architecture": "cpu",
             "torch_compile": False,
             "attention_backend": "math",
@@ -400,6 +466,10 @@ def _model_policy(profile_id: str, defaults: dict[str, Any], tier: str) -> dict[
         # CPU-safe/STUB renders placeholders; no real image family is recommended.
         hidden = list(IMAGE_FAMILY_POLICY)
         notes.append("CPU-safe/STUB mode renders placeholder images; real model paths are hidden.")
+    elif backend == "mps":
+        recommended = ["sdxl"]
+        hidden = [family for family in IMAGE_FAMILY_POLICY if family != "sdxl"]
+        notes.append("Apple MPS is conservative: SDXL is enabled; fp4/large image families wait for real-Mac validation.")
     else:
         for family, rule in IMAGE_FAMILY_POLICY.items():
             if rule["needs_nunchaku"] and not allow_nunchaku:
@@ -436,8 +506,13 @@ def _public_gpu(gpu: dict[str, Any] | None) -> dict[str, Any] | None:
         "name": gpu.get("name"),
         "vram_mb": _vram_mb(gpu),
         "compute_capability_tuple": list(cap or ()),
-        "architecture": nvidia_architecture(cap) if str(gpu.get("vendor")).lower() == "nvidia" else None,
+        "architecture": (
+            nvidia_architecture(cap)
+            if str(gpu.get("vendor")).lower() == "nvidia"
+            else gpu.get("architecture")
+        ),
         "rocm": gpu.get("rocm"),
+        "mps": gpu.get("mps"),
     }
 
 

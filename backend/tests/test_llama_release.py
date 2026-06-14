@@ -48,6 +48,15 @@ def test_macos_arm64_picks_macos_arm_build():
     assert result["primary"]["name"] == "llama-b6543-bin-macos-arm64.zip"
 
 
+def test_macos_metal_prefers_metal_build():
+    result = lr.select_assets(
+        assets("llama-b6543-bin-macos-arm64.zip", "llama-b6543-bin-macos-metal-arm64.zip"),
+        system="Darwin", machine="arm64", variant="metal",
+    )
+    assert result["primary"]["name"] == "llama-b6543-bin-macos-metal-arm64.zip"
+    assert result["variant_matched"] is True
+
+
 def test_falls_back_to_cpu_when_no_accelerator_build():
     result = lr.select_assets(
         assets("llama-b6543-bin-win-cpu-x64.zip"),
@@ -71,6 +80,7 @@ def test_backend_to_variant_mapping():
     assert lr.backend_to_variant("cuda", "Windows") == "cuda"
     assert lr.backend_to_variant("rocm", "Windows") == "hip"
     assert lr.backend_to_variant("rocm", "Linux") == "vulkan"
+    assert lr.backend_to_variant("mps", "Darwin") == "metal"
     assert lr.backend_to_variant("cpu", "Linux") == "cpu"
     assert lr.backend_to_variant(None, "Linux") == "cpu"
 

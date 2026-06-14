@@ -50,7 +50,7 @@ def _progress(asset: str, done: int, total: int) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Install a prebuilt llama.cpp build for this machine.")
-    parser.add_argument("--variant", help="cuda | hip | vulkan | cpu (default: auto-detect).")
+    parser.add_argument("--variant", help="cuda | hip | metal | vulkan | cpu (default: auto-detect).")
     parser.add_argument("--tag", help="Specific llama.cpp release tag (default: latest).")
     parser.add_argument("--force", action="store_true", help="Install even if a managed build already exists.")
     args = parser.parse_args(argv)

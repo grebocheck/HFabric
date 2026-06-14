@@ -4,8 +4,8 @@
 #
 #    ./setup.sh            Auto setup (hardware probe -> recommended profile)
 #    ./setup.sh stub       STUB mode only (no GPU/ML stack)
-#    ./setup.sh real       REAL mode: GPU stack (Linux+CUDA) + optional models
-#    ./setup.sh all        REAL mode + download ALL curated models (~80 GB)
+#    ./setup.sh real       REAL mode: accelerator stack + optional models
+#    ./setup.sh all        REAL mode + profile starter models
 #
 #  Flags: --force (rebuild venv/node_modules), --skip-checks, --nunchaku
 #
@@ -173,8 +173,13 @@ if [ "$REAL" -eq 1 ]; then
     [ -n "$package" ] && TORCH_PACKAGES+=("$package")
   done < <(profile_list install.torch.packages)
   echo "  installing PyTorch for $PROFILE_ID..."
-  echo "  index: $TORCH_INDEX"
-  "$PIPBIN" install "${TORCH_PACKAGES[@]}" --index-url "$TORCH_INDEX" >/dev/null
+  if [ -n "$TORCH_INDEX" ]; then
+    echo "  index: $TORCH_INDEX"
+    "$PIPBIN" install "${TORCH_PACKAGES[@]}" --index-url "$TORCH_INDEX" >/dev/null
+  else
+    echo "  index: default PyPI"
+    "$PIPBIN" install "${TORCH_PACKAGES[@]}" >/dev/null
+  fi
   ok "PyTorch installed"
   echo "  verifying torch profile..."
   VERIFY="$(profile_get install.verify)"
@@ -217,20 +222,17 @@ fi
 
 # --- optional model downloads ------------------------------------------------
 if [ "$MODE" = "all" ]; then
-  section "Downloading curated models (~80 GB)"
+  section "Downloading profile starter models"
   "$PIPBIN" install huggingface-hub >/dev/null
-  HF="$VENV/bin/huggingface-cli"
-  read -r -p "  Start model downloads now? (y/N) " dl
-  if [ "${dl:-n}" = "y" ]; then
-    mkdir -p models/image models/llm models/lora models/embed models/vision
-    "$HF" download black-forest-labs/FLUX.1-dev flux_dev.safetensors --local-dir models/image && ok "FLUX.1-dev"
-    "$HF" download ByteDance/SDXL-Lightning sdxl_lightning_4step_lora.safetensors --local-dir models/lora && ok "SDXL Lightning LoRA"
-    "$HF" download Gron1-ai/Gemma-3-12B-it-Heretic-v2-GGUF gemma-3-12b-it-heretic-v2-Q4_K_M.gguf --local-dir models/llm && ok "Gemma 3 12B"
-    "$HF" download nomic-ai/nomic-embed-text-v1.5 nomic-embed-text-v1.5.f16.gguf --local-dir models/embed && ok "Nomic embed"
-    "$HF" download Qwen/Qwen2.5-VL-3B-Instruct Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf --local-dir models/vision && ok "Qwen2.5-VL"
-    ok "All models downloaded to models/"
-  else
-    warn "Model downloads skipped — re-run './setup.sh all' later."
+  ok "huggingface-hub installed"
+  printf '  Downloading the starter model set recommended for %s...\n' "$PROFILE_ID"
+  DOWNLOAD_OK=0
+  if "$PYBIN" scripts/fetch_models.py --profile "$PROFILE_ID"; then
+    ok "Profile starter models downloaded"
+    DOWNLOAD_OK=1
+  fi
+  if [ "$DOWNLOAD_OK" -ne 1 ]; then
+    warn "Some starter model downloads failed; the app will still run, and you can re-run './setup.sh all'."
   fi
 fi
 

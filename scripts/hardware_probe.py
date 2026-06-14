@@ -255,6 +255,22 @@ def probe_lspci() -> list[dict[str, Any]]:
     return gpus
 
 
+def probe_apple_silicon() -> list[dict[str, Any]]:
+    if platform.system().lower() != "darwin":
+        return []
+    machine = platform.machine().lower()
+    if machine not in {"arm64", "aarch64"}:
+        return []
+    return [{
+        "vendor": "apple",
+        "name": "Apple Silicon GPU",
+        "vram_mb": None,
+        "architecture": "apple-silicon",
+        "mps": {"potential": True},
+        "source": "platform",
+    }]
+
+
 def probe_rocm() -> dict[str, Any]:
     targets: list[str] = []
     code, stdout, _stderr = _run(["rocminfo"], timeout=12)
@@ -267,6 +283,11 @@ def probe_rocm() -> dict[str, Any]:
         "rocminfo_found": code == 0,
         "llvm_targets": targets,
         "official_targets": [target for target in targets if target in AMD_OFFICIAL_ROCM_TARGETS],
+        "support": (
+            "official"
+            if any(target in AMD_OFFICIAL_ROCM_TARGETS for target in targets)
+            else ("community_experimental" if targets else "unsupported")
+        ),
     }
 
 
@@ -278,6 +299,7 @@ def probe_torch() -> dict[str, Any]:
 
     devices = []
     cuda_available = False
+    cuda_error = None
     try:
         cuda_available = bool(torch.cuda.is_available())
         count = int(torch.cuda.device_count()) if cuda_available else 0
@@ -295,9 +317,21 @@ def probe_torch() -> dict[str, Any]:
                 "compute_capability_tuple": cap,
             })
     except Exception as exc:
-        return {"installed": True, "version": getattr(torch, "__version__", None), "error": str(exc)}
+        cuda_error = str(exc)
 
-    return {
+    mps_built = False
+    mps_available = False
+    try:
+        mps = getattr(getattr(torch, "backends", None), "mps", None)
+        if mps is not None:
+            is_built = getattr(mps, "is_built", None)
+            is_available = getattr(mps, "is_available", None)
+            mps_built = bool(is_built()) if is_built else False
+            mps_available = bool(is_available()) if is_available else False
+    except Exception:
+        pass
+
+    info = {
         "installed": True,
         "version": getattr(torch, "__version__", None),
         "cuda_available": cuda_available,
@@ -305,7 +339,12 @@ def probe_torch() -> dict[str, Any]:
         "devices": devices,
         "torch_cuda_version": getattr(torch.version, "cuda", None),
         "torch_hip_version": getattr(torch.version, "hip", None),
+        "mps_built": mps_built,
+        "mps_available": mps_available,
     }
+    if cuda_error:
+        info["cuda_error"] = cuda_error
+    return info
 
 
 def _vendor_from_text(value: str) -> str:
@@ -336,11 +375,26 @@ def _attach_rocm(gpus: list[dict[str, Any]], rocm: dict[str, Any]) -> None:
             "visible": bool(targets),
             "llvm_targets": targets,
             "official_targets": official,
-            "support": "official" if official else ("community_or_unknown" if targets else "not_visible"),
+            "support": "official" if official else ("community_experimental" if targets else "unsupported"),
         }
 
 
 def _attach_torch_devices(gpus: list[dict[str, Any]], torch_info: dict[str, Any]) -> None:
+    if torch_info.get("mps_available"):
+        apple = [gpu for gpu in gpus if gpu.get("vendor") == "apple"]
+        if apple:
+            apple[0].setdefault("mps", {})
+            apple[0]["mps"].update({"torch_visible": True, "available": True})
+        else:
+            gpus.append({
+                "vendor": "apple",
+                "name": "Apple Silicon GPU",
+                "vram_mb": None,
+                "architecture": "apple-silicon",
+                "mps": {"torch_visible": True, "available": True},
+                "source": "torch",
+            })
+
     devices = torch_info.get("devices") or []
     if not devices:
         return
@@ -377,6 +431,7 @@ def collect_report(path: str | None = None) -> dict[str, Any]:
     gpus.extend(probe_nvidia_smi())
     gpus.extend(probe_windows_video())
     gpus.extend(probe_lspci())
+    gpus.extend(probe_apple_silicon())
     rocm = probe_rocm()
     torch_info = probe_torch()
     gpus = _merge_gpus(gpus)

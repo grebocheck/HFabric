@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { Panel, SectionTitle, SkeletonRows, StatusPill } from "./WorkspaceChrome";
 import type { CapabilityProfile, ModelFamily } from "../types";
 import {
+  compactModelDest,
   familyLabel,
   formatComputeCapability,
   setupDoctorStatus,
@@ -24,6 +25,7 @@ const FEATURE_LABELS: [string, string][] = [
   ["nunchaku_cuda", "Nunchaku fp4 (FLUX/Qwen/Z)"],
   ["blackwell_fast_paths", "Blackwell-only fast paths"],
   ["cuda_llama_binaries", "CUDA llama.cpp binaries"],
+  ["metal_llama_binaries", "Metal llama.cpp binaries"],
   ["prefer_cpu_offload", "CPU offload (low VRAM)"],
 ];
 
@@ -52,6 +54,7 @@ export function SetupDoctor() {
   const status = setupDoctorStatus(cap);
   const gpu = cap?.primary_gpu;
   const policy = cap?.model_policy;
+  const starter = cap?.starter_models;
 
   return (
     <Panel>
@@ -143,6 +146,34 @@ export function SetupDoctor() {
                     <p key={note} className="text-[11px] text-white/40">{note}</p>
                   ))}
                 </div>
+              </DetailCard>
+            ) : null}
+
+            {starter ? (
+              <DetailCard title="Starter model set">
+                {starter.jobs.length ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-white/40">
+                      <span className="rounded bg-white/8 px-1.5 py-0.5 font-mono text-white/55">{starter.profile}</span>
+                      <span>{starter.jobs.length} files planned</span>
+                    </div>
+                    <div className="grid gap-1.5">
+                      {starter.jobs.map((job) => (
+                        <div key={`${job.repo}/${job.filename}`} className="grid gap-0.5 text-xs md:grid-cols-[220px_minmax(0,1fr)] md:gap-2">
+                          <span className="truncate text-white/70" title={job.label}>{job.label}</span>
+                          <span className="truncate font-mono text-[11px] text-white/35" title={`${job.repo}/${job.filename}`}>
+                            {compactModelDest(job.dest, job.filename)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="truncate font-mono text-[11px] text-white/35" title={starter.dry_run_command}>
+                      {starter.dry_run_command}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-white/40">No real-model downloads for CPU-safe/STUB mode.</div>
+                )}
               </DetailCard>
             ) : null}
 

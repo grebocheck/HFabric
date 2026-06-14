@@ -34,6 +34,21 @@ The backend scans these folders on startup:
 | `vision/` | model `.gguf` + `mmproj*.gguf` | Multimodal models for `llama-mtmd-cli` |
 | `voice/` | RVC checkpoint slots, `pretrain/*.onnx`, `pretrain/*.pt`, optional `pretrain/denoise/*.onnx` | Native RVC voice conversion |
 
+For a first REAL-mode run, prefer the profile-aware starter downloader instead
+of hand-picking CUDA-only models:
+
+```powershell
+python scripts/fetch_models.py --dry-run
+python scripts/fetch_models.py --profile apple-mps --dry-run
+python scripts/fetch_models.py
+```
+
+It downloads SDXL Lightning 4-step into `models/image/` for CUDA, ROCm, and
+Apple Silicon MPS, plus starter GGUFs for chat/RAG/TTS/vision. CUDA profiles
+also get the Nunchaku FLUX fp4 checkpoint when the `nunchaku_cuda` feature is
+available. The `--dry-run --profile ...` form is planner-only, so it can show
+an AMD/MPS plan from another machine without installing or downloading anything.
+
 FLUX.2 klein is a multi-file diffusers repo, not a single `.safetensors`; put the
 downloaded folder under `models/image/`, for example:
 

@@ -1,7 +1,7 @@
 """Image backend built on a custom diffusers pipeline (per the chosen design —
 no ComfyUI). Memory strategy is Forge-style frugal:
 
-* SDXL (~6.6 GB) fits fully in 16 GB VRAM -> load straight to CUDA, fastest path.
+* SDXL (~6.6 GB) fits fully in 16 GB VRAM -> load straight to the active accelerator.
 * FLUX fp8 (~16 GB all-in-one) -> ``enable_model_cpu_offload`` so the text
   encoders / VAE live in RAM and only the transformer holds VRAM during denoise.
 
@@ -24,6 +24,7 @@ from typing import Any
 
 from ..config import settings
 from ..core.enums import ModelFamily
+from ..services import accelerator_runtime
 from ..util import imaging, sysmon
 from .base import GenerationCancelled, ImageBackend, ModelDescriptor, ProgressCb
 
@@ -38,7 +39,8 @@ class DiffusersImageBackend(ImageBackend):
         self._loaded_loras: dict[str, str] = {}
         self._loaded_lora_last_used: dict[str, int] = {}
         self._generation_index = 0
-        self._cuda_allocated_baseline_gb: float | None = None
+        self._accelerator: accelerator_runtime.AcceleratorRuntime | None = None
+        self._accelerator_allocated_baseline_gb: float | None = None
         self._stop = False
 
     def request_stop(self) -> None:
@@ -80,11 +82,15 @@ class DiffusersImageBackend(ImageBackend):
 
         import torch  # noqa: PLC0415  (lazy: only when GPU mode is on)
 
+        self._accelerator = accelerator_runtime.current()
+        self._accelerator.require_available(torch)
+        self._ensure_runtime_support(self._accelerator)
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
         self._active_features = {}
         self._loaded_loras = {}
         self._loaded_lora_last_used = {}
         report: dict[str, Any] = {
+            "accelerator": self._accelerator.public(),
             "acceleration": {},
             "memory": {"start": self._memory_snapshot(torch)},
         }
@@ -126,19 +132,36 @@ class DiffusersImageBackend(ImageBackend):
             pipe.text_encoder_2.to(torch.bfloat16)
             pipe.vae.to(torch.bfloat16)
             pipe.vae.enable_tiling()
-            pipe.enable_model_cpu_offload()  # frugal VRAM: encoders idle in RAM
+            self._runtime().enable_model_cpu_offload(pipe)  # frugal VRAM: encoders idle in RAM
         else:  # SDXL — fits fully in 16 GB, keep resident & fast (~5 s / image)
             from diffusers import StableDiffusionXLPipeline  # noqa: PLC0415
 
             pipe = StableDiffusionXLPipeline.from_single_file(
                 str(self.descriptor.path), torch_dtype=torch.float16
             )
-            pipe = pipe.to("cuda")
+            pipe = self._runtime().move(pipe)
         self._pipe = pipe
         self._apply_acceleration(torch, pipe, report)
         report["memory"]["end"] = self._memory_snapshot(torch)
-        self._remember_cuda_baseline(torch)
+        self._remember_accelerator_baseline(torch)
         self._load_report = report
+
+    def _runtime(self) -> accelerator_runtime.AcceleratorRuntime:
+        if self._accelerator is None:
+            self._accelerator = accelerator_runtime.current()
+        return self._accelerator
+
+    def _ensure_runtime_support(self, runtime: accelerator_runtime.AcceleratorRuntime) -> None:
+        if runtime.cpu:
+            raise RuntimeError("CPU-safe profile cannot load real image models; use STUB mode.")
+        if self._is_nunchaku_quant() and not runtime.cuda_family:
+            raise RuntimeError("Nunchaku image models require the NVIDIA CUDA/Nunchaku profile.")
+        if runtime.backend == "mps" and self.descriptor.family is not ModelFamily.SDXL:
+            raise RuntimeError("Apple MPS image loading is currently enabled only for SDXL models.")
+        if runtime.backend == "rocm" and self.descriptor.family is not ModelFamily.SDXL:
+            raise RuntimeError("ROCm image loading is currently enabled only for SDXL models.")
+        if runtime.backend in {"rocm", "mps"} and str(self.descriptor.quant or "").startswith("bnb-"):
+            raise RuntimeError(f"bitsandbytes-quantized image models are disabled on {runtime.backend}.")
 
     def _load_nunchaku_flux(self, torch) -> Any:
         """SVDQuant fp4 FLUX (Blackwell turbo): ~8 s/1024, peak RAM ~13 GB.
@@ -162,7 +185,7 @@ class DiffusersImageBackend(ImageBackend):
             torch_dtype=torch.bfloat16,
         )
         pipe.vae.enable_tiling()
-        pipe.enable_model_cpu_offload()
+        self._runtime().enable_model_cpu_offload(pipe)
         return pipe
 
     def _load_qwen_image(self, torch) -> Any:
@@ -193,7 +216,7 @@ class DiffusersImageBackend(ImageBackend):
         quant = settings.qwen_image_quant.lower().strip()
         if quant in ("bnb-nf4", "bnb-fp4"):
             if hasattr(getattr(pipe, "vae", None), "to"):
-                pipe.vae.to("cuda")
+                self._runtime().move(pipe.vae)
             placement = "bnb-loader"
         else:
             self._place_repo_pipeline(pipe, settings.qwen_image_offload, "HFAB_QWEN_IMAGE_OFFLOAD")
@@ -274,7 +297,7 @@ class DiffusersImageBackend(ImageBackend):
             from transformers import AutoModel  # noqa: PLC0415
 
             kwargs["text_encoder"] = AutoModel.from_pretrained(
-                str(te_dir), dtype=torch.bfloat16, device_map="cuda"
+                str(te_dir), dtype=torch.bfloat16, device_map=self._runtime().torch_device
             )
         elif te_quant in ("bnb-nf4", "bnb-fp4"):
             from diffusers import PipelineQuantizationConfig  # noqa: PLC0415
@@ -301,14 +324,14 @@ class DiffusersImageBackend(ImageBackend):
             # bitsandbytes 4-bit modules can't ride the sequential/model offload hooks
             # ("Cannot copy out of meta tensor"), so just move the VAE on-device.
             if hasattr(getattr(pipe, "vae", None), "to"):
-                pipe.vae.to("cuda")
+                self._runtime().move(pipe.vae)
             placement = f"nunchaku-per-layer({blocks})+bnb-te{'(cached)' if te_cached else ''}"
         else:
             # bf16 text encoder: stream it from RAM via sequential offload (exclude
             # the transformer, which Nunchaku already offloads per-layer).
             if "transformer" not in pipe._exclude_from_cpu_offload:
                 pipe._exclude_from_cpu_offload.append("transformer")
-            pipe.enable_sequential_cpu_offload()
+            self._runtime().enable_sequential_cpu_offload(pipe)
             placement = f"nunchaku-per-layer({blocks})+sequential"
         self._active_features["qwen_image"] = {
             "quant": self.descriptor.quant,
@@ -385,9 +408,9 @@ class DiffusersImageBackend(ImageBackend):
                 pipe.vae.enable_tiling()
             offload = settings.z_image_nunchaku_offload.lower().strip()
             if offload in ("", "none"):
-                pipe.to("cuda")
+                self._runtime().move(pipe)
             else:  # "model": frugal — fp4 transformer is small, encoders idle in RAM
-                pipe.enable_model_cpu_offload()
+                self._runtime().enable_model_cpu_offload(pipe)
             self._active_features["z_image"] = {
                 "quant": self.descriptor.quant,
                 "offload": offload or "none",
@@ -439,15 +462,14 @@ class DiffusersImageBackend(ImageBackend):
             )
         return kwargs
 
-    @staticmethod
-    def _place_repo_pipeline(pipe: Any, offload: str, env_name: str) -> None:
+    def _place_repo_pipeline(self, pipe: Any, offload: str, env_name: str) -> None:
         offload = offload.lower().strip()
         if offload == "sequential":
-            pipe.enable_sequential_cpu_offload()
+            self._runtime().enable_sequential_cpu_offload(pipe)
         elif offload in ("", "none"):
-            pipe.to("cuda")
+            self._runtime().move(pipe)
         elif offload == "model":
-            pipe.enable_model_cpu_offload()
+            self._runtime().enable_model_cpu_offload(pipe)
         else:
             raise ValueError(
                 f"{env_name} must be one of: model, sequential, none "
@@ -525,18 +547,18 @@ class DiffusersImageBackend(ImageBackend):
             # own device_map. Calling pipe.to()/offload hooks afterwards can try
             # to copy meta tensors and fail ("Cannot copy out of meta tensor").
             if hasattr(getattr(pipe, "vae", None), "to"):
-                pipe.vae.to("cuda")
+                self._runtime().move(pipe.vae)
             self._active_features["flux2_placement"] = {
                 "mode": "bnb-loader",
                 "requested_offload": offload or "model",
-                "vae": "cuda",
+                "vae": self._runtime().torch_device,
             }
         elif offload == "sequential":
-            pipe.enable_sequential_cpu_offload()
+            self._runtime().enable_sequential_cpu_offload(pipe)
         elif offload in ("", "none"):
-            pipe.to("cuda")
+            self._runtime().move(pipe)
         else:  # "model" (default): encoders idle in RAM, frugal VRAM
-            pipe.enable_model_cpu_offload()
+            self._runtime().enable_model_cpu_offload(pipe)
         return pipe
 
     def _load_nunchaku_flux2_klein(self, torch) -> Any:
@@ -553,7 +575,7 @@ class DiffusersImageBackend(ImageBackend):
         NunchakuFlux2Transformer2DModel = self._import_nunchaku_flux2_transformer()
         transformer = NunchakuFlux2Transformer2DModel.from_pretrained(
             str(self.descriptor.path),
-            device="cuda",
+            device=self._runtime().torch_device,
             torch_dtype=torch.bfloat16,
         )
 
@@ -580,7 +602,7 @@ class DiffusersImageBackend(ImageBackend):
         if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
             pipe.vae.enable_tiling()
         if hasattr(getattr(pipe, "vae", None), "to"):
-            pipe.vae.to("cuda")
+            self._runtime().move(pipe.vae)
         self._active_features["flux2_nunchaku"] = {
             "mode": "sidecar" if self._using_flux2_sidecar() else "native",
             "transformer": str(self.descriptor.path),
@@ -589,8 +611,8 @@ class DiffusersImageBackend(ImageBackend):
         }
         self._active_features["flux2_placement"] = {
             "mode": "nunchaku-transformer",
-            "transformer": "cuda",
-            "vae": "cuda",
+            "transformer": self._runtime().torch_device,
+            "vae": self._runtime().torch_device,
         }
         return pipe
 
@@ -662,7 +684,8 @@ class DiffusersImageBackend(ImageBackend):
         if hasattr(torch, "set_float32_matmul_precision"):
             torch.set_float32_matmul_precision(precision)
 
-        cuda_available = bool(torch.cuda.is_available())
+        runtime = self._runtime()
+        cuda_available = runtime.cuda_available(torch)
         if cuda_available:
             matmul = getattr(getattr(torch.backends, "cuda", None), "matmul", None)
             if matmul is not None and hasattr(matmul, "allow_tf32"):
@@ -709,6 +732,8 @@ class DiffusersImageBackend(ImageBackend):
             "float8_dtypes": self._torch_float8_dtypes(torch),
             "allow_tf32": settings.attention_allow_tf32,
             "matmul_precision": precision,
+            "backend": runtime.backend,
+            "torch_device": runtime.torch_device,
         }
         self._active_features["attention"] = feature
         report["acceleration"]["attention"] = feature
@@ -794,17 +819,14 @@ class DiffusersImageBackend(ImageBackend):
         }
         original_transformer = pipe.transformer
         try:
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
+            self._runtime().reset_peak_memory_stats(torch)
             pipe.transformer = torch.compile(pipe.transformer, mode=settings.torch_compile_mode)
             compile_report["after_wrap"] = self._memory_snapshot(torch)
 
             if settings.torch_compile_warmup:
                 self._warmup_pipeline(torch, pipe)
                 compile_report["after_warmup"] = self._memory_snapshot(torch)
-                if torch.cuda.is_available():
-                    compile_report["cuda_peak_allocated_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
-                    compile_report["cuda_peak_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
+                compile_report.update(self._runtime().peak_memory(torch))
         except Exception as exc:
             import gc  # noqa: PLC0415
 
@@ -812,9 +834,7 @@ class DiffusersImageBackend(ImageBackend):
             compile_report["failed"] = repr(exc)
             compile_report["after_rollback"] = self._memory_snapshot(torch)
             gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
+            self._runtime().empty_cache(torch)
             report["acceleration"]["torch_compile"] = compile_report
             return
 
@@ -830,18 +850,19 @@ class DiffusersImageBackend(ImageBackend):
             "height": size,
             "num_inference_steps": 1,
             "guidance_scale": settings.default_guidance,
-            "generator": torch.Generator(device="cuda").manual_seed(0),
+            "generator": self._runtime().generator(torch, 0),
         }
         with torch.inference_mode(), self._attention_context(torch):
             pipe(**kwargs)
 
     def _memory_snapshot(self, torch) -> dict[str, Any]:
         snap = sysmon.snapshot()
-        if torch.cuda.is_available():
-            snap["cuda_process"] = {
-                "allocated_gb": round(torch.cuda.memory_allocated() / 1e9, 2),
-                "reserved_gb": round(torch.cuda.memory_reserved() / 1e9, 2),
-            }
+        runtime = self._runtime()
+        process_memory = runtime.process_memory(torch)
+        if process_memory:
+            snap["accelerator_process"] = process_memory
+            if runtime.memory_key == "cuda_process":
+                snap["cuda_process"] = process_memory
         return snap
 
     # --------------------------------------------------------------- unload
@@ -879,9 +900,7 @@ class DiffusersImageBackend(ImageBackend):
         if self.descriptor.family is ModelFamily.SDXL and hasattr(self._pipe, "to"):
             self._pipe.to("cpu")
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
+        self._runtime().empty_cache(torch)
 
     def _resume_pipeline_sync(self) -> None:
         import torch  # noqa: PLC0415
@@ -891,11 +910,11 @@ class DiffusersImageBackend(ImageBackend):
             "memory": {"start": self._memory_snapshot(torch)},
         }
         if self.descriptor.family is ModelFamily.SDXL and hasattr(self._pipe, "to"):
-            self._pipe.to("cuda")
+            self._runtime().move(self._pipe)
         elif hasattr(self._pipe, "enable_model_cpu_offload"):
-            self._pipe.enable_model_cpu_offload()
+            self._runtime().enable_model_cpu_offload(self._pipe)
         report["memory"]["end"] = self._memory_snapshot(torch)
-        self._remember_cuda_baseline(torch)
+        self._remember_accelerator_baseline(torch)
         self._load_report = report
 
     def _free_pipeline_sync(self) -> None:
@@ -908,9 +927,7 @@ class DiffusersImageBackend(ImageBackend):
         self._img2img_pipe = None  # shares _pipe's weights; drop the view too
         self._inpaint_pipe = None
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
+        self._runtime().empty_cache(torch)
 
     def _clear_resident_state(self, *, reset_generation: bool) -> None:
         self._pipe = None
@@ -921,7 +938,8 @@ class DiffusersImageBackend(ImageBackend):
         self._active_features = {}
         self._loaded_loras = {}
         self._loaded_lora_last_used = {}
-        self._cuda_allocated_baseline_gb = None
+        self._accelerator_allocated_baseline_gb = None
+        self._accelerator = None
         if reset_generation:
             self._generation_index = 0
 
@@ -959,11 +977,7 @@ class DiffusersImageBackend(ImageBackend):
             self._pipe.maybe_free_model_hooks()
 
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-            if hasattr(torch.cuda, "reset_peak_memory_stats"):
-                torch.cuda.reset_peak_memory_stats()
+        self._runtime().empty_cache(torch, reset_peak=True)
 
         after_cleanup = self._memory_snapshot(torch)
         recycled = False
@@ -978,8 +992,9 @@ class DiffusersImageBackend(ImageBackend):
             "family": self.descriptor.family.value,
             "failed": failed,
             "cleanup": {
-                "before": before.get("cuda_process"),
-                "after": after.get("cuda_process"),
+                "before": before.get(self._runtime().memory_key),
+                "after": after.get(self._runtime().memory_key),
+                "accelerator": self._runtime().public(),
                 "pruned_loras": pruned_loras,
                 "lora_prune_error": prune_error,
                 "cached_loras": len(self._loaded_loras),
@@ -991,27 +1006,28 @@ class DiffusersImageBackend(ImageBackend):
 
     def _recycle_reason(self, snapshot: dict[str, Any]) -> str | None:
         threshold = float(settings.image_recycle_cuda_growth_gb)
-        if threshold <= 0 or self._cuda_allocated_baseline_gb is None:
+        if threshold <= 0 or self._accelerator_allocated_baseline_gb is None:
             return None
         if self._generation_index < max(1, int(settings.image_recycle_min_jobs)):
             return None
-        cuda = snapshot.get("cuda_process") or {}
-        allocated = cuda.get("allocated_gb")
+        memory = snapshot.get(self._runtime().memory_key) or {}
+        allocated = memory.get("allocated_gb")
         if allocated is None:
             return None
-        growth = float(allocated) - self._cuda_allocated_baseline_gb
+        growth = float(allocated) - self._accelerator_allocated_baseline_gb
         if growth > threshold:
             return (
-                f"cuda allocated grew {growth:.2f} GB over loaded baseline "
-                f"{self._cuda_allocated_baseline_gb:.2f} GB"
+                f"{self._runtime().backend} allocated grew {growth:.2f} GB over loaded baseline "
+                f"{self._accelerator_allocated_baseline_gb:.2f} GB"
             )
         return None
 
-    def _remember_cuda_baseline(self, torch) -> None:
-        if not torch.cuda.is_available():
-            self._cuda_allocated_baseline_gb = None
+    def _remember_accelerator_baseline(self, torch) -> None:
+        memory = self._runtime().process_memory(torch)
+        if not memory or memory.get("allocated_gb") is None:
+            self._accelerator_allocated_baseline_gb = None
             return
-        self._cuda_allocated_baseline_gb = round(torch.cuda.memory_allocated() / 1e9, 2)
+        self._accelerator_allocated_baseline_gb = float(memory["allocated_gb"])
 
     # ------------------------------------------------------------- generate
     async def generate(
@@ -1098,7 +1114,7 @@ class DiffusersImageBackend(ImageBackend):
         strength = self._effective_strength(params, steps)
 
         def _run():
-            gen = torch.Generator(device="cuda").manual_seed(seed)
+            gen = self._runtime().generator(torch, seed)
             self._apply_runtime_loras(params)
             common = {
                 "prompt": params.get("prompt", ""),
@@ -1238,6 +1254,8 @@ class DiffusersImageBackend(ImageBackend):
     def _steps(self, params: dict[str, Any]) -> int:
         steps = int(params.get("steps", settings.default_steps))
         untouched = "steps" not in params or steps == settings.default_steps
+        if self._is_sdxl_lightning_checkpoint() and untouched:
+            return 4
         if self.descriptor.family is ModelFamily.FLUX2 and untouched:
             return settings.flux2_default_steps
         if self.descriptor.family is ModelFamily.QWEN_IMAGE and untouched:
@@ -1252,6 +1270,8 @@ class DiffusersImageBackend(ImageBackend):
     def _guidance(self, params: dict[str, Any]) -> float:
         guidance = float(params.get("guidance", settings.default_guidance))
         untouched = "guidance" not in params or guidance == settings.default_guidance
+        if self._is_sdxl_lightning_checkpoint() and untouched:
+            return 1.0
         if self.descriptor.family is ModelFamily.FLUX2 and untouched:
             return settings.flux2_default_guidance
         if self.descriptor.family is ModelFamily.QWEN_IMAGE and untouched:
@@ -1262,6 +1282,12 @@ class DiffusersImageBackend(ImageBackend):
             if untouched:
                 return settings.sdxl_turbo_guidance
         return guidance
+
+    def _is_sdxl_lightning_checkpoint(self) -> bool:
+        if self.descriptor.family is not ModelFamily.SDXL:
+            return False
+        haystack = f"{self.descriptor.id} {self.descriptor.name} {self.descriptor.path.name}".lower()
+        return "sdxl" in haystack and "lightning" in haystack
 
     def _generation_context(self, steps: int):
         feature = self._active_features.get("flux_step_cache")

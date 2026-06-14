@@ -74,6 +74,35 @@ def test_rocm_blocks_bitsandbytes_quantized_image_models():
     assert "bitsandbytes" in compat["unavailable_reason"]
 
 
+def test_mps_allows_sdxl_but_blocks_large_image_families():
+    sdxl = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.SDXL),
+        profile=profile(backend="mps", vram_mb=None),
+        estimated_vram_gb=8,
+    )
+    flux = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.FLUX),
+        profile=profile(backend="mps", vram_mb=None),
+        estimated_vram_gb=10,
+    )
+
+    assert sdxl["available"] is True
+    assert flux["available"] is False
+    assert "MPS" in flux["unavailable_reason"]
+
+
+def test_hidden_policy_bucket_blocks_queueing_even_before_load():
+    policy = {"image": {"recommended": ["sdxl"], "advanced": [], "hidden": ["flux"]}}
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.FLUX),
+        profile=profile(backend="cuda", model_policy=policy),
+        estimated_vram_gb=8,
+    )
+
+    assert compat["available"] is False
+    assert "hidden" in compat["unavailable_reason"]
+
+
 def test_real_mode_blocks_models_that_exceed_gpu_vram():
     compat = model_compatibility.compatibility_for_model(
         desc(ModelFamily.QWEN_IMAGE),

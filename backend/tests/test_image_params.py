@@ -16,9 +16,9 @@ from app.config import settings
 from app.core.enums import ModelFamily
 
 
-def _backend(family: ModelFamily) -> DiffusersImageBackend:
+def _backend(family: ModelFamily, *, name: str = "M") -> DiffusersImageBackend:
     desc = ModelDescriptor(
-        id="m", name="M", family=family, path=Path("x"), size_bytes=0, quant=None
+        id=name.lower(), name=name, family=family, path=Path(f"{name}.safetensors"), size_bytes=0, quant=None
     )
     return DiffusersImageBackend(desc)
 
@@ -64,6 +64,14 @@ def test_steps_sdxl_uses_global_default():
     b = _backend(ModelFamily.SDXL)
     assert b._steps({}) == settings.default_steps
     assert b._steps({"steps": 15}) == 15
+
+
+def test_sdxl_lightning_checkpoint_uses_distilled_defaults_when_untouched():
+    b = _backend(ModelFamily.SDXL, name="sdxl_lightning_4step")
+    assert b._steps({}) == 4
+    assert b._guidance({}) == 1.0
+    assert b._steps({"steps": 12}) == 12
+    assert b._guidance({"guidance": 2.0}) == 2.0
 
 
 def test_steps_qwen_and_z_image_defaults_when_untouched():

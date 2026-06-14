@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  compactModelDest,
   familyLabel,
   formatComputeCapability,
   setupDoctorStatus,
@@ -56,6 +57,18 @@ describe("setupDoctorStatus", () => {
     expect(status.detail).toMatch(/CUDA-only features are disabled/);
   });
 
+  it("reports Apple MPS as active", () => {
+    const status = setupDoctorStatus(cap({
+      backend: "mps",
+      selected_profile: "apple-mps",
+      active_profile: "apple-mps",
+      primary_gpu: { name: "Apple Silicon GPU" },
+    }));
+    expect(status.tone).toBe("good");
+    expect(status.headline).toMatch(/Apple Silicon/);
+    expect(status.detail).toMatch(/PyTorch MPS/);
+  });
+
   it("explains CPU-safe fallback as a warning", () => {
     const status = setupDoctorStatus(cap({
       backend: "cpu",
@@ -101,5 +114,10 @@ describe("formatting helpers", () => {
     expect(familyLabel("flux2")).toBe("FLUX.2");
     expect(familyLabel("sdxl")).toBe("SDXL");
     expect(familyLabel("z-image")).toBe("Z-Image");
+  });
+
+  it("formats starter model destinations consistently", () => {
+    expect(compactModelDest("models\\image", "sdxl.safetensors")).toBe("models/image/sdxl.safetensors");
+    expect(compactModelDest("models/llm/", "chat.gguf")).toBe("models/llm/chat.gguf");
   });
 });

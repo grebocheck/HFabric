@@ -405,14 +405,15 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > stores runtime choices in Settings.
 >
 > Current upstream facts to anchor the plan: PyTorch publishes separate CPU,
-> CUDA, and ROCm pip install paths and verifies GPU availability with
+> CUDA, ROCm, and Apple MPS install/runtime paths and verifies GPU availability with
 > `torch.cuda.is_available()`; NVIDIA exposes per-GPU compute capability tables;
 > AMD's official ROCm support matrix is Linux-focused and says unsupported GPUs
-> are not officially supported. Keep source links in the installer docs:
+> are not officially supported. Apple Silicon acceleration is exposed through
+> `torch.backends.mps`. Keep source links in the installer docs:
 > PyTorch local install, NVIDIA CUDA GPU Compute Capability, AMD ROCm system
 > requirements / compatibility matrix, and AMD ROCm PyTorch install.
 
-- [~] **P20.1 — Hardware probe + support report.** Add one cross-platform probe
+- [x] **P20.1 — Hardware probe + support report.** Add one cross-platform probe
   (`scripts/hardware_probe.py` + PowerShell wrapper) that emits JSON:
   OS/build, Python version, RAM, disk free, GPU vendor/model/VRAM, NVIDIA driver
   + compute capability when present, AMD ROCm-visible device + LLVM target when
@@ -421,9 +422,12 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   - First slice: `scripts/hardware_probe.py` runs with stdlib only and emits the
     shared JSON report. It uses `nvidia-smi`, Windows CIM, `lspci`, `rocminfo`,
     and optional `torch` visibility when available; missing tools are skipped.
-- [~] **P20.2 — Installer profile resolver.** Replace "pick these packages by
+  - Device slice: the probe now also detects Apple Silicon (`Darwin`/`arm64`) and
+    optional `torch.backends.mps` visibility, and AMD ROCm support is normalized
+    as `official`, `community_experimental`, or `unsupported` for the resolver/UI.
+- [x] **P20.2 — Installer profile resolver.** Replace "pick these packages by
   hand" with a resolver that chooses one profile:
-  `nvidia-cuda`, `amd-rocm-linux`, `cpu-safe`, and later optional
+  `nvidia-cuda`, `amd-rocm-linux`, `apple-mps`, `cpu-safe`, and later optional
   `amd-directml-windows` if it proves useful. Each profile has a package index,
   lockfile, verification command, and post-install health check. The installer
   asks only when there are two valid choices; otherwise it chooses the safest
@@ -440,7 +444,10 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     resolver when `HFAB_STUB_MODE` is not explicitly set, so unsupported
     machines start CPU-safe automatically while NVIDIA/ROCm profiles start
     REAL mode. Explicit `stub` and `HFAB_STUB_MODE` remain overrides.
-- [~] **P20.3 — NVIDIA beyond RTX 50 / Blackwell.** Support NVIDIA 50xx, 40xx,
+  - Apple slice: `apple-mps` installs standard PyPI torch wheels plus
+    `backend/requirements-mps.txt`; setup/run hints omit `--index-url` for this
+    profile and the managed llama runtime asks for a Metal build.
+- [x] **P20.3 — NVIDIA beyond RTX 50 / Blackwell.** Support NVIDIA 50xx, 40xx,
   30xx, and practical lower tiers by capability and VRAM, not by one validated
   RTX 5070 Ti path. Runtime policy must auto-disable Blackwell-only fast paths
   where they do not apply, choose attention/compile/cache defaults per compute
@@ -461,7 +468,7 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     param-size hint), surfaced through `/api/capabilities`; P20.7 wires it to the
     download manager. Fake-probe tests cover caps 6.1/7.5/8.0/8.6/8.9/9.0/12.0
     across VRAM tiers and prove no impossible package/model path is recommended.
-- [ ] **P20.4 — AMD GPU path.** Implement a first-class AMD profile instead of
+- [x] **P20.4 — AMD GPU path.** Implement a first-class AMD profile instead of
   treating non-NVIDIA as "CPU only". Linux ROCm is the primary target because
   PyTorch ROCm wheels and AMD's support matrix are Linux-centered. The probe
   should mark AMD GPUs as: official ROCm-supported, community/experimental, or
@@ -472,7 +479,14 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   - First slice: added `backend/requirements-rocm.txt` so the AMD profile avoids
     CUDA-only packages (`nunchaku`, CUDA ONNX Runtime EP assumptions) while still
     installing the common diffusers/transformers/audio stack.
-- [ ] **P20.5 — Runtime capability gates.** Move backend feature decisions from
+  - Runtime slice: Linux AMD GPUs are no longer CPU-only: official ROCm targets
+    select `amd-rocm-linux` with high confidence; ROCm-visible but unofficial
+    targets select the same profile with an experimental warning; unsupported or
+    non-Linux AMD remains CPU-safe. The runtime disables CUDA-only features,
+    uses PyTorch's ROCm `cuda` alias through the shared accelerator helper, gates
+    image loading to the ROCm-safe SDXL path until real ROCm validation broadens
+    it, and fake-probe/smoke tests cover official, experimental, and fallback.
+- [x] **P20.5 — Runtime capability gates.** Move backend feature decisions from
   env assumptions to a `CapabilityProfile`: vendor, backend (`cuda`/`rocm`/`cpu`),
   VRAM, supported dtypes/attention, available binaries, and known unsafe
   features. The model registry, Settings tab, and composer should hide or label
@@ -498,13 +512,16 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     `flux_step_cache` (off without the fp4 fast path), and `attention_allow_tf32`
     (NVIDIA Ampere+ only). It only ever tunes toward safety, never auto-enables
     `torch.compile`, is gated off in STUB mode, and never blocks startup. Knob
-    logic is unit-tested (`test_runtime_tuning.py`).
+    logic is unit-tested (`test_runtime_tuning.py`). The same autotune pass now
+    moves CUDA-only voice defaults to CPU on ROCm/MPS/CPU-safe profiles when the
+    user did not explicitly pin `voice_device`.
   - Note on the device string: real image execution currently runs on CUDA and
-    ROCm (PyTorch's ROCm build aliases the `cuda` device, so the existing
-    `image_diffusers.py` `.to("cuda")` path works on AMD/Linux). CPU/Apple and
-    other backends route to STUB. A device abstraction for true MPS/CPU image
-    inference is tracked separately (see P20.9).
-- [~] **P20.6 — User-facing installer UX.** Build a simple "Setup doctor" page:
+    ROCm through `backend/app/services/accelerator_runtime.py`; ROCm still uses
+    PyTorch's `cuda` alias, while load reports expose generic
+    `accelerator_process` memory in addition to CUDA-compatible fields. Hidden
+    `model_policy` buckets are enforced server-side before queueing, so UI-hidden
+    model families cannot sneak through a direct API call.
+- [x] **P20.6 — User-facing installer UX.** Build a simple "Setup doctor" page:
   detected hardware, selected profile, missing driver/runtime, package status,
   and one action button. Text should be plain: "NVIDIA GPU detected, installing
   CUDA build" / "AMD GPU detected, ROCm works on Linux for this card" /
@@ -518,7 +535,10 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     Considered profiles, disabled features, and source docs sit behind an
     "Advanced details" toggle. Pure status/label helpers are unit-tested
     (`setupDoctorHelpers.test.ts`).
-- [~] **P20.7 — Model recommendation by hardware.** Tie the model download
+  - Device slice: the doctor now reports Apple Silicon / PyTorch MPS plainly,
+    shows Metal llama.cpp binary availability, and uses the same capability
+    payload as setup/run scripts.
+- [x] **P20.7 — Model recommendation by hardware.** Tie the model download
   manager (P18.4) to the capability profile. Users should see curated models
   that fit their VRAM/RAM/disk budget, with "Recommended" preselected and
   impossible models hidden behind an Advanced filter.
@@ -527,7 +547,17 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     derived from the capability `model_policy`, and `ModelPicker` badges the
     models that fit the detected hardware. Full curated download UX still waits
     on P18.4; this makes the existing chooser hardware-aware in the meantime.
-- [~] **P20.8 — CI and smoke matrix without owning every GPU.** Add fake-probe
+  - Installer slice: `scripts/fetch_models.py` now plans a profile-aware starter
+    set for `setup all` / `setup.ps1 -DownloadAll`. CUDA, ROCm, and Apple MPS get
+    a public SDXL Lightning 4-step checkpoint plus starter GGUFs for chat/RAG/TTS/
+    vision; CUDA-only FLUX fp4 is included only when `nunchaku_cuda` is available,
+    while CPU-safe/STUB downloads nothing. `--dry-run --profile ...` can also
+    show an AMD/MPS starter plan from another machine without downloading.
+  - Setup Doctor slice: `/api/capabilities` now includes the same starter model
+    plan (`starter_models`) and the System tab shows the planned files and
+    dry-run command for the selected profile, so users can inspect the CUDA/ROCm/
+    MPS install story from inside the app before downloading.
+- [x] **P20.8 — CI and smoke matrix without owning every GPU.** Add fake-probe
   unit tests for NVIDIA/AMD/CPU resolver decisions, plus optional self-hosted or
   manual smoke scripts for real CUDA and ROCm machines. Store every real-machine
   validation in `docs/gpu-smoke.md` with date, GPU, driver, package profile, and
@@ -536,12 +566,24 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     `test_capability_profile`, `test_model_compatibility`, and a new
     `test_install_smoke` (all stdlib/STUB, no GPU). `scripts/install_smoke.py`
     is the real-machine counterpart: it probes, resolves the profile, and grades
-    it against `torch` visibility (CUDA build vs HIP build vs no accelerator),
+    it against `torch` visibility (CUDA build vs HIP build vs MPS vs no accelerator),
     plus a feature-sanity guard (no `nunchaku_cuda` on pre-Ampere/non-CUDA) and
     an in-process verify-snippet run; exit code + a paste-ready markdown summary.
     `docs/gpu-smoke.md` gains an installer-profile smoke section and a
     real-machine validation log table (date/GPU/driver/profile/result).
-- [ ] **P20.9 — Device abstraction + Apple Silicon (MPS).** Replace the hard-coded
+  - Device slice: fake-probe/unit coverage now includes Apple Silicon MPS and
+    Metal llama.cpp asset selection; the real validation log has an MPS row to
+    fill after running `scripts/install_smoke.py` on a Mac. CUDA baseline
+    validation was recorded on 2026-06-14 for RTX 5070 Ti / driver 610.47 /
+    torch 2.11.0+cu128.
+  - Download-plan slice: `test_fetch_models.py` exercises the starter download
+    matrix without network access, including CUDA optional Nunchaku, ROCm, MPS,
+    and CPU-safe no-op behavior.
+  - Live local slice: Windows/NVIDIA installer profile smoke was re-run on
+    2026-06-14 and passed; `setup.sh` syntax was checked with Git Bash. ROCm and
+    Apple Silicon remain tracked in `docs/gpu-smoke.md` as real-machine
+    validation rows, not as open implementation blockers.
+- [x] **P20.9 — Device abstraction + Apple Silicon (MPS).** Replace the hard-coded
   `.to("cuda")` / `torch.cuda.*` calls in `image_diffusers.py` with a single
   `runtime.device()` / accelerator helper sourced from the CapabilityProfile, so
   image inference can target `cuda`, `rocm` (already cuda-aliased), `mps`, or a
@@ -553,7 +595,20 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   real Mac before promoting any model from "advanced" to "recommended". This is
   the prerequisite for treating non-CUDA accelerators as first-class rather than
   routing them to STUB.
-- [~] **P20.10 — Managed, updatable llama.cpp runtime.** Stop making users
+  - Code slice: added `backend/app/services/accelerator_runtime.py` and rewired
+    `image_diffusers.py` placement, generator, memory snapshots, keep-warm,
+    cleanup, soft-recycle, compile warmup, and load reports through it. CUDA and
+    ROCm share PyTorch's `cuda` device path; MPS uses `mps` for model placement
+    and a CPU generator for reproducible diffusers calls. `apple-mps` resolver,
+    setup, requirements, Setup Doctor, model compatibility, install smoke, and
+    llama.cpp Metal selection are all unit-tested. Real Apple Silicon smoke is
+    still recorded in `docs/gpu-smoke.md`; until then the shipped MPS path stays
+    conservative and SDXL-only rather than being blocked.
+  - Starter-runtime slice: SDXL Lightning checkpoints are auto-detected and use
+    distilled first-run defaults (4 steps, guidance 1.0) when the user leaves
+    generation settings untouched, so the profile starter image model is usable
+    immediately after install.
+- [x] **P20.10 — Managed, updatable llama.cpp runtime.** Stop making users
   hand-place `llama-server`/`llama-tts`/`llama-mtmd-cli`. Auto-download the right
   prebuilt build on setup, allow in-app updates, and keep old builds for rollback
   when an update breaks something.
@@ -574,7 +629,12 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
     verified" or "installed but failed to run: …"), `/api/llama/verify` runs it
     on demand, and the Settings panel shows a ✓ verified / ✕ won't-run badge on
     the active build plus a Verify button. Network-free, unit-tested.
-  - Next: let the model download manager (P18.4) flag GGUFs needing a newer build.
+  - Live local slice: `scripts/fetch_llama.py --force` installed a managed CUDA
+    build (`b9631-cuda`) under `bin/llama/versions/` and
+    `llama-server --version` returned `version: 9631`, validating the old flat
+    binary layout -> managed runtime migration path on Windows/NVIDIA.
+  - Follow-up outside P20: let the broader model download manager (P18.4) flag
+    GGUFs needing a newer llama.cpp build.
 
 ### P19 — Generation features (growth — after the foundation phases)
 

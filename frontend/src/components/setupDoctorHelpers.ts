@@ -54,6 +54,16 @@ export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
     };
   }
 
+  if (cap.backend === "mps") {
+    return {
+      headline: "Apple Silicon detected, using the MPS build",
+      detail: gpuName
+        ? `${gpuName} runs through PyTorch MPS; CUDA-only features are disabled.`
+        : "PyTorch MPS is active; CUDA-only features are disabled.",
+      tone: "good",
+    };
+  }
+
   return {
     headline: "GPU path unavailable, using CPU-safe mode",
     detail: gpuName
@@ -94,4 +104,9 @@ const FAMILY_LABELS: Record<ModelFamily, string> = {
 
 export function familyLabel(family: ModelFamily): string {
   return FAMILY_LABELS[family] ?? family;
+}
+
+export function compactModelDest(dest: string, filename: string): string {
+  const cleanDest = dest.replaceAll("\\", "/").replace(/\/+$/, "");
+  return cleanDest ? `${cleanDest}/${filename}` : filename;
 }

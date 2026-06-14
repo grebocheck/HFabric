@@ -11,6 +11,7 @@ def _settings() -> SimpleNamespace:
         attention_backend="auto",
         flux_step_cache="fb",
         attention_allow_tf32=True,
+        voice_device="cuda",
     )
 
 
@@ -29,6 +30,7 @@ def test_blackwell_leaves_safe_defaults_untouched():
     # Defaults already match a capable CUDA card -> nothing changes.
     assert applied == {}
     assert s.attention_allow_tf32 is True
+    assert s.voice_device == "cuda"
 
 
 def test_pre_ampere_nvidia_forces_math_and_disables_tf32():
@@ -39,6 +41,7 @@ def test_pre_ampere_nvidia_forces_math_and_disables_tf32():
     assert s.flux_step_cache == "off"
     assert s.attention_allow_tf32 is False
     assert applied["attention_allow_tf32"] == {"from": True, "to": False}
+    assert s.voice_device == "cuda"
 
 
 def test_rocm_disables_tf32_and_step_cache():
@@ -48,6 +51,15 @@ def test_rocm_disables_tf32_and_step_cache():
     assert s.attention_allow_tf32 is False
     assert s.flux_step_cache == "off"
     assert s.attention_backend == "auto"
+    assert s.voice_device == "cpu"
+
+
+def test_mps_uses_cpu_voice_device():
+    s = _settings()
+    p = profile("mps", attention="math", step_cache="off")
+    applied = apply_autotune(s, p, user_set=set())
+    assert s.voice_device == "cpu"
+    assert applied["voice_device"] == {"from": "cuda", "to": "cpu"}
 
 
 def test_cpu_safe_forces_math_attention():
@@ -56,17 +68,23 @@ def test_cpu_safe_forces_math_attention():
     apply_autotune(s, p, user_set=set())
     assert s.attention_backend == "math"
     assert s.attention_allow_tf32 is False
+    assert s.voice_device == "cpu"
 
 
 def test_user_pinned_knobs_are_respected():
     s = _settings()
     p = profile("cpu", attention="math", step_cache="off")
     # The user explicitly chose these via env/override -> autotune must not touch.
-    applied = apply_autotune(s, p, user_set={"attention_backend", "attention_allow_tf32", "flux_step_cache"})
+    applied = apply_autotune(
+        s,
+        p,
+        user_set={"attention_backend", "attention_allow_tf32", "flux_step_cache", "voice_device"},
+    )
     assert applied == {}
     assert s.attention_backend == "auto"
     assert s.attention_allow_tf32 is True
     assert s.flux_step_cache == "fb"
+    assert s.voice_device == "cuda"
 
 
 def test_disabled_flag_is_a_no_op():

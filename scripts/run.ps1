@@ -107,6 +107,8 @@ function Write-AcceleratorInstallHint($Profile) {
     $indexUrl = [string]$Profile.install.torch.index_url
     if ($torchPackages.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($indexUrl)) {
         Write-Host "        & '$venvPy' -m pip install $($torchPackages -join ' ') --index-url $indexUrl" -ForegroundColor Yellow
+    } elseif ($torchPackages.Count -gt 0) {
+        Write-Host "        & '$venvPy' -m pip install $($torchPackages -join ' ')" -ForegroundColor Yellow
     }
     foreach ($req in @($Profile.install.requirements)) {
         if (-not [string]::IsNullOrWhiteSpace($req)) {

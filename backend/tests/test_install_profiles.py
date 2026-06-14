@@ -77,7 +77,26 @@ def test_resolves_linux_amd_rocm_profile_when_official_target_visible():
     assert result["install"]["torch"]["index_url"].endswith("/rocm7.2")
     assert result["install"]["requirements"] == ["backend/requirements-rocm.txt"]
     assert result["runtime_defaults"]["backend"] == "rocm"
+    assert result["runtime_defaults"]["torch_device"] == "cuda"
     assert "nunchaku_cuda" in result["disabled_features"]
+
+
+def test_linux_amd_visible_non_official_target_is_experimental_rocm():
+    result = resolve_profile(report("Linux", [{
+        "vendor": "amd",
+        "name": "AMD Radeon Experimental",
+        "vram_mb": 16384,
+        "rocm": {
+            "visible": True,
+            "llvm_targets": ["gfx9999"],
+            "official_targets": [],
+            "support": "community_experimental",
+        },
+    }]))
+
+    assert result["selected_profile"] == "amd-rocm-linux"
+    assert result["confidence"] == "medium"
+    assert any("experimental" in warning.lower() for warning in result["warnings"])
 
 
 def test_windows_amd_falls_back_to_cpu_safe():
@@ -90,6 +109,30 @@ def test_windows_amd_falls_back_to_cpu_safe():
     assert result["selected_profile"] == "cpu-safe"
     assert result["runtime_defaults"]["backend"] == "cpu"
     assert "Windows AMD acceleration" in " ".join(result["warnings"])
+
+
+def test_resolves_apple_silicon_mps_profile():
+    result = resolve_profile({
+        "os": {"system": "Darwin", "machine": "arm64"},
+        "gpus": [{
+            "vendor": "apple",
+            "name": "Apple Silicon GPU",
+            "architecture": "apple-silicon",
+            "mps": {"potential": True},
+        }],
+        "torch": {"installed": True, "mps_available": True},
+        "rocm": {},
+    })
+
+    assert result["selected_profile"] == "apple-mps"
+    assert result["install"]["torch"]["index_url"] is None
+    assert result["install"]["requirements"] == ["backend/requirements-mps.txt"]
+    assert result["runtime_defaults"]["backend"] == "mps"
+    assert result["runtime_defaults"]["torch_device"] == "mps"
+    assert "metal_llama_binaries" in result["optional_features"]
+    image = result["model_policy"]["image"]
+    assert image["recommended"] == ["sdxl"]
+    assert {"flux", "flux2", "qwen-image", "z-image"} <= set(image["hidden"])
 
 
 def test_cpu_only_report_uses_cpu_safe_profile():

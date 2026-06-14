@@ -11,6 +11,7 @@ from copy import deepcopy
 from functools import cache, lru_cache
 import importlib.util
 from pathlib import Path
+import sys
 from types import ModuleType
 from typing import Any
 
@@ -21,6 +22,9 @@ CUDA_FEATURES = {
     "cuda_llama_binaries",
     "onnxruntime_cuda",
     "realtime_cuda_voice",
+}
+MPS_FEATURES = {
+    "metal_llama_binaries",
 }
 
 
@@ -66,6 +70,7 @@ def build_capability_profile(resolved: dict[str, Any] | None = None) -> dict[str
         "features": features,
         "disabled_features": disabled_features,
         "model_policy": resolved.get("model_policy") or {},
+        "starter_models": _starter_model_plan(resolved),
         "warnings": warnings,
         "candidates": resolved.get("candidates") or [],
         "sources": resolved.get("sources") or {},
@@ -99,6 +104,7 @@ def _features(
     return {
         "cuda": backend == "cuda",
         "rocm": backend == "rocm",
+        "mps": backend == "mps",
         "cpu_safe": backend == "cpu",
         "torch_compile": bool(defaults.get("torch_compile")) and "torch_compile" not in disabled,
         "nunchaku_cuda": (
@@ -118,6 +124,11 @@ def _features(
             and "onnxruntime_cuda" not in disabled
         ),
         "realtime_cuda_voice": backend == "cuda" and "realtime_cuda_voice" not in disabled,
+        "metal_llama_binaries": (
+            backend == "mps"
+            and "metal_llama_binaries" in optional
+            and "metal_llama_binaries" not in disabled
+        ),
         "blackwell_fast_paths": bool(defaults.get("blackwell_fast_paths")),
         "prefer_cpu_offload": bool(defaults.get("prefer_cpu_offload")),
     }
@@ -133,9 +144,12 @@ def _disabled_features(
 
     if effective_stub:
         disabled.update(_cpu_safe_disabled_features())
+        disabled.update(MPS_FEATURES)
     if backend != "cuda":
         disabled.update(CUDA_FEATURES)
         disabled.add("blackwell_fast_paths")
+    if backend != "mps":
+        disabled.update(MPS_FEATURES)
     if not defaults.get("allow_nunchaku"):
         disabled.add("nunchaku_cuda")
     if not defaults.get("torch_compile"):
@@ -176,6 +190,7 @@ def _script_module(module_name: str, path: Path) -> ModuleType:
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -186,3 +201,24 @@ def _hardware_probe_module() -> ModuleType:
 
 def _install_profiles_module() -> ModuleType:
     return _script_module("_hfabric_install_profiles", ROOT / "scripts" / "install_profiles.py")
+
+
+def _fetch_models_module() -> ModuleType:
+    return _script_module("_hfabric_fetch_models", ROOT / "scripts" / "fetch_models.py")
+
+
+def _starter_model_plan(resolved: dict[str, Any]) -> dict[str, Any]:
+    selected_profile = str(resolved.get("selected_profile") or "cpu-safe")
+    jobs = []
+    if selected_profile != "cpu-safe":
+        jobs = [job.as_dict() for job in _fetch_models_module().plan_for_profile(resolved)]
+    return {
+        "profile": selected_profile,
+        "jobs": jobs,
+        "command": "python scripts/fetch_models.py" if jobs else "",
+        "dry_run_command": (
+            f"python scripts/fetch_models.py --profile {selected_profile} --dry-run"
+            if selected_profile != "cpu-safe"
+            else "python scripts/fetch_models.py --dry-run"
+        ),
+    }

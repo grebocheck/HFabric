@@ -1,0 +1,27 @@
+# --- HFabric backend: Apple Silicon / MPS accelerated deps ---
+#
+# Install PyTorch first from normal PyPI (no custom CUDA/ROCm index):
+#
+#   pip install torch torchvision torchaudio
+#   pip install -r backend/requirements-mps.txt
+#
+# Runtime feature gates keep this profile conservative: SDXL image loading is
+# enabled on MPS; CUDA-only/Nunchaku/bitsandbytes paths are hidden until tested
+# on real Macs.
+
+diffusers==0.38.0
+transformers>=4.49,<5
+accelerate>=1.13
+safetensors>=0.4.5
+sentencepiece>=0.2.0
+protobuf>=5.0
+
+# Native voice engine / audio stack. ContentVec runs through CPU ONNX Runtime
+# on the MPS profile until a tested CoreML/MPS path is added.
+sounddevice>=0.5
+soundfile>=0.13
+faiss-cpu>=1.14
+onnxruntime>=1.20
+soxr>=1.0
+torchfcpe>=0.0.4
+torchcrepe>=0.0.24

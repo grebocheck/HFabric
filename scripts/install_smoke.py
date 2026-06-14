@@ -44,11 +44,12 @@ def evaluate(report: dict[str, Any], *, prefer: str | None = None, run_verify: b
     installed = bool(torch_info.get("installed"))
     cuda_available = bool(torch_info.get("cuda_available"))
     hip = torch_info.get("torch_hip_version")
+    mps_available = bool(torch_info.get("mps_available"))
 
     checks = [_check("profile_resolved", OK, f"selected {profile['selected_profile']} ({backend})")]
 
     # Backend vs what torch reports.
-    if backend in {"cuda", "rocm"} and not installed:
+    if backend in {"cuda", "rocm", "mps"} and not installed:
         checks.append(_check(
             "torch_visible", WARN,
             "torch is not importable yet; install the profile before verifying the accelerator.",
@@ -65,8 +66,13 @@ def evaluate(report: dict[str, Any], *, prefer: str | None = None, run_verify: b
             checks.append(_check("torch_visible", OK, f"torch HIP build sees the device (hip {hip})"))
         else:
             checks.append(_check("torch_visible", ERROR, "profile is ROCm but torch reports no HIP accelerator"))
+    elif backend == "mps":
+        if mps_available:
+            checks.append(_check("torch_visible", OK, "torch.backends.mps.is_available() is True"))
+        else:
+            checks.append(_check("torch_visible", ERROR, "profile is MPS but torch reports no Apple MPS accelerator"))
     else:  # cpu-safe
-        if installed and cuda_available:
+        if installed and (cuda_available or mps_available):
             checks.append(_check(
                 "torch_visible", WARN,
                 "CPU-safe profile chosen, but torch sees an accelerator; check why the GPU path was rejected.",
@@ -81,6 +87,8 @@ def evaluate(report: dict[str, Any], *, prefer: str | None = None, run_verify: b
         checks.append(_check("feature_sanity", ERROR, "nunchaku_cuda offered but allow_nunchaku is False"))
     elif "nunchaku_cuda" in optional and backend != "cuda":
         checks.append(_check("feature_sanity", ERROR, "nunchaku_cuda offered on a non-CUDA backend"))
+    elif "metal_llama_binaries" in optional and backend != "mps":
+        checks.append(_check("feature_sanity", ERROR, "metal_llama_binaries offered on a non-MPS backend"))
     else:
         checks.append(_check("feature_sanity", OK, f"optional features: {', '.join(sorted(optional)) or 'none'}"))
 

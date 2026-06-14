@@ -299,7 +299,10 @@ def _measured_from_report(report: dict | None) -> tuple[float | None, float | No
             ram_gb = round(delta, 2)
 
     vram_gb: float | None = None
-    reserved = (end.get("cuda_process") or {}).get("reserved_gb")
+    reserved = (
+        (end.get("accelerator_process") or {}).get("reserved_gb")
+        or (end.get("cuda_process") or {}).get("reserved_gb")
+    )
     if reserved:
         vram_gb = round(reserved, 2)
     else:

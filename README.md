@@ -6,7 +6,9 @@ generation**, built to be frugal with memory on a single 16 GB GPU. Its core is 
 **phase-batching scheduler** swaps LLM ↔ image models as few times as possible
 (ideally once per batch).
 
-Target hardware: **RTX 5070 Ti 16 GB (Blackwell), 32 GB RAM, Windows 11**.
+Validated baseline: **RTX 5070 Ti 16 GB (Blackwell), 32 GB RAM, Windows 11**.
+The installer now also has conservative profiles for other NVIDIA CUDA GPUs,
+Linux AMD ROCm systems, Apple Silicon MPS, and CPU-safe/STUB mode.
 
 ## Status
 
@@ -20,8 +22,9 @@ shipped milestones and the active backlog.
 The same pipeline also runs **without** torch or llama.cpp in **STUB mode**
 (`HFAB_STUB_MODE=true`) — used for UI work and as the basis for CI (see
 [Testing](#testing)). The launcher probes hardware by default: supported
-NVIDIA/ROCm systems run REAL mode, while unsupported systems fall back to
-CPU-safe/STUB. `run.bat stub` still forces STUB explicitly.
+NVIDIA/ROCm/MPS systems run REAL mode when their profile is supported, while
+unsupported systems fall back to CPU-safe/STUB. `run.bat stub` still forces STUB
+explicitly.
 
 ## License And Models
 
@@ -39,10 +42,10 @@ full model notice.
 
 | Requirement | Specification |
 |---|---|
-| **GPU** | NVIDIA RTX 5070 Ti (Blackwell, sm_120) with 16 GB VRAM; or any CUDA 12.x-compatible GPU (with memory adjustments). |
+| **GPU** | Recommended: NVIDIA CUDA GPU with 8+ GB VRAM (16+ GB for the full image set). Also supported conservatively: Linux AMD ROCm and Apple Silicon MPS. Unsupported GPUs fall back to CPU-safe/STUB. |
 | **RAM** | 32 GB minimum (16 GB for models, 16 GB for OS + processes). |
-| **OS** | Windows 11 recommended; Windows 10 may work with CUDA driver support. |
-| **Disk** | 150 GB free: ~80 GB for model files (FLUX/SDXL/LLMs), ~50 GB working space. |
+| **OS** | Windows 11 for the validated CUDA path; Linux for ROCm; macOS Apple Silicon for MPS. |
+| **Disk** | 40+ GB for the profile starter set; 150 GB recommended for the larger FLUX/SDXL/LLM workspace. |
 
 ### Prerequisites
 
@@ -57,6 +60,7 @@ full model notice.
 3. **GPU driver/runtime** (optional, for acceleration)
    - NVIDIA: install a recent NVIDIA driver; `nvidia-smi` should report your GPU.
    - AMD: Linux ROCm is the first supported AMD path; unsupported cards fall back to CPU-safe mode.
+   - Apple Silicon: macOS uses PyTorch MPS with the standard PyPI torch wheels.
    - No supported GPU: setup still works in CPU-safe/STUB mode.
 
 4. **Git** (optional, for model downloads)
@@ -66,21 +70,21 @@ full model notice.
 ### Automated Setup (Recommended)
 
 **Use the setup script for your platform**. It probes hardware and chooses the
-recommended profile automatically (`nvidia-cuda`, `amd-rocm-linux`, or
-`cpu-safe`):
+recommended profile automatically (`nvidia-cuda`, `amd-rocm-linux`,
+`apple-mps`, or `cpu-safe`):
 
 ```bat
 setup.bat          # Windows auto setup
 setup.bat stub     # STUB mode (no GPU, ~1 min)
 setup.bat real     # force accelerator setup when available
-setup.bat all      # accelerator setup + download ALL models (30-60 min + 80 GB)
+setup.bat all      # accelerator setup + profile starter models
 ```
 
 ```bash
 ./setup.sh          # Linux/macOS auto setup
 ./setup.sh stub     # STUB mode (no GPU)
 ./setup.sh real     # force accelerator setup when available
-./setup.sh all      # accelerator setup + download curated models
+./setup.sh all      # accelerator setup + profile starter models
 ```
 
 Or from PowerShell on Windows:
@@ -88,7 +92,7 @@ Or from PowerShell on Windows:
 .\setup.ps1        # Auto setup
 .\setup.ps1 -Stub  # STUB mode
 .\setup.ps1 -Real  # force accelerator setup when available
-.\setup.ps1 -DownloadAll  # accelerator setup + models
+.\setup.ps1 -DownloadAll  # accelerator setup + profile starter models
 ```
 
 **What the setup script does:**
@@ -98,7 +102,7 @@ Or from PowerShell on Windows:
 4. Installs pip dependencies (`requirements.txt` plus profile-specific accelerated deps)
 5. Installs npm packages (`frontend/package.json`)
 6. Optionally installs Nunchaku when the selected CUDA profile supports it
-7. Optionally downloads curated models (FLUX, SDXL, LLMs, etc.)
+7. Optionally downloads a profile-aware starter model set
 
 After setup finishes, run `run.bat` (or `run.ps1`) to start the app.
 
@@ -139,31 +143,45 @@ Or on PowerShell:
 
 ### GPU Setup (REAL Mode)
 
-**REAL mode loads actual LLMs and diffusion models onto your GPU.** This requires PyTorch, CUDA wheels, and model files.
+**REAL mode loads actual LLMs and diffusion models onto your accelerator.** The
+recommended path is still `setup.bat` / `setup.sh`; manual setup should start
+from the same resolver the installer uses:
 
-#### Step 1: Install CUDA 12.8 PyTorch
-
-For **RTX 5070 Ti (Blackwell, sm_120)**, you need CUDA 12.8 wheels:
-
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+```powershell
+python scripts\hardware_probe.py --pretty
+python scripts\install_profiles.py --pretty
 ```
 
-For other GPUs, adjust the index URL (e.g., `cu121` for CUDA 12.1):
-- [PyTorch Start Locally](https://pytorch.org/get-started/locally/) — select your CUDA version
-- Verify install: `python -c "import torch; print(torch.__version__, torch.cuda.get_device_capability())"`
+Use the emitted `install.torch` packages/index and requirements. The current
+profiles map to:
 
-#### Step 2: Install GPU-accelerated backends
-
-```bash
+```powershell
+# NVIDIA CUDA
+pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
 pip install -r backend/requirements-gpu.txt
+
+# Linux AMD ROCm
+pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
+pip install -r backend/requirements-rocm.txt
+
+# Apple Silicon MPS
+pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
+pip install -r backend/requirements-mps.txt
+```
+
+Verify with:
+
+```powershell
+python scripts\install_smoke.py
 ```
 
 This adds diffusers, transformers, accelerate, bitsandbytes, and related libraries.
 
-#### Step 3: (Optional) Install Nunchaku for FLUX
+#### Step 2: (Optional) Install Nunchaku for FLUX
 
-For faster FLUX generation (~18 s/1024px on RTX 5070 Ti with SVDQuant fp4), install the Nunchaku wheel matching your torch/CUDA/Python:
+For faster FLUX generation (~18 s/1024px on RTX 5070 Ti with SVDQuant fp4),
+install the Nunchaku wheel only when `/api/capabilities` or
+`scripts/install_profiles.py` lists `nunchaku_cuda` in `optional_features`:
 
 ```bash
 pip install https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-win_amd64.whl
@@ -175,18 +193,37 @@ Then download the fp4 FLUX model:
 huggingface-cli download nunchaku-tech/nunchaku-flux.1-dev svdq-fp4_r32-flux.1-dev.safetensors --local-dir models/image
 ```
 
-#### Step 4: Download models
+#### Step 3: Download models
 
 Models live in `models/` and are **not copied** into the venv or elsewhere. HFabric reads them in place.
+
+The no-manual starter path is hardware-aware and matches the same profile the
+installer selected:
+
+```bash
+python scripts/fetch_models.py --dry-run
+python scripts/fetch_models.py --profile apple-mps --dry-run
+python scripts/fetch_models.py
+```
+
+`setup.bat all`, `./setup.sh all`, and `.\setup.ps1 -DownloadAll` run this
+downloader automatically. CUDA profiles get the shared starter set plus the
+Nunchaku FLUX fp4 checkpoint when the `nunchaku_cuda` feature is available;
+ROCm and Apple Silicon get the safe SDXL/GGUF set without CUDA-only models.
+The `--dry-run --profile ...` form is planner-only, so it is safe for showing
+the AMD/MPS starter plan from another machine.
 
 **Image models** (FLUX/SDXL/Qwen/Z-Image - goes in `models/image/`):
 
 ```bash
-# FLUX ComfyUI checkpoint (fp8, baseline reference)
-huggingface-cli download black-forest-labs/FLUX.1-dev flux_dev.safetensors --local-dir models/image
+# SDXL Lightning 4-step checkpoint (safe starter for CUDA, ROCm, and Apple MPS)
+huggingface-cli download ByteDance/SDXL-Lightning sdxl_lightning_4step.safetensors --local-dir models/image
 
-# SDXL Lightning (faster SDXL)
+# Optional SDXL Lightning LoRA for other SDXL checkpoints
 huggingface-cli download ByteDance/SDXL-Lightning sdxl_lightning_4step_lora.safetensors --local-dir models/lora
+
+# FLUX ComfyUI checkpoint (fp8, CUDA-oriented baseline reference)
+huggingface-cli download black-forest-labs/FLUX.1-dev flux_dev.safetensors --local-dir models/image
 
 # Qwen-Image-2512 (multi-file Diffusers repo)
 huggingface-cli download Qwen/Qwen-Image-2512 --local-dir models/image/qwen-image-2512
@@ -210,7 +247,7 @@ huggingface-cli download Gron1-ai/Gemma-3-12B-it-Heretic-v2-GGUF gemma-3-12b-it-
 
 See [models/README.md](models/README.md) for the full curated list and setup hints.
 
-#### Step 5: Run in REAL mode
+#### Step 4: Run in REAL mode
 
 ```bat
 run.bat
@@ -244,12 +281,19 @@ python scripts\install_profiles.py --pretty
 ```
 
 The first command emits a machine report; the second chooses the recommended
-install profile (`nvidia-cuda`, `amd-rocm-linux`, or `cpu-safe`) with package
+install profile (`nvidia-cuda`, `amd-rocm-linux`, `apple-mps`, or `cpu-safe`) with package
 index, verification command, disabled features, and warnings.
 
-#### Step 6: Verify GPU usage
+Official references used by the profile resolver:
+[PyTorch install](https://pytorch.org/get-started/locally/),
+[PyTorch MPS notes](https://pytorch.org/docs/stable/notes/mps.html),
+[NVIDIA compute capability](https://developer.nvidia.com/cuda/gpus),
+[AMD ROCm system requirements](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html), and
+[AMD ROCm PyTorch install](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/3rd-party/pytorch-install.html).
 
-1. Open another terminal and run: `nvidia-smi -l 1` (updates every 1 second)
+#### Step 5: Verify accelerator usage
+
+1. Open another terminal and watch the matching monitor: `nvidia-smi -l 1` on NVIDIA, `rocm-smi` on ROCm, or Activity Monitor on macOS.
 2. In the app, submit a generation job
 3. Watch your GPU memory fill up, then empty after completion
 4. Backend console shows timing, memory snapshots, and model load/unload events
@@ -501,7 +545,7 @@ and `/api/images/{id}/metadata` for reproducibility export.
 `/api/settings` exposes a runtime snapshot for the Settings tab: model paths,
 memory guard values, acceleration knobs, model/LoRA counts, GPU status, and
 current memory telemetry. It also includes the active capability profile
-(`nvidia-cuda`, `amd-rocm-linux`, or `cpu-safe`); `/api/capabilities` exposes the
+(`nvidia-cuda`, `amd-rocm-linux`, `apple-mps`, or `cpu-safe`); `/api/capabilities` exposes the
 same object directly for diagnostics and UI gating. Writable settings are served
 by `/api/settings/overrides` and stored in `data/settings-overrides.json`.
 `/api/models` includes per-model compatibility metadata (`available`,

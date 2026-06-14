@@ -4,19 +4,19 @@
     .\setup.ps1              # Auto setup (hardware probe → recommended profile)
     .\setup.ps1 -Stub        # STUB mode only (no GPU/ML stack)
     .\setup.ps1 -Real        # Force accelerator profile when available
-    .\setup.ps1 -DownloadAll # Accelerator profile + ALL curated models
+    .\setup.ps1 -DownloadAll # Accelerator profile + starter models
 
   This script:
   1. Checks prerequisites (Python 3.12+, Node.js 18+)
   2. Creates Python venv + installs pip dependencies
   3. Installs npm dependencies
   4. Auto-selects CPU/CUDA/ROCm profile and installs matching packages
-  5. Optionally downloads model files (FLUX, SDXL, LLMs)
+  5. Optionally downloads the profile starter model set
 #>
 param(
     [switch]$Stub,                  # STUB mode only
-    [switch]$Real,                  # REAL mode + GPU stack
-    [switch]$DownloadAll,           # REAL mode + GPU stack + all models
+    [switch]$Real,                  # REAL mode + accelerator stack
+    [switch]$DownloadAll,           # REAL mode + accelerator stack + starter models
     [switch]$SkipPrerequiteCheck,   # Skip Python/Node.js/NVIDIA checks
     [switch]$Force                  # Force reinstall even if venv exists
 )
@@ -211,8 +211,13 @@ if ($Real) {
     $torchPackages = @($profile.install.torch.packages)
     $torchIndex = [string]$profile.install.torch.index_url
     Write-Host "  Installing PyTorch for $profileId..." -ForegroundColor Cyan
-    Write-Host "  Index: $torchIndex" -ForegroundColor DarkGray
-    & $venvPip install @torchPackages --index-url $torchIndex 2>&1 | Out-Null
+    if ([string]::IsNullOrWhiteSpace($torchIndex)) {
+        Write-Host "  Index: default PyPI" -ForegroundColor DarkGray
+        & $venvPip install @torchPackages 2>&1 | Out-Null
+    } else {
+        Write-Host "  Index: $torchIndex" -ForegroundColor DarkGray
+        & $venvPip install @torchPackages --index-url $torchIndex 2>&1 | Out-Null
+    }
     Assert-LastExit "PyTorch install"
     Write-Success "PyTorch installed"
 
@@ -292,45 +297,18 @@ if ((Test-Path "frontend\node_modules") -and -not $Force) {
 # --- Download models (optional) -----------------------------------------------
 
 if ($DownloadAll) {
-    Write-Section "Downloading curated models"
-    
-    Write-Host "`n  This will download ~80 GB of model files." -ForegroundColor Yellow
-    Write-Host "  Install huggingface-cli if not already present..." -ForegroundColor Cyan
+    Write-Section "Downloading profile starter models"
+
+    Write-Host "`n  This downloads the starter model set recommended for $profileId." -ForegroundColor Yellow
+    Write-Host "  Installing huggingface-hub if not already present..." -ForegroundColor Cyan
     & $venvPip install huggingface-hub 2>&1 | Out-Null
     Write-Success "huggingface-hub installed"
-    
-    $dlChoice = Read-Host "`nStart model downloads? (y/n)"
-    if ($dlChoice -eq "y") {
-        $hfCli = Join-Path $venvPath "Scripts\huggingface-cli.exe"
-        
-        # Ensure models directories exist
-        @("models\image", "models\llm", "models\lora", "models\embed", "models\vision") |
-            ForEach-Object { if (-not (Test-Path $_)) { mkdir $_ | Out-Null } }
-        
-        Write-Host "`n  Downloading image models (FLUX, SDXL)..." -ForegroundColor Cyan
-        & $hfCli download black-forest-labs/FLUX.1-dev flux_dev.safetensors --local-dir models\image 2>&1 | Out-Null
-        Write-Success "flux_dev.safetensors downloaded"
-        
-        & $hfCli download ByteDance/SDXL-Lightning sdxl_lightning_4step_lora.safetensors --local-dir models\lora 2>&1 | Out-Null
-        Write-Success "SDXL Lightning LoRA downloaded"
-        
-        Write-Host "`n  Downloading LLM models (Gemma, GPT-OSS)..." -ForegroundColor Cyan
-        & $hfCli download Gron1-ai/Gemma-3-12B-it-Heretic-v2-GGUF gemma-3-12b-it-heretic-v2-Q4_K_M.gguf --local-dir models\llm 2>&1 | Out-Null
-        Write-Success "Gemma 3 12B downloaded"
-        
-        Write-Host "`n  Downloading embedding models (Nomic, for RAG)..." -ForegroundColor Cyan
-        & $hfCli download nomic-ai/nomic-embed-text-v1.5 nomic-embed-text-v1.5.f16.gguf --local-dir models\embed 2>&1 | Out-Null
-        Write-Success "Nomic embed downloaded"
-        
-        Write-Host "`n  Downloading vision models (Qwen VL)..." -ForegroundColor Cyan
-        & $hfCli download Qwen/Qwen2.5-VL-3B-Instruct Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf --local-dir models\vision 2>&1 | Out-Null
-        Write-Success "Qwen VL downloaded"
-        
-        Write-Success "All models downloaded to models/"
+
+    & $venvPy "scripts\fetch_models.py" --profile $profileId
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning-Text "Some starter model downloads failed; the app will still run, and you can re-run .\setup.ps1 -DownloadAll."
     } else {
-        Write-Warning-Text "Model downloads skipped"
-        Write-Host "  You can manually download models later using huggingface-cli" -ForegroundColor Yellow
-        Write-Host "  Or re-run setup with -DownloadAll flag" -ForegroundColor Yellow
+        Write-Success "Profile starter models downloaded"
     }
 }
 

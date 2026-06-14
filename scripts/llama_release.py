@@ -33,6 +33,7 @@ KNOWN_BINARIES = ("llama-server", "llama-tts", "llama-mtmd-cli")
 VARIANT_TOKENS = {
     "cuda": ("cuda",),
     "rocm": ("hip", "rocm"),
+    "metal": ("metal",),
     "vulkan": ("vulkan",),
     "cpu": ("cpu",),
 }
@@ -49,7 +50,9 @@ def backend_to_variant(backend: str | None, system: str) -> str:
         return "cuda"
     if backend == "rocm":
         return "hip" if system.lower().startswith("win") else "vulkan"
-    if backend in {"vulkan", "cpu"}:
+    if backend == "mps":
+        return "metal"
+    if backend in {"metal", "vulkan", "cpu"}:
         return backend
     return "cpu"
 

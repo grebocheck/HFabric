@@ -75,6 +75,7 @@ export interface CapabilityGpu {
   compute_capability_tuple?: number[];
   architecture?: string | null;
   rocm?: Record<string, unknown> | null;
+  mps?: Record<string, unknown> | null;
 }
 
 export interface ModelPolicy {
@@ -90,6 +91,22 @@ export interface ModelPolicy {
   notes: string[];
 }
 
+export interface StarterModelJob {
+  repo: string;
+  filename: string;
+  dest: string;
+  label: string;
+  reason: string;
+  feature?: string;
+}
+
+export interface StarterModelPlan {
+  profile: string;
+  jobs: StarterModelJob[];
+  command: string;
+  dry_run_command: string;
+}
+
 export interface CapabilityCandidate {
   id: string;
   confidence?: string | null;
@@ -103,7 +120,7 @@ export interface CapabilityProfile {
   selected_profile: string;
   active_profile: string;
   label?: string | null;
-  backend: "cuda" | "rocm" | "cpu" | string;
+  backend: "cuda" | "rocm" | "mps" | "cpu" | string;
   configured_stub_mode: boolean;
   effective_stub_mode: boolean;
   confidence?: string | null;
@@ -114,6 +131,7 @@ export interface CapabilityProfile {
   features: Record<string, boolean>;
   disabled_features: string[];
   model_policy?: ModelPolicy | null;
+  starter_models?: StarterModelPlan | null;
   warnings: string[];
   candidates: CapabilityCandidate[];
   sources: Record<string, string>;

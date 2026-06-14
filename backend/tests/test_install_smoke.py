@@ -85,6 +85,20 @@ def test_rocm_profile_matches_hip_build():
     assert status_of(result, "torch_visible") == OK
 
 
+def test_mps_profile_matches_torch_mps():
+    result = evaluate(
+        report(
+            "Darwin",
+            [{"vendor": "apple", "name": "Apple Silicon GPU", "architecture": "apple-silicon"}],
+            torch={"installed": True, "mps_available": True, "cuda_available": False},
+        ),
+        run_verify=False,
+    )
+    assert result["profile"]["selected_profile"] == "apple-mps"
+    assert result["ok"] is True
+    assert status_of(result, "torch_visible") == OK
+
+
 def test_torch_not_installed_is_a_warning_not_a_failure():
     result = evaluate(
         report(
