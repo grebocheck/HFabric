@@ -107,6 +107,37 @@ export interface StarterModelPlan {
   dry_run_command: string;
 }
 
+export interface ModelDownloadItem {
+  key: string;
+  repo: string;
+  filename: string;
+  dest: string;
+  label: string;
+  reason: string;
+  feature?: string | null;
+  approx_size_mb: number;
+  license: string;
+  repo_url: string;
+  present: boolean;
+  recommended: boolean;
+}
+
+export interface ModelDownloadStatus {
+  state: "idle" | "running" | "done" | "error";
+  message: string;
+  current: { label: string; filename: string } | null;
+  progress: { done: number; total: number };
+  failed: { label: string; error: string }[];
+  updated_at: number;
+}
+
+export interface ModelDownloadState {
+  catalog: ModelDownloadItem[];
+  disk: { free_mb: number | null; models_root: string };
+  status: ModelDownloadStatus;
+  available: boolean;
+}
+
 export interface CapabilityCandidate {
   id: string;
   confidence?: string | null;

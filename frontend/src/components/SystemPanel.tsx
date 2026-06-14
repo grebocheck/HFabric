@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { SetupDoctor } from "./SetupDoctor";
+import { ModelDownloads } from "./ModelDownloads";
 import { StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { ArbiterNote, GpuStatus, ImageStats, MemPoint, MemSnapshot, ModelProfile, QueuePlan, RuntimeSettings } from "../types";
 
@@ -61,6 +62,8 @@ export function SystemPanel({
       </WorkspaceHeader>
 
       <SetupDoctor />
+
+      <ModelDownloads />
 
       <ArbiterStatus note={note} />
 

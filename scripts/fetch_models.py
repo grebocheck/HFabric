@@ -34,16 +34,20 @@ class FetchJob:
     dest: Path
     label: str
     reason: str
+    approx_size_mb: int = 0
+    license: str = ""
     profiles: tuple[str, ...] = ("nvidia-cuda", "amd-rocm-linux", "apple-mps")
     feature: str | None = None
 
-    def as_dict(self) -> dict[str, str]:
-        out = {
+    def as_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
             "repo": self.repo,
             "filename": self.filename,
             "dest": str(self.dest.relative_to(ROOT)),
             "label": self.label,
             "reason": self.reason,
+            "approx_size_mb": self.approx_size_mb,
+            "license": self.license,
         }
         if self.feature:
             out["feature"] = self.feature
@@ -57,6 +61,8 @@ STARTER_IMAGE_JOBS = [
         MODELS / "image",
         "SDXL Lightning 4-step checkpoint",
         "profile-safe starter image model for CUDA, ROCm, and Apple MPS",
+        approx_size_mb=6900,
+        license="OpenRAIL++",
     ),
     FetchJob(
         "nunchaku-tech/nunchaku-flux.1-dev",
@@ -64,6 +70,8 @@ STARTER_IMAGE_JOBS = [
         MODELS / "image",
         "FLUX.1 dev Nunchaku fp4",
         "fast FLUX path when the NVIDIA CUDA/Nunchaku feature is available",
+        approx_size_mb=6500,
+        license="FLUX.1-dev Non-Commercial",
         profiles=("nvidia-cuda",),
         feature="nunchaku_cuda",
     ),
@@ -76,6 +84,8 @@ COMMON_JOBS = [
         MODELS / "lora",
         "SDXL Lightning LoRA",
         "optional turbo LoRA for SDXL checkpoints",
+        approx_size_mb=390,
+        license="OpenRAIL++",
     ),
     FetchJob(
         "Gron1-ai/Gemma-3-12B-it-Heretic-v2-GGUF",
@@ -83,6 +93,8 @@ COMMON_JOBS = [
         MODELS / "llm",
         "Gemma 3 12B GGUF",
         "starter local chat model for llama.cpp",
+        approx_size_mb=7300,
+        license="Gemma Terms of Use",
     ),
     FetchJob(
         "nomic-ai/nomic-embed-text-v1.5-GGUF",
@@ -90,6 +102,8 @@ COMMON_JOBS = [
         MODELS / "embed",
         "Nomic embedding GGUF",
         "starter RAG embedding model",
+        approx_size_mb=280,
+        license="Apache-2.0",
     ),
     FetchJob(
         "OuteAI/OuteTTS-0.2-500M-GGUF",
@@ -97,6 +111,8 @@ COMMON_JOBS = [
         MODELS / "tts",
         "OuteTTS GGUF",
         "starter TTS acoustic model",
+        approx_size_mb=530,
+        license="CC-BY-NC-SA-4.0",
     ),
     FetchJob(
         "ggml-org/WavTokenizer",
@@ -104,6 +120,8 @@ COMMON_JOBS = [
         MODELS / "tts",
         "WavTokenizer vocoder",
         "required vocoder pair for the starter TTS model",
+        approx_size_mb=170,
+        license="see model card",
     ),
     FetchJob(
         "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF",
@@ -111,6 +129,8 @@ COMMON_JOBS = [
         MODELS / "vision",
         "Qwen2.5-VL 3B GGUF",
         "starter local vision model",
+        approx_size_mb=2200,
+        license="Qwen License",
     ),
     FetchJob(
         "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF",
@@ -118,6 +138,8 @@ COMMON_JOBS = [
         MODELS / "vision",
         "Qwen2.5-VL projector",
         "projector file paired with the starter vision model",
+        approx_size_mb=850,
+        license="Qwen License",
     ),
 ]
 

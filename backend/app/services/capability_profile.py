@@ -35,6 +35,22 @@ def get_capability_profile(*, refresh: bool = False) -> dict[str, Any]:
     return build_capability_profile(_hardware_profile())
 
 
+def resolved_install_profile(*, refresh: bool = False) -> dict[str, Any]:
+    """The raw resolved install profile (selected_profile, optional_features, …).
+
+    The model-download manager (P18.4) needs the unmassaged resolver output to
+    compute which starter jobs are recommended for this machine.
+    """
+    if refresh:
+        _hardware_profile.cache_clear()
+    return deepcopy(_hardware_profile())
+
+
+def fetch_models_module() -> ModuleType:
+    """The ``scripts/fetch_models.py`` module, loaded by path (shared catalog)."""
+    return _fetch_models_module()
+
+
 def build_capability_profile(resolved: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build an API-safe profile from a resolved install profile.
 

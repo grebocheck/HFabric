@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelProfile, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -108,6 +108,12 @@ export const api = {
     fetch("/api/llama/activate", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id }) }).then(j<LlamaState>),
   llamaRemove: (id: string) =>
     fetch(`/api/llama/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<LlamaState>),
+
+  downloadsState: (refresh = false) =>
+    fetch(`/api/downloads${refresh ? "?refresh=true" : ""}`).then(j<ModelDownloadState>),
+  downloadsStart: (keys: string[]) =>
+    fetch("/api/downloads/start", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ keys }) })
+      .then(j<ModelDownloadStatus>),
 
   listJobs: () => fetch("/api/jobs").then(j<Job[]>),
   createJobs: (jobs: JobCreate[]) =>

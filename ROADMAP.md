@@ -68,17 +68,6 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   zip vs. clone-and-run) and produce a one-page "download → run" path that does not
   require reading the full README. Gates on P21.2.
 
-### P18.4 — Model download manager (open tail of P18)
-
-> The single highest-leverage onboarding item for non-developer testers: turn
-> "read README → run a CLI" into "click Recommended → download".
-
-- [ ] Surface `scripts/fetch_models.py` in the UI: the curated verified models with
-  size, license note, target dir, and a progress bar, tied to the capability
-  profile (Recommended preselected, impossible models behind an Advanced filter).
-  Refuse a download the RAM/disk budget can't hold. Let it flag GGUFs that need a
-  newer managed llama.cpp build.
-
 ### P17 — Code health round 2 (carries the hard splits)
 
 > Pure-logic helper extraction proved the pattern; the hard splits remain. Behavior
@@ -186,10 +175,10 @@ Done and in use. Terse on purpose — detailed run logs live in `data/runtime/*.
   stub-mode router tests for the previously untested half; frontend eslint + prettier
   + `npm run lint` in CI; frontend flow tests (ChatPanel/Gallery/QueuePanel); the
   `docs/gpu-smoke.md` checklist.
-- **P18.1–.3 — Distribution.** Production serving (`HFAB_SERVE_FRONTEND=true`, SPA
+- **P18 — Distribution.** Production serving (`HFAB_SERVE_FRONTEND=true`, SPA
   fallback, one port); `--prod` one-command launcher; first-class Settings tab with
-  validated overrides persisted to `data/settings-overrides.json`. *(Download
-  manager → P18.4.)*
+  validated overrides persisted to `data/settings-overrides.json`; in-app model
+  download manager (System tab → Model downloads, hardware-aware, disk-guarded).
 - **P11 / P12 — Code health & arbiter loose ends.** Helper extraction + vitest;
   committed ruff/pytest config; learned-profile management UI; per-job arbiter
   attribution; inline swap-plan previews; memory-timeline depth.

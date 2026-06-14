@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from .api import (
     chat,
     code,
+    downloads,
     gallery,
     jobs,
     llama,
@@ -177,6 +178,7 @@ async def api_token_middleware(request, call_next):
 app.include_router(models.router)
 app.include_router(jobs.router)
 app.include_router(llama.router)
+app.include_router(downloads.router)
 app.include_router(llm.router)
 app.include_router(chat.router)
 app.include_router(code.router)

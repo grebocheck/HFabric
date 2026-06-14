@@ -179,8 +179,13 @@ are user-supplied with their own provider terms (see
 [MODEL_NOTICE.md](MODEL_NOTICE.md)). They live under `models/` and are read in
 place; nothing is copied into the venv.
 
-The no-archaeology path is the hardware-aware starter downloader (also run by
-`setup … all`):
+**Easiest:** once the app is running, open the **System** tab → **Model
+downloads**. It lists curated starter models that fit your hardware (Recommended
+preselected), shows each model's size, license, and target folder, guards against
+filling the disk, and downloads with a progress bar — no terminal needed.
+
+From the command line, the equivalent is the hardware-aware starter downloader
+(also run by `setup … all`):
 
 ```bash
 python scripts/fetch_models.py --dry-run                 # show the plan for this machine
