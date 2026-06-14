@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { Badge } from "./Badge";
 import { MaskEditor } from "./MaskEditor";
 import { ModelPicker } from "./ModelPicker";
+import { PromptLibrary } from "./PromptLibrary";
 import { Select, type SelectOption } from "./Select";
 import { Slider } from "./Slider";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
@@ -90,6 +91,7 @@ export function ImageComposer({
   const [presetError, setPresetError] = useState("");
   const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
   const [promptHistoryOpen, setPromptHistoryOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const promptHistoryRef = useRef<HTMLDivElement>(null);
   const writableDefaultsRef = useRef({
     default_steps: DEFAULT_STEPS,
@@ -391,6 +393,15 @@ export function ImageComposer({
                   </div>
                 ) : null}
               </div>
+              <button
+                type="button"
+                onClick={() => setLibraryOpen(true)}
+                title="Prompt library"
+                aria-label="Open prompt library"
+                className="h-6 rounded-md border border-white/15 px-2 text-xs leading-none text-white/55 transition hover:bg-white/10 hover:text-white"
+              >
+                Library
+              </button>
               <span className="text-[11px] text-white/30">{promptChars ? `${promptChars} chars` : "empty"}</span>
             </div>
           </div>
@@ -411,6 +422,18 @@ export function ImageComposer({
               className={`${field} mt-1.5`}
             />
           </label>
+          <PromptLibrary
+            open={libraryOpen}
+            onClose={() => setLibraryOpen(false)}
+            currentPrompt={promptDraft}
+            currentNegative={negative}
+            onApply={(body, neg) => {
+              setPromptDraft(promptDraft.trim() ? `${promptDraft.trim()}, ${body}` : body);
+              if (neg && neg.trim()) {
+                setNegative(negative.trim() ? `${negative.trim()}, ${neg.trim()}` : neg.trim());
+              }
+            }}
+          />
         </section>
 
         <section className={section}>

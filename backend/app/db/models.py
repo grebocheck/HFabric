@@ -118,6 +118,20 @@ class Preset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class PromptSnippet(Base):
+    """A named, taggable, reusable image-prompt snippet (P19.4 prompt library)."""
+
+    __tablename__ = "prompt_snippets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(128), default="Untitled prompt", index=True)
+    body: Mapped[str] = mapped_column(Text, default="")
+    negative: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
 class Note(Base):
     __tablename__ = "notes"
 

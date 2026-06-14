@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -228,6 +228,20 @@ export const api = {
       body: JSON.stringify({ presets, on_conflict }),
     }).then(j<PresetImportResult>),
   deletePreset: (id: string) => fetch(`/api/presets/${id}`, { method: "DELETE" }).then(j),
+
+  // --- prompt library (P19.4) ---
+  listPrompts: (q?: string) => {
+    const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+    return fetch(`/api/prompts${params}`).then(j<PromptSnippet[]>);
+  },
+  createPrompt: (body: { name?: string; body: string; negative?: string | null; tags?: string[] }) =>
+    fetch("/api/prompts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }).then(j<PromptSnippet>),
+  updatePrompt: (id: string, body: { name?: string; body?: string; negative?: string | null; tags?: string[] }) =>
+    fetch(`/api/prompts/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(body) }).then(j<PromptSnippet>),
+  deletePrompt: (id: string) => fetch(`/api/prompts/${id}`, { method: "DELETE" }).then(j<{ deleted: string }>),
+  importPrompts: (prompts: { name?: string; body: string; negative?: string | null; tags?: string[] }[]) =>
+    fetch("/api/prompts/import", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ prompts }) })
+      .then(j<{ imported: number; prompts: PromptSnippet[] }>),
 
   // --- notes ---
   listNotes: (q?: string) => {

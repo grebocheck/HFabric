@@ -28,7 +28,7 @@ async def test_legacy_db_without_image_metadata_columns_upgrades(isolated_runtim
         columns = {row[1] for row in conn.execute("PRAGMA table_info(images)")}
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     assert {"family", "favorite", "tags"} <= columns
-    assert version == "0001_image_metadata_columns"
+    assert version == "0002_prompt_snippets"
 
 
 def _create_legacy_db(path) -> None:

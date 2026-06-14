@@ -274,3 +274,58 @@ class NoteOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ------------------------------------------------------------- prompt library
+def _clean_tags(tags: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for tag in tags:
+        clean = tag.strip()[:48]
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            out.append(clean)
+    return out[:24]
+
+
+class PromptSnippetCreate(BaseModel):
+    name: str | None = None
+    body: str = ""
+    negative: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class PromptSnippetUpdate(BaseModel):
+    name: str | None = None
+    body: str | None = None
+    negative: str | None = None
+    tags: list[str] | None = None
+
+
+class PromptSnippetOut(BaseModel):
+    id: str
+    name: str
+    body: str
+    negative: str | None
+    tags: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PromptSnippetImportItem(BaseModel):
+    name: str | None = None
+    body: str = ""
+    negative: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class PromptSnippetImportIn(BaseModel):
+    prompts: list[PromptSnippetImportItem] = Field(default_factory=list)
+
+
+class PromptSnippetImportOut(BaseModel):
+    imported: int
+    prompts: list[PromptSnippetOut] = Field(default_factory=list)

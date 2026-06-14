@@ -30,6 +30,7 @@ from .api import (
     models,
     notes,
     presets,
+    prompts,
     rag,
     transcription,
     tts,
@@ -186,6 +187,7 @@ app.include_router(code.router)
 app.include_router(gallery.router)
 app.include_router(notes.router)
 app.include_router(presets.router)
+app.include_router(prompts.router)
 app.include_router(rag.router)
 app.include_router(transcription.router)
 app.include_router(tts.router)

@@ -7,7 +7,12 @@ include breaking changes — this is pre-release software.
 
 ## [Unreleased]
 
-_Work in progress toward the first external test build (see [ROADMAP](ROADMAP.md)
+### Added
+- **Prompt library** (P19.4): save, search, tag, and reuse image-prompt snippets
+  from the composer; export/import as JSON. New `/api/prompts` + `prompt_snippets`
+  table.
+
+_Also in progress toward the first external test build (see [ROADMAP](ROADMAP.md)
 phase P21): version stamp, changelog, contributing guide, and experimental-path
 labelling in the UI._
 

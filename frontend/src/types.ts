@@ -107,6 +107,16 @@ export interface StarterModelPlan {
   dry_run_command: string;
 }
 
+export interface PromptSnippet {
+  id: string;
+  name: string;
+  body: string;
+  negative: string | null;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ModelDownloadItem {
   key: string;
   repo: string;

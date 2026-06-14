@@ -102,8 +102,12 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   type loaded through the arbiter; "Upscale 2×/4×" on `ResultPreview` + History.
 - [ ] **P19.3 — ControlNet for SDXL.** One vetted ControlNet (canny or depth) as an
   optional composer input, with VRAM cost measured into the model profile first.
-- [ ] **P19.4 — Prompt library.** Named, taggable, DB-backed prompt/style snippets
-  insertable from the composer and the chat `/image` bridge.
+- [x] **P19.4 — Prompt library.** DB-backed `prompt_snippets` (name, body, negative,
+  tags) via `/api/prompts` (CRUD + search + JSON import); a `PromptLibrary` modal in
+  the image composer browses/searches, saves the current prompt, inserts a snippet
+  back into the prompt/negative fields, and exports/imports JSON. Backend + UI
+  unit-tested. *Remaining:* the same trigger in the chat `/image` composer (thin
+  follow-up; ChatPanel split P17.3 is the natural time).
 
 ---
 
