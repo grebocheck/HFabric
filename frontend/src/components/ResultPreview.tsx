@@ -28,6 +28,13 @@ export function ResultPreview({
     () => images.find((img) => img.id === selectedId) ?? images[0] ?? null,
     [images, selectedId],
   );
+  const index = useMemo(() => (selected ? images.findIndex((img) => img.id === selected.id) : -1), [images, selected]);
+  const goPrev = useCallback(() => {
+    if (index > 0) setSelectedId(images[index - 1].id);
+  }, [index, images]);
+  const goNext = useCallback(() => {
+    if (index >= 0 && index < images.length - 1) setSelectedId(images[index + 1].id);
+  }, [index, images]);
 
   useEffect(() => {
     const latest = images[0]?.id ?? null;
@@ -40,14 +47,21 @@ export function ResultPreview({
     }
   }, [images, selectedId]);
 
+  // Left/Right page through the batch (also drives the lightbox); Escape closes
+  // the lightbox. Guarded so arrow keys in the composer's inputs/sliders keep
+  // their normal behavior.
   useEffect(() => {
-    if (!lightbox) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLightbox(false);
+      if (e.key === "Escape") { setLightbox(false); return; }
+      if (images.length < 2) return;
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (e.key === "ArrowLeft") { e.preventDefault(); goPrev(); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); goNext(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightbox]);
+  }, [images.length, goPrev, goNext]);
 
   const flash = useCallback((msg: string) => {
     setNote(msg);
@@ -195,7 +209,30 @@ export function ResultPreview({
           className="fixed inset-0 z-30 flex items-center justify-center bg-black/90"
           onClick={() => setLightbox(false)}
         >
-          <ZoomableImage src={selected.url} className="h-[92vh] w-[92vw]" />
+          <ZoomableImage key={selected.id} src={selected.url} className="h-[94vh] w-[96vw]" />
+          {index > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); goPrev(); }}
+              aria-label="Previous image"
+              className="absolute left-4 top-1/2 z-10 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-black/55 text-3xl leading-none text-white/80 backdrop-blur transition hover:bg-black/80"
+            >
+              ‹
+            </button>
+          )}
+          {index >= 0 && index < images.length - 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); goNext(); }}
+              aria-label="Next image"
+              className="absolute right-4 top-1/2 z-10 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-black/55 text-3xl leading-none text-white/80 backdrop-blur transition hover:bg-black/80"
+            >
+              ›
+            </button>
+          )}
+          {images.length > 1 && (
+            <span className="absolute bottom-5 left-1/2 -translate-x-1/2 rounded-md border border-white/15 bg-black/60 px-2.5 py-1 text-xs text-white/70 backdrop-blur">
+              {index + 1} / {images.length}
+            </span>
+          )}
           <button
             onClick={() => setLightbox(false)}
             className="absolute right-5 top-5 rounded-md border border-white/20 bg-black/60 px-3 py-1.5 text-sm hover:bg-white/10"

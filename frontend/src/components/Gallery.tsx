@@ -113,6 +113,28 @@ export function Gallery({
   };
 
   const open = useMemo(() => items.find((i) => i.id === openId) ?? null, [items, openId]);
+  const openIndex = useMemo(() => (openId ? items.findIndex((i) => i.id === openId) : -1), [items, openId]);
+  const goPrev = useCallback(() => {
+    if (openIndex > 0) setOpenId(items[openIndex - 1].id);
+  }, [openIndex, items]);
+  const goNext = useCallback(() => {
+    if (openIndex >= 0 && openIndex < items.length - 1) setOpenId(items[openIndex + 1].id);
+  }, [openIndex, items]);
+
+  // Arrow keys page through the open image; Escape closes. Guarded so typing in
+  // the tag / search inputs keeps normal caret movement.
+  useEffect(() => {
+    if (!openId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpenId(null); return; }
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (e.key === "ArrowLeft") { e.preventDefault(); goPrev(); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); goNext(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openId, goPrev, goNext]);
 
   const removeOne = useCallback(
     async (id: string) => {
@@ -384,6 +406,10 @@ export function Gallery({
           onUpscale={onUpscale}
           onUpdate={handleImageUpdate}
           onDelete={() => void removeOne(open.id)}
+          onPrev={goPrev}
+          onNext={goNext}
+          hasPrev={openIndex > 0}
+          hasNext={openIndex >= 0 && openIndex < items.length - 1}
         />
       )}
     </div>

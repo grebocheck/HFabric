@@ -104,4 +104,25 @@ describe("Gallery", () => {
     await user.click(screen.getByRole("button", { name: "Delete selected" }));
     await waitFor(() => expect(mocks.api.deleteImage).toHaveBeenCalledWith("img1"));
   });
+
+  it("pages through images in the detail modal with arrow keys and closes on Escape", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<Gallery models={MODELS} reloadSignal={0} onReproduce={() => {}} />);
+
+    await waitFor(() => expect(mocks.api.queryImages).toHaveBeenCalled());
+    await screen.findByText(/2 total/);
+
+    // open the first image — its prompt shows as visible text only in the modal
+    await user.click(container.querySelector('button[title="first prompt"]') as HTMLButtonElement);
+    expect(await screen.findByText("first prompt")).toBeTruthy();
+
+    await user.keyboard("{ArrowRight}");
+    expect(await screen.findByText("second prompt")).toBeTruthy();
+
+    await user.keyboard("{ArrowLeft}");
+    expect(await screen.findByText("first prompt")).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText("first prompt")).toBeNull());
+  });
 });

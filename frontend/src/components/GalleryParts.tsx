@@ -31,6 +31,10 @@ export function DetailModal({
   onUpscale,
   onUpdate,
   onDelete,
+  onPrev,
+  onNext,
+  hasPrev = false,
+  hasNext = false,
 }: {
   image: ImageItem;
   models: Model[];
@@ -39,6 +43,10 @@ export function DetailModal({
   onUpscale: (image: ImageItem, scale: 2 | 4) => void;
   onUpdate: (image: ImageItem) => void;
   onDelete: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 }) {
   const params = image.params ?? {};
   const modelName = text(params.model);
@@ -96,11 +104,29 @@ export function DetailModal({
   return (
     <div className="fixed inset-0 z-30 flex bg-black/85" onClick={onClose}>
       <div
-        className="m-auto flex max-h-[92vh] w-[min(1100px,94vw)] gap-4 overflow-hidden rounded-lg border border-white/10 bg-surface p-4"
+        className="m-auto flex max-h-[96vh] w-[min(1760px,97vw)] gap-4 overflow-hidden rounded-lg border border-white/10 bg-surface p-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
-          <ZoomableImage src={image.url} className="h-[84vh] w-full rounded" />
+        <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
+          <ZoomableImage key={image.id} src={image.url} className="h-[90vh] w-full rounded" />
+          {hasPrev && onPrev && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPrev(); }}
+              aria-label="Previous image"
+              className="absolute left-2 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-black/55 text-2xl leading-none text-white/80 backdrop-blur transition hover:bg-black/80"
+            >
+              ‹
+            </button>
+          )}
+          {hasNext && onNext && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onNext(); }}
+              aria-label="Next image"
+              className="absolute right-2 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-black/55 text-2xl leading-none text-white/80 backdrop-blur transition hover:bg-black/80"
+            >
+              ›
+            </button>
+          )}
         </div>
         <aside className="flex w-72 shrink-0 flex-col overflow-y-auto">
           <div className="mb-2 flex items-center justify-between">
