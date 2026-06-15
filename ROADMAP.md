@@ -42,6 +42,83 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ## Active backlog
 
+### P23 — LLM workspace: attachments, native multimodal & reliable tools (NEW)
+
+> The goal: make the **LLM** tab the one place you talk to the model — paste/drop
+> images and files into the chat and have the model actually read them — and make
+> the tools trustworthy. The standalone **Vision** tab is a one-shot dead end
+> (`VisionPanel.tsx` + `api/vision.py`): CPU-only `llama-mtmd-cli` subprocess, no
+> streaming, no multi-turn, separate model files, not arbiter-resident. We fold it
+> into chat and retire the tab.
+>
+> The enabling fact: chat already streams from a **persistent `llama-server`**
+> (`llm_llamacpp.py`), and that server supports multimodal natively (`--mmproj` +
+> OpenAI-style `image_url` content parts) and native function-calling (`tools` /
+> `tool_calls` with grammar-constrained output). So vision and reliable tools are a
+> *better wiring of the path we already have*, not a new engine. Memory invariant
+> holds: a projector is extra VRAM on the one resident LLM, so it loads through the
+> arbiter/`sysmon` budget like everything else — never outside it.
+
+- [x] **P23.1 — Composer attachments (UI + upload plumbing).** *(P0/P1, no model
+  behavior yet.)* Add an attach button + drag-and-drop + paste-from-clipboard to the
+  chat composer (`ChatPanelParts.tsx`); show removable chips above the textarea
+  (thumbnail for images, file pill for docs). Attachments travel with the pending
+  message. Reuse the bounded reader and traversal-safe token scheme in
+  `util/uploads.py` and the existing upload caps; add a `/api/chat/uploads` endpoint
+  (or extend the img2img upload path) returning opaque tokens. Extend the existing
+  `approxTokens` meter to include attachment cost.
+- [x] **P23.2 — Multimodal *inside the chat server* (native, not a CLI).** *(P1 —
+  the load-bearing item.)* Detect a model's paired projector in the registry
+  (sibling `mmproj*.gguf`); when the selected LLM has one, launch `llama-server` with
+  `--mmproj` and GPU offload (so vision is arbiter-coordinated and GPU-resident,
+  unlike today's CPU-only `vision_gpu_layers=0` path). Emit OpenAI `image_url`
+  content parts from `_build_messages` (`llm_llamacpp.py:201`) /
+  `send_message` (`api/chat.py:174`); mark multimodal models in the picker; record
+  the projector's VRAM in the learned profile. **Validate on the RTX 5070 Ti via the
+  GPU smoke checklist first** — confirm the shipped server build accepts `--mmproj`
+  before building UI on top of it.
+  - Validation: 2026-06-15 live-smoke on RTX 5070 Ti started
+    `llama-server.exe` build `9553 (9e3b928fd)` with
+    `Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf` +
+    `mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf`, `--mmproj-offload`, and an
+    OpenAI `image_url` data-URL request; `/health` passed and completion returned.
+- [x] **P23.3 — Document attachments (extract → context / RAG).** *(P1.)* For
+  non-image files (txt/md/code/pdf/docx) extract text server-side; inject small files
+  as a fenced context block guarded by a token budget so we never overflow
+  `llama_ctx`; route large files through transient, conversation-scoped attachment
+  RAG (embedding-service ranking in memory, lexical fallback, no persistent RAG
+  pollution). Show extracted-size + truncation notices so the user knows what the
+  model actually saw.
+- [x] **P23.4 — Reliable tool-calling (replace the JSON-emit hack).** *(P1 — the
+  "якісно та надійно" item.)* Replace the hand-rolled "reply with only this JSON
+  object" protocol (`IMAGE_TOOL_SYSTEM` / `DOCUMENT_TOOL_SYSTEM` in `api/chat.py:37`,
+  scraped by `_parse_image_tool_call` / `_build_document_tool_call` in
+  `scheduler.py:449`) with `llama-server`'s native OpenAI `tools` / `tool_calls`
+  API and grammar-constrained (GBNF / JSON-schema) output, so a call is structurally
+  valid by construction instead of regex-recovered. Keep the two vetted tools
+  (`generate_image`, `search_documents`); make the loop multi-step
+  (model → tool → model → answer) and fall back to the current prompt protocol for
+  models without tool support.
+- [x] **P23.5 — Fold in & retire the Vision tab.** *(P1, gated on P23.2.)* Once
+  chat-native vision is validated, remove the `vision` workspace entry from `App.tsx`
+  and `VisionPanel.tsx`. Decision: keep the `llama-mtmd-cli` path (`api/vision.py`)
+  only as an internal fallback for projectors the server can't load — delete it
+  entirely if P23.2 covers every shipped vision model. Update the README support
+  matrix + the "where to add the next thing" workspace notes.
+- [x] **P23.6 — Convenience & persistence polish.** *(P2.)* Render attachments
+  inline in message history (image thumbnails, file chips) and persist them with the
+  message so they survive a refresh/restart; per-conversation default tool toggles; a
+  clearer affordance distinguishing the `/image` command from the model-driven image
+  tool.
+
+**Declined / out of scope (recorded so we don't relitigate):**
+- **A generic multi-tool agent / arbitrary tool plugins** — keep the two vetted
+  tools plus native calling; no open-ended tool execution in a single-user local app.
+- **Two parallel vision engines long-term** — the CLI path is a fallback at most,
+  not a maintained second surface.
+- **Vision on the heavy image-generation models** — understanding stays on the
+  LLM + mmproj path; image *generation* stays the diffusers path. Don't conflate.
+
 ### P22 — Voice realtime quality & observability (NEW — from the RVC research doc)
 
 > Derived from [`docs/RVC_realtime_audio_pipeline_HFabric_research_UA.docx`](docs/RVC_realtime_audio_pipeline_HFabric_research_UA.docx)

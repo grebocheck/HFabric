@@ -8,9 +8,9 @@ once per batch). Everything runs on your machine; nothing is sent to a cloud
 service.
 
 Beyond chat and image generation, the same shell hosts RAG (chat-with-documents),
-vision (multimodal image analysis), text-to-speech, transcription, and a native
-real-time voice changer — all gated through the same GPU arbiter so they never
-collide.
+chat-native vision through multimodal attachments, text-to-speech, transcription,
+and a native real-time voice changer — all gated through the same GPU arbiter so
+they never collide.
 
 > **Project status: pre-release (B+ / 8.0).** Solid for the author's own daily use
 > and being prepared for testing by others. The core pipeline is real-GPU
@@ -40,9 +40,10 @@ WebSocket → gallery with reproducible metadata) is validated on the GPU today:
 
 - **Image:** SDXL, FLUX (Nunchaku fp4), FLUX.2 [klein], Qwen-Image, Z-Image.
 - **Chat LLM:** any GGUF model via `llama-server`, with streaming, personas,
-  sampling control, stop/regenerate/edit, and a `/image` bridge.
-- **Workspaces:** RAG, Vision, TTS, Transcribe, Notes, Code, and a native RVC
-  Voice changer — all model-gated and CPU-first by default.
+  sampling control, stop/regenerate/edit, attachments, native multimodal
+  `mmproj` vision, and a `/image` bridge.
+- **Workspaces:** RAG, TTS, Transcribe, Notes, Code, and a native RVC Voice
+  changer — all model-gated and CPU-first by default.
 
 The same pipeline also runs **without** torch or llama.cpp in **STUB mode**
 (`HFAB_STUB_MODE=true`), which returns mock results. STUB mode is how the UI is
@@ -193,8 +194,9 @@ python scripts/fetch_models.py --profile apple-mps --dry-run   # plan for anothe
 python scripts/fetch_models.py                            # download
 ```
 
-It fetches a safe SDXL Lightning starter + GGUFs for chat/RAG/TTS/vision on CUDA,
-ROCm, and MPS, plus the Nunchaku FLUX fp4 checkpoint on CUDA when supported.
+It fetches a safe SDXL Lightning starter + GGUFs for chat/RAG/TTS/chat-native
+vision on CUDA, ROCm, and MPS, plus the Nunchaku FLUX fp4 checkpoint on CUDA
+when supported.
 CPU-safe/STUB downloads nothing.
 
 For the full curated list, folder layout, and per-family notes (FLUX.2 klein,
@@ -267,7 +269,7 @@ Two surfaces, deliberately separated:
 - **`.env`** — only system-startup posture (bind host/port, optional API token,
   frontend serving). Copy `.env.example` to `.env`.
 - **Settings tab** — everything else (model paths, acceleration, memory policy,
-  LLM runtime, speech/RAG/vision/voice), typed and saved to
+  LLM runtime, speech/RAG/chat-native vision/voice), typed and saved to
   `data/settings-overrides.json`, applied live.
 
 ```env
@@ -282,7 +284,7 @@ HFAB_SERVE_FRONTEND=false
 `HFAB_API_TOKEN`, and desktop-reaching actions stay loopback-only regardless.
 
 The full env/Settings/knob reference (acceleration, llama.cpp, LoRA, keep-warm,
-speech/RAG/vision/voice, capability autotune) is in
+speech/RAG/chat-native vision/voice, capability autotune) is in
 **[docs/configuration.md](docs/configuration.md)**.
 
 ## Troubleshooting

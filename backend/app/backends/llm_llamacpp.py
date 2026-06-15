@@ -23,6 +23,7 @@ from ..config import (
     resolve_llama_backend,
     settings,
 )
+from ..util import sysmon
 from ..util.pidfiles import llama_server_pidfile, remove_pidfile, write_pidfile
 from .base import LLMBackend, ModelDescriptor, TokenCb
 
@@ -86,6 +87,14 @@ class LlamaCppBackend(LLMBackend):
             args += ["--cache-type-k", ct["k"], "--cache-type-v", ct["v"]]
         if ct["flash_attn"]:
             args += ["--flash-attn", "on"]
+        if self.descriptor.mmproj_path is not None:
+            args += [
+                "--mmproj",
+                str(self.descriptor.mmproj_path),
+                "--mmproj-offload",
+                "--image-min-tokens",
+                "1024",
+            ]
         return args
 
     async def _start_server(self) -> None:
@@ -111,6 +120,7 @@ class LlamaCppBackend(LLMBackend):
         # found. Otherwise ggml silently falls back to CPU, which both eats ~12 GB
         # of RAM and is far slower.
         self._stderr_tail.clear()
+        memory_start = sysmon.snapshot()
         self._proc = await asyncio.create_subprocess_exec(
             *self._build_server_args(),
             cwd=str(bin_path.parent),
@@ -121,6 +131,17 @@ class LlamaCppBackend(LLMBackend):
         self._stderr_task = asyncio.create_task(self._drain_stderr())
         try:
             await self._wait_healthy()
+            self._load_report = {
+                "memory": {"start": memory_start, "end": sysmon.snapshot()},
+                "mmproj": (
+                    {
+                        "path": str(self.descriptor.mmproj_path),
+                        "size_bytes": self.descriptor.mmproj_size_bytes,
+                    }
+                    if self.descriptor.mmproj_path
+                    else None
+                ),
+            }
         except Exception:
             await self._cleanup_process()
             raise
@@ -191,7 +212,7 @@ class LlamaCppBackend(LLMBackend):
         self._proc = None
 
     # ------------------------------------------------------------- complete
-    async def complete(self, params: dict[str, Any], on_token: TokenCb | None = None) -> str:
+    async def complete(self, params: dict[str, Any], on_token: TokenCb | None = None) -> str | dict[str, Any]:
         self._stop = False
         messages = self._build_messages(params)
         if settings.stub_mode:
@@ -199,17 +220,29 @@ class LlamaCppBackend(LLMBackend):
         return await self._complete_real(messages, params, on_token)
 
     @staticmethod
-    def _build_messages(params: dict[str, Any]) -> list[dict[str, str]]:
+    def _build_messages(params: dict[str, Any]) -> list[dict[str, Any]]:
         if params.get("messages"):
             return params["messages"]
-        msgs: list[dict[str, str]] = []
+        msgs: list[dict[str, Any]] = []
         if params.get("system"):
             msgs.append({"role": "system", "content": params["system"]})
         msgs.append({"role": "user", "content": params.get("prompt", "")})
         return msgs
 
+    @staticmethod
+    def _content_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    parts.append(str(item.get("text") or ""))
+            return "\n".join(parts)
+        return str(content or "")
+
     async def _complete_stub(self, messages, on_token) -> str:
-        user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        user = next((self._content_text(m["content"]) for m in reversed(messages) if m["role"] == "user"), "")
         text = (
             f"masterpiece, best quality, highly detailed, cinematic lighting, "
             f"{user.strip()}, intricate background, 8k, sharp focus"
@@ -225,7 +258,7 @@ class LlamaCppBackend(LLMBackend):
                 await on_token(piece)
         return "".join(out).strip()
 
-    async def _complete_real(self, messages, params, on_token) -> str:
+    async def _complete_real(self, messages, params, on_token) -> str | dict[str, Any]:
         payload = {
             "model": self.descriptor.name,
             "messages": messages,
@@ -233,6 +266,9 @@ class LlamaCppBackend(LLMBackend):
             "max_tokens": int(params.get("max_tokens", 512)),
             "stream": True,
         }
+        if params.get("tools"):
+            payload["tools"] = params["tools"]
+            payload["tool_choice"] = params.get("tool_choice", "auto")
         # Optional sampling knobs — pass through to llama-server when supplied.
         for key in ("top_p", "min_p", "repeat_penalty", "seed"):
             if params.get(key) is not None:
@@ -244,6 +280,7 @@ class LlamaCppBackend(LLMBackend):
         import json  # noqa: PLC0415
 
         chunks: list[str] = []
+        tool_call_chunks: dict[int, dict[str, Any]] = {}
 
         async def emit(piece: str) -> None:
             chunks.append(piece)
@@ -262,6 +299,19 @@ class LlamaCppBackend(LLMBackend):
             async with client.stream(
                 "POST", f"{self._base_url}/v1/chat/completions", json=payload
             ) as resp:
+                if resp.status_code >= 400 and payload.get("tools"):
+                    fallback_messages = [
+                        {"role": "system", "content": prompt}
+                        for prompt in params.get("tool_fallback_systems") or []
+                    ] + list(messages)
+                    fallback_params = {
+                        k: v for k, v in params.items() if k not in {"tools", "tool_choice"}
+                    }
+                    return {
+                        "text": await self._complete_real(fallback_messages, fallback_params, on_token),
+                        "tool_calls": [],
+                        "tool_fallback": True,
+                    }
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if self._stop:
@@ -276,6 +326,9 @@ class LlamaCppBackend(LLMBackend):
                         delta = json.loads(data)["choices"][0]["delta"]
                     except (KeyError, IndexError, json.JSONDecodeError):
                         continue
+
+                    for call in delta.get("tool_calls") or []:
+                        self._merge_tool_call_delta(tool_call_chunks, call)
 
                     reasoning = delta.get("reasoning_content") or ""
                     content = delta.get("content") or ""
@@ -295,4 +348,38 @@ class LlamaCppBackend(LLMBackend):
         # the frontend doesn't treat the whole reply as still-active reasoning.
         if in_reasoning and not reasoning_closed:
             await emit("</think>")
-        return "".join(chunks).strip()
+        text = "".join(chunks).strip()
+        tool_calls = self._finalize_tool_calls(tool_call_chunks)
+        if tool_calls:
+            return {"text": text, "tool_calls": tool_calls}
+        return text
+
+    @staticmethod
+    def _merge_tool_call_delta(chunks: dict[int, dict[str, Any]], call: dict[str, Any]) -> None:
+        idx = int(call.get("index") or 0)
+        cur = chunks.setdefault(
+            idx,
+            {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+        )
+        if call.get("id"):
+            cur["id"] += str(call["id"])
+        if call.get("type"):
+            cur["type"] = str(call["type"])
+        fn = call.get("function") or {}
+        if fn.get("name"):
+            cur["function"]["name"] += str(fn["name"])
+        if fn.get("arguments"):
+            cur["function"]["arguments"] += str(fn["arguments"])
+
+    @staticmethod
+    def _finalize_tool_calls(chunks: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for idx in sorted(chunks):
+            call = chunks[idx]
+            fn = call.get("function") or {}
+            if not fn.get("name"):
+                continue
+            if not call.get("id"):
+                call["id"] = f"call_{idx}"
+            out.append(call)
+        return out

@@ -8,7 +8,11 @@ export type JobStatus = Api["JobStatus"];
 export type ModelFamily = Api["ModelFamily"];
 export type AppTheme = "dark" | "dim" | "light";
 
-export type Model = Api["ModelOut"];
+export type Model = Api["ModelOut"] & {
+  multimodal?: boolean;
+  mmproj_path?: string | null;
+  mmproj_size_bytes?: number;
+};
 
 export interface WarmModel {
   resident: string;
@@ -362,10 +366,24 @@ export interface BusEvent {
 
 export type ChatRole = "user" | "assistant" | "system";
 
+export interface ChatAttachment {
+  token: string;
+  filename: string;
+  content_type: string;
+  kind: "image" | "document" | "file" | string;
+  size_bytes: number;
+  url?: string | null;
+  extracted_chars?: number | null;
+  included_chars?: number | null;
+  truncated?: boolean;
+  notice?: string | null;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
+  attachments?: ChatAttachment[];
   error?: boolean;
   job_id?: string | null;
   created_at?: string;
@@ -378,7 +396,7 @@ export type ChatConversationDetail = Omit<Api["ConversationDetailOut"], "params"
   messages: ChatMessage[];
 };
 
-export type ChatImportMessage = Omit<Api["MessageImport"], "role"> & { role: ChatRole };
+export type ChatImportMessage = Omit<Api["MessageImport"], "role"> & { role: ChatRole; attachments?: ChatAttachment[] };
 
 export type ChatConversationImport = Omit<Api["ConversationImport"], "params" | "messages"> & {
   params?: JsonRecord;
@@ -396,6 +414,7 @@ export type ChatSendResult = Omit<Api["ChatSendOut"], "conversation" | "user_mes
 export interface ChatSendBody {
   content: string;
   model_id: string;
+  attachments?: { token: string }[];
   system?: string;
   temperature?: number;
   max_tokens?: number;

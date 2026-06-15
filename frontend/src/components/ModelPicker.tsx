@@ -48,6 +48,7 @@ export function ModelPicker({
             </span>
             <span className="flex items-center gap-1 overflow-hidden">
               <Badge color={familyColor(m.family)}>{m.family}</Badge>
+              {m.multimodal ? <Badge color="bg-cyan-700/55 text-cyan-100">vision</Badge> : null}
               {m.quant ? <Badge>{m.quant}</Badge> : null}
               {isNunchaku(m) ? <Badge color="bg-emerald-700/55 text-emerald-100">fast</Badge> : null}
               {m.recommendation === "recommended" ? (

@@ -100,6 +100,7 @@ class Message(Base):
     )
     role: Mapped[str] = mapped_column(String(16))  # user | assistant | system
     content: Mapped[str] = mapped_column(Text, default="")
+    attachments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     # the LLM job that produced an assistant message (for live streaming linkage)
     job_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error: Mapped[bool] = mapped_column(Boolean, default=False)

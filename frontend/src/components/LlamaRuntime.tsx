@@ -14,8 +14,8 @@ function errMsg(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-// llama.cpp runtime manager (P20.10): install/update the binaries the LLM, RAG,
-// TTS, and Vision tabs all depend on, keeping old builds for rollback.
+// llama.cpp runtime manager (P20.10): install/update the binaries the LLM/RAG,
+// TTS, and chat-native vision paths all depend on, keeping old builds for rollback.
 export function LlamaRuntime() {
   const [data, setData] = useState<LlamaState | null>(null);
   const [busy, setBusy] = useState("");
@@ -233,7 +233,7 @@ export function LlamaRuntime() {
               </ul>
             )}
             <p className="text-[11px] text-white/30">
-              Powers the LLM, RAG, TTS, and Vision tabs. Old builds are kept so a bad update can be rolled back.
+              Powers the LLM, RAG, TTS, and chat-native vision paths. Old builds are kept so a bad update can be rolled back.
             </p>
           </>
         )}

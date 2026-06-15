@@ -44,6 +44,9 @@ async def list_models(
         out.append(ModelOut(
             id=d.id, name=d.name, family=d.family, job_type=d.job_type,
             size_bytes=d.size_bytes, loaded=loaded, warm=warm, quant=d.quant,
+            multimodal=d.multimodal,
+            mmproj_path=str(d.mmproj_path) if d.mmproj_path else None,
+            mmproj_size_bytes=d.mmproj_size_bytes,
             estimated_vram_gb=estimated_vram,
             vram_measured=bool(prof and prof.get("vram_gb")),
             slow=slow,
@@ -187,6 +190,7 @@ async def runtime_settings(
             "models": len(descriptors),
             "image_models": sum(1 for d in descriptors if d.job_type.value == "image"),
             "llm_models": sum(1 for d in descriptors if d.job_type.value == "llm"),
+            "multimodal_llm_models": sum(1 for d in descriptors if d.job_type.value == "llm" and d.multimodal),
             "loras": len(registry.loras()),
             "tts_models": len(list(settings.tts_models_dir.glob("*.gguf")))
             if settings.tts_models_dir.exists()

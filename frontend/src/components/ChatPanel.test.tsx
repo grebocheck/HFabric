@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../api/client", () => ({ api: mocks.api }));
+vi.mock("../api/client", () => ({ api: mocks.api, apiAssetUrl: (url: string) => url }));
 vi.mock("../api/useEvents", () => ({
   useEvents: (onEvent: (event: BusEvent) => void) => {
     mocks.eventHandler = onEvent;

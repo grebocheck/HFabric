@@ -5,7 +5,7 @@ HFabric keeps two configuration surfaces, deliberately separated:
 - **`.env`** — only system-startup posture that must exist *before* the app
   boots: bind host/port, optional API token, and how the frontend is served.
 - **Settings tab** — everything else (model paths, acceleration, memory policy,
-  LLM runtime, speech/RAG/vision placement, voice defaults). Changes are typed,
+  LLM runtime, speech/RAG/chat-native vision placement, voice defaults). Changes are typed,
   validated, persisted to `data/settings-overrides.json`, and applied live.
 
 If a knob isn't in the table below, it's in the Settings tab.
@@ -129,7 +129,7 @@ and `/api/gpu/free` unloads them. Parking is skipped unless available RAM can
 satisfy the model estimate plus the configured warm RAM headroom, so it should not
 push the OS toward the pagefile. Off by default.
 
-## Speech, vision, and RAG workspaces
+## Speech, chat-native vision, and RAG workspaces
 
 These are model-gated and CPU-first by default, so they never quietly steal VRAM
 from the shared arbiter.
@@ -140,9 +140,11 @@ from the shared arbiter.
   (`faster-whisper` / `openai-whisper`) and scans `models/transcribe`. Transcription
   is accepted only when both an engine and a local model are present; output
   metadata lands under `data/outputs/<date>/`.
-- **Vision tab** — scans `models/vision` for a multimodal GGUF + `mmproj` pair and
-  calls the managed `llama-mtmd-cli` binary for PNG/JPEG analysis.
-  `HFAB_VISION_GPU_LAYERS=0` by default; JSON sidecars under `data/outputs/<date>/`.
+- **Chat-native vision** — the LLM tab accepts image attachments when the selected
+  GGUF has a paired `mmproj*.gguf` projector. HFabric launches the persistent
+  `llama-server` with `--mmproj` and sends OpenAI `image_url` content parts, so
+  image understanding is multi-turn and arbiter-resident. The legacy
+  `llama-mtmd-cli` `/api/vision/*` path remains as an internal fallback.
 - **RAG tab** — scans `models/embed` for GGUF embedding models and starts a
   dedicated `llama-server` on `HFAB_LLAMA_EMBED_PORT` (default 8262) in
   `--embeddings` mode. `HFAB_EMBED_GPU_LAYERS=0` keeps it CPU-only by default.

@@ -11,6 +11,7 @@ from fastapi import Request, WebSocket
 from ..config import settings
 
 ASSET_TOKEN_PREFIXES = (
+    "/api/chat/uploads/",
     "/api/images/",
     "/api/tts/audio/",
     "/api/voice/engine/file/",

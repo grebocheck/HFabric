@@ -55,9 +55,9 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
   tool; when the LLM replies with a structured `generate_image` call, the worker
   queues the child image job on the same arbiter and streams the result back into
   the conversation. Shipped 2026-06-04.
-- [x] **C3.1 Vision (multimodal).** Vision tab uses local `llama-mtmd-cli.exe`
-  plus `models/vision` GGUF/mmproj files for PNG/JPEG analysis, CPU-only by
-  default. Shipped 2026-06-04.
+- [x] **C3.1 Vision (multimodal).** Originally shipped as a Vision tab using
+  local `llama-mtmd-cli.exe` plus `models/vision` GGUF/mmproj files; retired by
+  P23 in favor of chat-native `llama-server --mmproj` image attachments.
 - [x] **C3.2 Chat-with-documents (RAG).** Text/file documents -> local
   llama.cpp embeddings (`models/embed`) -> SQLite vector store -> retrieved
   context injected into an LLM conversation from the RAG tab. Shipped
@@ -93,7 +93,7 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
 - [x] **C4.2 RAG tab.** Document indexing/search plus Send to LLM over local
   embedding vectors. Shipped 2026-06-04.
 - [x] **C4.2 Vision tab.** Local multimodal image analysis with persisted JSON
-  output. Shipped 2026-06-04.
+  output. UI retired by P23; `/api/vision/*` remains a fallback endpoint.
 - [x] **C4.2 model-gated chat.** Chat tool mode supports `generate_image` and
   `search_documents`; document search runs local RAG and then queues a child LLM
   answer with retrieved context. Shipped 2026-06-04.

@@ -8,15 +8,19 @@ into the assistant message, so conversations survive a refresh/restart.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..backends.base import ModelDescriptor
 from ..backends.registry import ModelRegistry
+from ..config import settings
 from ..core.enums import EventType, JobType
 from ..core.events import EventBus
 from ..core.scheduler import Worker
 from ..db.models import Conversation, Message
 from ..schemas import (
+    ChatAttachmentOut,
     ChatImportIn,
     ChatImportOut,
     ChatSend,
@@ -29,7 +33,8 @@ from ..schemas import (
     JobCreate,
     MessageOut,
 )
-from ..services import chat_service, queue_service
+from ..services import chat_attachments, chat_service, queue_service
+from ..util.uploads import resolve_chat_upload, store_chat_upload
 from .deps import get_bus, get_registry, get_session, get_worker
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -51,13 +56,79 @@ DOCUMENT_TOOL_SYSTEM = (
 )
 
 
-def _require_job_type(registry: ModelRegistry, model_id: str, job_type: JobType) -> None:
+def _require_job_type(registry: ModelRegistry, model_id: str, job_type: JobType) -> ModelDescriptor:
     try:
         desc = registry.get_descriptor(model_id)
     except KeyError:
         raise HTTPException(404, f"unknown model_id: {model_id}")
     if desc.job_type is not job_type:
         raise HTTPException(400, f"model '{desc.id}' is not {job_type.value}")
+    return desc
+
+
+def _chat_tools(body: ChatSend) -> list[dict]:
+    tools: list[dict] = []
+    if body.image_tool:
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "generate_image",
+                "description": "Queue a local image generation job when the user wants a new image.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Detailed image prompt."},
+                        "negative": {"type": "string", "description": "Optional negative prompt."},
+                        "steps": {"type": "integer", "minimum": 1, "maximum": 80},
+                        "width": {"type": "integer", "minimum": 256, "maximum": 2048},
+                        "height": {"type": "integer", "minimum": 256, "maximum": 2048},
+                        "seed": {"type": "integer", "minimum": -1, "maximum": 2147483647},
+                    },
+                    "required": ["prompt"],
+                    "additionalProperties": False,
+                },
+            },
+        })
+    if body.document_tool:
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "search_documents",
+                "description": "Search indexed local RAG documents for context relevant to the user question.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Concise semantic search query."},
+                        "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            },
+        })
+    return tools
+
+
+def _history_content(message: Message, *, allow_images: bool) -> str | list[dict]:
+    if allow_images:
+        return chat_attachments.history_message_content(message)
+    return message.content
+
+
+def _estimate_history_tokens(
+    *,
+    system: str,
+    history: list[Message],
+    user_text: str,
+    attachments: list[dict],
+) -> int:
+    chars = len(system) + len(user_text) + sum(len(m.content or "") for m in history)
+    image_tokens = sum(
+        chat_attachments.IMAGE_TOKEN_COST
+        for item in attachments
+        if item.get("kind") == "image"
+    )
+    return chars // 4 + image_tokens
 
 
 def _conversation_detail(conv: Conversation, messages: list[Message]) -> ConversationDetailOut:
@@ -65,6 +136,25 @@ def _conversation_detail(conv: Conversation, messages: list[Message]) -> Convers
     return ConversationDetailOut(
         **base.model_dump(),
         messages=[MessageOut.model_validate(m) for m in messages],
+    )
+
+
+@router.post("/uploads", response_model=ChatAttachmentOut)
+async def upload_chat_attachment(file: UploadFile = File(...)) -> ChatAttachmentOut:
+    max_bytes = settings.vision_max_upload_mb * 1024 * 1024
+    return ChatAttachmentOut.model_validate(await store_chat_upload(file, max_bytes=max_bytes))
+
+
+@router.get("/uploads/{token}/file")
+async def get_chat_upload(token: str) -> FileResponse:
+    resolved = resolve_chat_upload(token)
+    if resolved is None:
+        raise HTTPException(404, "attachment not found")
+    path, meta = resolved
+    return FileResponse(
+        path,
+        media_type=str(meta.get("content_type") or "application/octet-stream"),
+        filename=str(meta.get("filename") or path.name),
     )
 
 
@@ -124,6 +214,7 @@ async def import_conversations(
                 conversation_id=conv.id,
                 role=msg.role,
                 content=msg.content,
+                attachments=[a.model_dump() for a in msg.attachments],
                 error=msg.error,
             )
             if msg.created_at:
@@ -183,30 +274,59 @@ async def send_message(
     conv = await chat_service.get_conversation(session, conv_id)
     if not conv:
         raise HTTPException(404, "conversation not found")
-    if not body.content.strip():
+    attachment_meta = chat_attachments.load_attachment_metadata([a.token for a in body.attachments])
+    if not body.content.strip() and not attachment_meta:
         raise HTTPException(400, "message content is empty")
-    _require_job_type(registry, body.model_id, JobType.LLM)
+    desc = _require_job_type(registry, body.model_id, JobType.LLM)
     if body.image_tool:
         if not body.image_model_id:
             raise HTTPException(400, "image_model_id is required when image_tool is enabled")
         _require_job_type(registry, body.image_model_id, JobType.IMAGE)
 
+    previous_history = await chat_service.get_messages(session, conv_id)
+    system = (body.system or conv.system or "").strip()
+    max_prompt_tokens = max(
+        0,
+        settings.llama_ctx
+        - max(1, min(8192, body.max_tokens))
+        - _estimate_history_tokens(
+            system=system,
+            history=previous_history,
+            user_text=body.content,
+            attachments=attachment_meta,
+        )
+        - 512,
+    )
+    current_content, enriched_attachments = await chat_attachments.build_user_content(
+        body.content,
+        attachment_meta,
+        allow_images=bool(desc.mmproj_path),
+        max_context_tokens=max_prompt_tokens,
+    )
+
     # persist the user turn; auto-title a fresh conversation from it
-    user_msg = await chat_service.add_message(session, conv_id, role="user", content=body.content)
+    user_msg = await chat_service.add_message(
+        session,
+        conv_id,
+        role="user",
+        content=body.content,
+        attachments=enriched_attachments,
+    )
     if not conv.title or conv.title == "New chat":
-        conv.title = body.content.strip()[:60]
+        title_source = body.content.strip() or enriched_attachments[0]["filename"]
+        conv.title = title_source[:60]
 
     # build the full prompt history (system + all turns so far, incl. this one)
-    history = await chat_service.get_messages(session, conv_id)
-    msgs: list[dict[str, str]] = []
-    system = (body.system or conv.system or "").strip()
+    history = [*previous_history, user_msg]
+    msgs: list[dict] = []
     if system:
         msgs.append({"role": "system", "content": system})
-    if body.image_tool:
-        msgs.append({"role": "system", "content": IMAGE_TOOL_SYSTEM})
-    if body.document_tool:
-        msgs.append({"role": "system", "content": DOCUMENT_TOOL_SYSTEM})
-    msgs.extend({"role": m.role, "content": m.content} for m in history)
+    for msg in history:
+        content = current_content if msg.id == user_msg.id else _history_content(
+            msg,
+            allow_images=bool(desc.mmproj_path),
+        )
+        msgs.append({"role": msg.role, "content": content})
 
     # empty assistant message the worker will fill in as it streams
     assistant_msg = await chat_service.add_message(session, conv_id, role="assistant", content="")
@@ -235,6 +355,17 @@ async def send_message(
             "assistant_message_id": assistant_msg.id,
             "top_k": max(1, min(20, int(body.rag_top_k or 5))),
         }
+    tools = _chat_tools(body)
+    if tools:
+        params["tools"] = tools
+        params["tool_choice"] = "auto"
+        params["tool_fallback_systems"] = [
+            prompt for enabled, prompt in (
+                (body.image_tool, IMAGE_TOOL_SYSTEM),
+                (body.document_tool, DOCUMENT_TOOL_SYSTEM),
+            )
+            if enabled
+        ]
 
     job = await queue_service.create_job(
         session, JobCreate(type=JobType.LLM, model_id=body.model_id, params=params)
@@ -249,8 +380,10 @@ async def send_message(
         "temperature": body.temperature,
         "max_tokens": body.max_tokens,
         **{k: getattr(body, k) for k in ("top_p", "top_k", "min_p", "repeat_penalty", "stop") if getattr(body, k) is not None},
-        **({"image_tool": True, "image_model_id": body.image_model_id} if body.image_tool else {}),
-        **({"document_tool": True, "rag_top_k": max(1, min(20, int(body.rag_top_k or 5)))} if body.document_tool else {}),
+        "image_tool": bool(body.image_tool),
+        **({"image_model_id": body.image_model_id} if body.image_model_id else {}),
+        "document_tool": bool(body.document_tool),
+        "rag_top_k": max(1, min(20, int(body.rag_top_k or 5))),
     }
     await chat_service.touch(session, conv_id)
     await session.commit()

@@ -1,8 +1,10 @@
-import { useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import type { ChatMessage, LlmConfig, Model, Preset } from "../types";
+import { useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { apiAssetUrl } from "../api/client";
+import type { ChatAttachment, ChatMessage, LlmConfig, Model, Preset } from "../types";
 import { AssistantContent } from "./Thinking";
 import { SkeletonLine } from "./WorkspaceChrome";
 import { modelTitle } from "./chatHelpers";
+import { formatSize } from "./imageComposerHelpers";
 import type { ChatStats } from "./ChatPanelHooks";
 
 export function MessageList({
@@ -85,6 +87,12 @@ export function MessageComposer({
   stats,
   visiblePromptHistory,
   applyPersona,
+  attachmentNote,
+  attachments,
+  attachmentsUploading,
+  onAttachFiles,
+  onPaste,
+  onRemoveAttachment,
 }: {
   approxTokens: number;
   busy: boolean;
@@ -114,9 +122,27 @@ export function MessageComposer({
   visiblePromptHistory: string[];
   applyPersona: (id: string) => void;
   stats: ChatStats | null;
+  attachmentNote: string;
+  attachments: ChatAttachment[];
+  attachmentsUploading: boolean;
+  onAttachFiles: (files: FileList | File[]) => void;
+  onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
+  onRemoveAttachment: (token: string) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const addFiles = (files: FileList | null) => {
+    if (files?.length) onAttachFiles(files);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
   return (
-    <div className="border-t border-white/10 p-3">
+    <div
+      className="border-t border-white/10 p-3"
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        addFiles(event.dataTransfer.files);
+      }}
+    >
       <div className="mb-2 flex flex-col gap-2">
         {modelsLoading && quickModels.length === 0 ? (
           <QuickRail label="Model">
@@ -167,11 +193,14 @@ export function MessageComposer({
           </QuickRail>
         ) : null}
       </div>
+      <AttachmentTray attachments={attachments} onRemove={onRemoveAttachment} />
+      {attachmentNote ? <div className="mb-2 text-xs text-amber-200/80">{attachmentNote}</div> : null}
       <textarea
         ref={inputRef}
         value={input}
         onChange={(event) => onInput(event.target.value)}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         rows={2}
         placeholder={modelId ? "Message...  (Enter to send, Shift+Enter for newline)" : "no LLM model available"}
         disabled={!modelId}
@@ -183,9 +212,24 @@ export function MessageComposer({
           <span className="ml-2 text-white/25">/image &lt;prompt&gt; to generate</span>
           {imageTool && <span className="ml-2 text-white/25">image tool on</span>}
           {documentTool && <span className="ml-2 text-white/25">document tool on</span>}
+          {attachmentsUploading && <span className="ml-2 text-white/30">uploading attachment...</span>}
           {stats && <span className="ml-2 text-white/30">{stats.tps.toFixed(1)} tok/s / TTFT {Math.round(stats.ttft)}ms</span>}
         </span>
         <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => addFiles(event.currentTarget.files)}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy || attachmentsUploading}
+            className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/10 disabled:opacity-30"
+          >
+            Attach
+          </button>
           <button
             onClick={onPromptLibrary}
             disabled={busy}
@@ -207,7 +251,7 @@ export function MessageComposer({
           ) : (
             <button
               onClick={onSend}
-              disabled={!input.trim() || !modelId}
+              disabled={(!input.trim() && attachments.length === 0) || !modelId || attachmentsUploading}
               className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
             >
               Send
@@ -235,6 +279,79 @@ function SkeletonChips({ count }: { count: number }) {
         <SkeletonLine key={i} className={`h-7 rounded-md ${i === 0 ? "w-28" : i === 1 ? "w-36" : "w-24"}`} />
       ))}
     </>
+  );
+}
+
+function AttachmentTray({
+  attachments,
+  onRemove,
+}: {
+  attachments: ChatAttachment[];
+  onRemove: (token: string) => void;
+}) {
+  if (!attachments.length) return null;
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {attachments.map((item) => (
+        <AttachmentChip key={item.token} attachment={item} onRemove={() => onRemove(item.token)} removable />
+      ))}
+    </div>
+  );
+}
+
+function AttachmentList({ attachments }: { attachments?: ChatAttachment[] }) {
+  if (!attachments?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {attachments.map((item) => <AttachmentChip key={item.token} attachment={item} />)}
+    </div>
+  );
+}
+
+function AttachmentChip({
+  attachment,
+  onRemove,
+  removable = false,
+}: {
+  attachment: ChatAttachment;
+  onRemove?: () => void;
+  removable?: boolean;
+}) {
+  const isImage = attachment.kind === "image";
+  return (
+    <span
+      className="flex max-w-full items-center gap-2 rounded-md border border-white/10 bg-black/25 px-2 py-1 text-xs text-white/65"
+      title={attachment.notice ?? attachment.filename}
+    >
+      {isImage && attachment.url ? (
+        <img
+          src={apiAssetUrl(attachment.url)}
+          alt=""
+          className="h-7 w-7 shrink-0 rounded object-cover"
+        />
+      ) : (
+        <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-white/45">
+          {attachment.kind}
+        </span>
+      )}
+      <span className="min-w-0">
+        <span className="block max-w-64 truncate">{attachment.filename}</span>
+        <span className="block truncate text-[10px] text-white/35">
+          {formatSize(attachment.size_bytes)}
+          {attachment.notice ? ` · ${attachment.notice}` : ""}
+        </span>
+      </span>
+      {removable ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 rounded px-1 text-white/35 hover:bg-white/10 hover:text-white/80"
+          title="remove attachment"
+        >
+          x
+        </button>
+      ) : null}
+    </span>
   );
 }
 
@@ -312,6 +429,7 @@ function Bubble({
         ) : (
           <AssistantContent content={msg.content} pending={pending} />
         )}
+        <AttachmentList attachments={msg.attachments} />
         <div className="mt-1 flex gap-2 opacity-0 transition group-hover:opacity-100">
           <button onClick={copy} className="text-[11px] text-white/40 hover:text-white/80">{copied ? "copied" : "copy"}</button>
           {isUser && !msg.id.startsWith("tmp") && (

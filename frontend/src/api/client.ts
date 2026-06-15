@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -53,6 +53,10 @@ function withImageAuth(image: ImageItem): ImageItem {
 
 function withTtsAuth(result: TtsGenerateResult): TtsGenerateResult {
   return { ...result, url: apiAssetUrl(result.url) };
+}
+
+function withAttachmentAuth(attachment: ChatAttachment): ChatAttachment {
+  return { ...attachment, url: attachment.url ? apiAssetUrl(attachment.url) : attachment.url };
 }
 
 export const apiAuth = {
@@ -162,6 +166,13 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify({ conversations }),
     }).then(j<ChatImportResult>),
+  uploadChatAttachment: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return fetch("/api/chat/uploads", { method: "POST", body: form })
+      .then(j<ChatAttachment>)
+      .then(withAttachmentAuth);
+  },
   sendChatMessage: (id: string, body: ChatSendBody) =>
     fetch(`/api/chat/conversations/${id}/messages`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
       .then(j<ChatSendResult>),

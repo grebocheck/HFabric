@@ -19,13 +19,15 @@ from app.core.enums import ModelFamily
 from app.main import app
 
 
-def _backend() -> LlamaCppBackend:
+def _backend(mmproj: Path | None = None) -> LlamaCppBackend:
     desc = ModelDescriptor(
         id="stub-llm",
         name="stub-llm",
         family=ModelFamily.GGUF,
         path=Path("model.gguf"),
-        size_bytes=4,
+        size_bytes=4 + (mmproj.stat().st_size if mmproj and mmproj.exists() else 0),
+        mmproj_path=mmproj,
+        mmproj_size_bytes=(mmproj.stat().st_size if mmproj and mmproj.exists() else 0),
     )
     return LlamaCppBackend(desc)
 
@@ -89,6 +91,15 @@ def test_default_backend_uses_standard_binary(restore_llm_settings):
     settings.llama_backend = "default"
     args = _backend()._build_server_args()
     assert args[0] == str(settings.llama_server_bin)
+
+
+def test_multimodal_backend_adds_mmproj_launch_args(tmp_path, restore_llm_settings):
+    mmproj = tmp_path / "mmproj-test.gguf"
+    mmproj.write_bytes(b"GGUF")
+    args = _backend(mmproj)._build_server_args()
+    assert args[args.index("--mmproj") + 1] == str(mmproj)
+    assert "--mmproj-offload" in args
+    assert args[args.index("--image-min-tokens") + 1] == "1024"
 
 
 # --------------------------------------------------------------- stderr tail

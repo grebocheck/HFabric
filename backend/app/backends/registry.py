@@ -54,6 +54,25 @@ def _has_transformer_weights(repo_dir: Path) -> bool:
     return any((repo_dir / "transformer").glob("*.safetensors"))
 
 
+def _is_mmproj(path: Path) -> bool:
+    return path.name.lower().startswith("mmproj") and path.suffix.lower() == ".gguf"
+
+
+def _find_mmproj(path: Path) -> Path | None:
+    candidates = sorted(p for p in path.parent.glob("mmproj*.gguf") if p.is_file())
+    if not candidates:
+        return None
+    model_key = re.sub(r"[^a-z0-9]+", "", path.stem.lower())
+    scored: list[tuple[int, Path]] = []
+    for candidate in candidates:
+        key = re.sub(r"[^a-z0-9]+", "", candidate.stem.lower().replace("mmproj", ""))
+        overlap = len(set(model_key.split("-")) & set(key.split("-")))
+        substring = 1 if key and (key in model_key or model_key in key) else 0
+        scored.append((substring * 1000 + overlap, candidate))
+    scored.sort(key=lambda item: (-item[0], item[1].name.lower()))
+    return scored[0][1]
+
+
 def _image_safetensors_paths(root: Path) -> list[Path]:
     paths = set(root.glob("*.safetensors"))
     for path in root.glob("*/*.safetensors"):
@@ -115,8 +134,13 @@ class ModelRegistry:
             else:
                 quant = None
             self._add(sub, family, quant=quant)
-        for path in sorted(settings.llm_models_dir.glob("*.gguf")):
-            self._add(path, ModelFamily.GGUF)
+        for root in (settings.llm_models_dir, settings.vision_models_dir):
+            if not root.exists():
+                continue
+            for path in sorted(root.glob("*.gguf")):
+                if _is_mmproj(path):
+                    continue
+                self._add(path, ModelFamily.GGUF, mmproj_path=_find_mmproj(path))
         self._add_upscaler()
         for root in self._lora_scan_roots():
             if not root.exists():
@@ -150,11 +174,31 @@ class ModelRegistry:
         except OSError:
             return 0
 
-    def _add(self, path, family: ModelFamily, quant: str | None = None) -> None:
+    def _add(
+        self,
+        path,
+        family: ModelFamily,
+        quant: str | None = None,
+        mmproj_path: Path | None = None,
+    ) -> None:
         mid = _slug(path.stem)
+        if mid in self._descriptors:
+            try:
+                rel = Path(path).relative_to(settings.root)
+                mid = _slug(rel.with_suffix("").as_posix())
+            except ValueError:
+                pass
         size = self._path_size(path)
+        mmproj_size = self._path_size(mmproj_path) if mmproj_path else 0
         self._descriptors[mid] = ModelDescriptor(
-            id=mid, name=path.stem, family=family, path=path, size_bytes=size, quant=quant
+            id=mid,
+            name=path.stem,
+            family=family,
+            path=path,
+            size_bytes=size + mmproj_size,
+            quant=quant,
+            mmproj_path=mmproj_path,
+            mmproj_size_bytes=mmproj_size,
         )
 
     def _add_upscaler(self) -> None:

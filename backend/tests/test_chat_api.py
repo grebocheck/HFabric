@@ -113,6 +113,56 @@ async def test_image_bridge_persists_generated_image_markdown(app_client, wait_j
     assert assistant["content"].startswith("![blue square](/api/images/")
 
 
+async def test_chat_upload_document_is_persisted_and_injected(app_client, wait_jobs_done):
+    llm_id, _ = await _model_ids(app_client)
+    conv = (await app_client.post("/api/chat/conversations", json={"model_id": llm_id})).json()
+    upload = (await app_client.post(
+        "/api/chat/uploads",
+        files={"file": ("notes.txt", b"alpha attachment context", "text/plain")},
+    )).json()
+    assert upload["token"]
+    assert upload["kind"] == "document"
+
+    sent = (await app_client.post(
+        f"/api/chat/conversations/{conv['id']}/messages",
+        json={
+            "content": "summarize this",
+            "model_id": llm_id,
+            "attachments": [{"token": upload["token"]}],
+            "max_tokens": 64,
+        },
+    )).json()
+    await wait_jobs_done(app_client, [sent["job_id"]])
+
+    detail = (await app_client.get(f"/api/chat/conversations/{conv['id']}")).json()
+    user = detail["messages"][0]
+    assert user["attachments"][0]["filename"] == "notes.txt"
+    assert user["attachments"][0]["included_chars"] > 0
+    assert "included" in user["attachments"][0]["notice"]
+    assert "alpha attachment context" in detail["messages"][1]["content"]
+
+
+async def test_image_attachment_requires_multimodal_model(app_client):
+    llm_id, _ = await _model_ids(app_client)
+    conv = (await app_client.post("/api/chat/conversations", json={"model_id": llm_id})).json()
+    upload = (await app_client.post(
+        "/api/chat/uploads",
+        files={"file": ("tiny.png", b"not-a-real-png", "image/png")},
+    )).json()
+
+    response = await app_client.post(
+        f"/api/chat/conversations/{conv['id']}/messages",
+        json={
+            "content": "what is in this image?",
+            "model_id": llm_id,
+            "attachments": [{"token": upload["token"]}],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "multimodal projector" in response.text
+
+
 async def test_chat_send_validation_errors(app_client):
     llm_id, image_id = await _model_ids(app_client)
     conv = (await app_client.post("/api/chat/conversations", json={})).json()

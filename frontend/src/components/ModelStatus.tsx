@@ -1,7 +1,7 @@
 import { Logo } from "./Logo";
 import type { AppTheme, GpuStatus, MemSnapshot } from "../types";
 
-export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "vision" | "voice" | "system" | "settings";
+export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "voice" | "system" | "settings";
 
 const familyColor: Record<string, string> = {
   flux: "bg-accent",

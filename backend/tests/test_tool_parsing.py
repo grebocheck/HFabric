@@ -80,6 +80,31 @@ def test_parse_image_tool_call_accepts_arguments_wrapper():
     assert call["params"]["negative"] == "blurry"
 
 
+def test_native_tool_call_arguments_parse_from_openai_shape():
+    call = {
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "generate_image", "arguments": '{"prompt":"castle"}'},
+    }
+    name, args = Worker._native_tool_name_args(call)
+    assert name == "generate_image"
+    assert args == {"prompt": "castle"}
+
+
+async def test_native_image_tool_call_uses_same_builder():
+    snap = _snap({"image_tool": {"model_id": "sdxl", "conversation_id": "c1",
+                                 "assistant_message_id": "m1"}})
+    call = {
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "generate_image", "arguments": '{"prompt":"native castle"}'},
+    }
+    built = await _worker()._build_native_tool_call([call], "", snap)
+    assert built is not None
+    assert built["model_id"] == "sdxl"
+    assert built["params"]["prompt"] == "native castle"
+
+
 def test_parse_image_tool_call_requires_config():
     snap = _snap({})  # no image_tool config
     text = '{"tool": "generate_image", "prompt": "x"}'

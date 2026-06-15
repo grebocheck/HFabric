@@ -38,10 +38,16 @@ class ModelDescriptor:
     size_bytes: int
     # quantization backend, e.g. "nunchaku" for SVDQuant int4/fp4 transformers
     quant: str | None = None
+    mmproj_path: Path | None = None
+    mmproj_size_bytes: int = 0
 
     @property
     def job_type(self) -> JobType:
         return self.family.job_type
+
+    @property
+    def multimodal(self) -> bool:
+        return self.mmproj_path is not None
 
 
 @dataclass(frozen=True)
@@ -129,5 +135,5 @@ class LLMBackend(GpuBackend):
     @abc.abstractmethod
     async def complete(
         self, params: dict[str, Any], on_token: TokenCb | None = None
-    ) -> str:
+    ) -> str | dict[str, Any]:
         """Return the full generated text (also streamed via ``on_token``)."""

@@ -17,7 +17,14 @@ export const DEFAULTS_KEY = "hfabric.chat.defaults";
 export const PROMPT_HISTORY_KEY = "hfabric.chat.promptHistory";
 export const promptHistoryLimit = 14;
 
-export function loadDefaults(): { model_id?: string; temperature?: number; max_tokens?: number } {
+export function loadDefaults(): {
+  model_id?: string;
+  temperature?: number;
+  max_tokens?: number;
+  image_tool?: boolean;
+  document_tool?: boolean;
+  rag_top_k?: number;
+} {
   try {
     return JSON.parse(localStorage.getItem(DEFAULTS_KEY) ?? "{}");
   } catch {
@@ -45,6 +52,7 @@ export const parseStop = (s: string): string[] | undefined => {
 
 export function modelHint(model: Model): string | undefined {
   const tags = [
+    model.multimodal ? "vision" : "",
     model.quant ?? "",
     model.estimated_vram_gb ? `~${model.estimated_vram_gb.toFixed(1)} GB` : "",
     model.loaded ? "loaded" : model.warm ? "warm" : "",

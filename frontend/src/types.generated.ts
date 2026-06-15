@@ -134,6 +134,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Chat Attachment */
+        post: operations["upload_chat_attachment_api_chat_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/uploads/{token}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Chat Upload */
+        get: operations["get_chat_upload_api_chat_uploads__token__file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/code/file": {
         parameters: {
             query?: never;
@@ -1480,6 +1514,14 @@ export interface components {
              */
             task: string;
         };
+        /** Body_upload_chat_attachment_api_chat_uploads_post */
+        Body_upload_chat_attachment_api_chat_uploads_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
+        };
         /** Body_upload_document_api_rag_documents_upload_post */
         Body_upload_document_api_rag_documents_upload_post: {
             /**
@@ -1540,6 +1582,37 @@ export interface components {
             /** Speaker Id */
             speaker_id?: number | null;
         };
+        /** ChatAttachmentIn */
+        ChatAttachmentIn: {
+            /** Token */
+            token: string;
+        };
+        /** ChatAttachmentOut */
+        ChatAttachmentOut: {
+            /** Content Type */
+            content_type: string;
+            /** Extracted Chars */
+            extracted_chars?: number | null;
+            /** Filename */
+            filename: string;
+            /** Included Chars */
+            included_chars?: number | null;
+            /** Kind */
+            kind: string;
+            /** Notice */
+            notice?: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Token */
+            token: string;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Url */
+            url?: string | null;
+        };
         /** ChatImportIn */
         ChatImportIn: {
             /** Conversations */
@@ -1585,7 +1658,12 @@ export interface components {
         };
         /** ChatSend */
         ChatSend: {
-            /** Content */
+            /** Attachments */
+            attachments?: components["schemas"]["ChatAttachmentIn"][];
+            /**
+             * Content
+             * @default
+             */
             content: string;
             /**
              * Document Tool
@@ -1896,6 +1974,8 @@ export interface components {
         };
         /** MessageImport */
         MessageImport: {
+            /** Attachments */
+            attachments?: components["schemas"]["ChatAttachmentOut"][];
             /**
              * Content
              * @default
@@ -1913,6 +1993,8 @@ export interface components {
         };
         /** MessageOut */
         MessageOut: {
+            /** Attachments */
+            attachments?: components["schemas"]["ChatAttachmentOut"][];
             /** Content */
             content: string;
             /**
@@ -1954,6 +2036,18 @@ export interface components {
             job_type: components["schemas"]["JobType"];
             /** Loaded */
             loaded: boolean;
+            /** Mmproj Path */
+            mmproj_path?: string | null;
+            /**
+             * Mmproj Size Bytes
+             * @default 0
+             */
+            mmproj_size_bytes: number;
+            /**
+             * Multimodal
+             * @default false
+             */
+            multimodal: boolean;
             /** Name */
             name: string;
             /** Quant */
@@ -2611,6 +2705,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_chat_attachment_api_chat_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_chat_attachment_api_chat_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatAttachmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chat_upload_api_chat_uploads__token__file_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

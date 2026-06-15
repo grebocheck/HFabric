@@ -21,8 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 _TMP = Path(tempfile.gettempdir()) / "hfabric_test"
 _IMAGE_DIR = _TMP / "image"
 _LLM_DIR = _TMP / "llm"
+_VISION_DIR = _TMP / "vision"
 _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 _LLM_DIR.mkdir(parents=True, exist_ok=True)
+_VISION_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _write_safetensors(path: Path, keys: list[str]) -> None:
@@ -57,6 +59,7 @@ os.environ["HFAB_DATA_DIR"] = str(_TMP / "data")
 os.environ["HFAB_OUTPUTS_DIR"] = str(_TMP / "outputs")
 os.environ["HFAB_IMAGE_MODELS_DIR"] = str(_IMAGE_DIR)
 os.environ["HFAB_LLM_MODELS_DIR"] = str(_LLM_DIR)
+os.environ["HFAB_VISION_MODELS_DIR"] = str(_VISION_DIR)
 # Keep the budget guard deterministic regardless of the host's free RAM.
 os.environ.setdefault("HFAB_LEARN_MEMORY_PROFILES", "false")
 

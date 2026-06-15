@@ -20,6 +20,9 @@ class ModelOut(BaseModel):
     loaded: bool
     warm: bool = False
     quant: str | None = None
+    multimodal: bool = False
+    mmproj_path: str | None = None
+    mmproj_size_bytes: int = 0
     estimated_vram_gb: float | None = None
     # True when estimated_vram_gb comes from a real measurement (P7.2), not the
     # static heuristic — the UI labels it "measured".
@@ -119,10 +122,28 @@ class ImageExportIn(BaseModel):
 
 
 # ----------------------------------------------------------------------- chat
+class ChatAttachmentIn(BaseModel):
+    token: str = Field(min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
+
+
+class ChatAttachmentOut(BaseModel):
+    token: str
+    filename: str
+    content_type: str
+    kind: str
+    size_bytes: int
+    url: str | None = None
+    extracted_chars: int | None = None
+    included_chars: int | None = None
+    truncated: bool = False
+    notice: str | None = None
+
+
 class MessageOut(BaseModel):
     id: str
     role: str
     content: str
+    attachments: list[ChatAttachmentOut] = Field(default_factory=list)
     error: bool = False
     job_id: str | None = None
     created_at: datetime
@@ -163,6 +184,7 @@ class ConversationUpdate(BaseModel):
 class MessageImport(BaseModel):
     role: str = Field(pattern="^(user|assistant|system)$")
     content: str = ""
+    attachments: list[ChatAttachmentOut] = Field(default_factory=list)
     error: bool = False
     created_at: datetime | None = None
 
@@ -187,8 +209,9 @@ class ChatImportOut(BaseModel):
 
 
 class ChatSend(BaseModel):
-    content: str
+    content: str = ""
     model_id: str
+    attachments: list[ChatAttachmentIn] = Field(default_factory=list, max_length=12)
     system: str | None = None
     temperature: float = 0.8
     max_tokens: int = 512

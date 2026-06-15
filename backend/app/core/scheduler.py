@@ -290,12 +290,13 @@ class Worker:
                 async def on_token(tok: str) -> None:
                     await self._bus.publish(Event(EventType.LLM_TOKEN, job_id=snap.id, token=tok))
 
-                text = await backend.complete(snap.params, on_token)
+                result = await backend.complete(snap.params, on_token)
+                text, native_tool_calls = self._llm_result_parts(result)
                 if self._cancel_current:
                     failed = True
                     await self._mark_cancelled(snap, text)
                 else:
-                    await self._finish_llm(snap, text)
+                    await self._finish_llm(snap, text, native_tool_calls)
 
         except GenerationCancelled:
             failed = True
@@ -388,14 +389,32 @@ class Worker:
             done = Event(EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value, text=chat_md)
         await self._bus.publish(done)
 
-    async def _finish_llm(self, snap: JobSnapshot, text: str) -> None:
+    @staticmethod
+    def _llm_result_parts(result: str | dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+        if not isinstance(result, dict):
+            return result, []
+        text = result.get("text", "")
+        if isinstance(text, dict):
+            text, calls = Worker._llm_result_parts(text)
+            return text, calls
+        tool_calls = result.get("tool_calls") if isinstance(result.get("tool_calls"), list) else []
+        return str(text or ""), [call for call in tool_calls if isinstance(call, dict)]
+
+    async def _finish_llm(
+        self,
+        snap: JobSnapshot,
+        text: str,
+        native_tool_calls: list[dict[str, Any]] | None = None,
+    ) -> None:
         # Harmony models (gpt-oss) emit chain-of-thought wrapped in <think> by the
         # llama backend. Keep it only for chat replies (the Thinking panel renders
         # it); strip it everywhere it would pollute a prompt or tool-call JSON.
         clean = self._strip_reasoning(text)
         is_chat = bool(snap.params.get("assistant_message_id"))
         reply_text = text if is_chat else clean
-        tool_call = self._parse_image_tool_call(clean, snap)
+        tool_call = await self._build_native_tool_call(native_tool_calls or [], clean, snap)
+        if tool_call is None:
+            tool_call = self._parse_image_tool_call(clean, snap)
         if tool_call is None:
             tool_call = await self._build_document_tool_call(clean, snap)
         child_job_id: str | None = None
@@ -446,6 +465,47 @@ class Worker:
             EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value, text=reply_text
         ))
 
+    async def _build_native_tool_call(
+        self,
+        calls: list[dict[str, Any]],
+        assistant_text: str,
+        snap: JobSnapshot,
+    ) -> dict[str, Any] | None:
+        for call in calls:
+            name, args = self._native_tool_name_args(call)
+            if name == "generate_image":
+                built = self._build_image_tool_call(args, snap)
+                if built is not None:
+                    built["native_tool_call"] = call
+                    return built
+            if name == "search_documents":
+                built = await self._build_document_tool_call_from_args(
+                    args,
+                    snap,
+                    assistant_text=assistant_text,
+                    native_call=call,
+                )
+                if built is not None:
+                    return built
+        return None
+
+    @staticmethod
+    def _native_tool_name_args(call: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        name = fn.get("name") or call.get("name")
+        raw_args = fn.get("arguments", {})
+        if isinstance(raw_args, dict):
+            args = raw_args
+        elif isinstance(raw_args, str):
+            try:
+                parsed = json.loads(raw_args or "{}")
+            except json.JSONDecodeError:
+                parsed = {}
+            args = parsed if isinstance(parsed, dict) else {}
+        else:
+            args = {}
+        return str(name) if name else None, args
+
     def _parse_image_tool_call(self, text: str, snap: JobSnapshot) -> dict[str, Any] | None:
         config = snap.params.get("image_tool")
         if not isinstance(config, dict) or not config.get("model_id"):
@@ -456,6 +516,12 @@ class Worker:
         tool = obj.get("tool") or obj.get("name")
         args = obj.get("arguments") if isinstance(obj.get("arguments"), dict) else obj
         if tool != "generate_image" or not isinstance(args, dict):
+            return None
+        return self._build_image_tool_call(args, snap)
+
+    def _build_image_tool_call(self, args: dict[str, Any], snap: JobSnapshot) -> dict[str, Any] | None:
+        config = snap.params.get("image_tool")
+        if not isinstance(config, dict) or not config.get("model_id"):
             return None
         prompt = str(args.get("prompt") or "").strip()
         if not prompt:
@@ -492,15 +558,25 @@ class Worker:
         }
 
     async def _build_document_tool_call(self, text: str, snap: JobSnapshot) -> dict[str, Any] | None:
-        config = snap.params.get("document_tool")
-        if not isinstance(config, dict):
-            return None
         obj = self._extract_json_object(text)
         if not isinstance(obj, dict):
             return None
         tool = obj.get("tool") or obj.get("name")
         args = obj.get("arguments") if isinstance(obj.get("arguments"), dict) else obj
         if tool != "search_documents" or not isinstance(args, dict):
+            return None
+        return await self._build_document_tool_call_from_args(args, snap, assistant_text=text)
+
+    async def _build_document_tool_call_from_args(
+        self,
+        args: dict[str, Any],
+        snap: JobSnapshot,
+        *,
+        assistant_text: str,
+        native_call: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        config = snap.params.get("document_tool")
+        if not isinstance(config, dict):
             return None
         query = str(args.get("query") or "").strip()
         if not query:
@@ -521,17 +597,30 @@ class Worker:
             context = "No matching local documents were found."
 
         messages = list(snap.params.get("messages") or [])
-        messages.append({"role": "assistant", "content": text.strip()})
-        messages.append({
-            "role": "user",
-            "content": (
-                "Tool result from search_documents:\n\n"
-                f"{context}\n\n"
-                "Now answer the user's latest question using this retrieved context when relevant. "
-                "Cite bracketed source numbers like [1] when you use a retrieved source. "
-                "If the context is insufficient, say what is missing."
-            ),
-        })
+        tool_content = (
+            f"{context}\n\n"
+            "Answer the user's latest question using this retrieved context when relevant. "
+            "Cite bracketed source numbers like [1] when you use a retrieved source. "
+            "If the context is insufficient, say what is missing."
+        )
+        if native_call is not None:
+            messages.append({
+                "role": "assistant",
+                "content": assistant_text.strip(),
+                "tool_calls": [native_call],
+            })
+            messages.append({
+                "role": "tool",
+                "tool_call_id": str(native_call.get("id") or "call_0"),
+                "name": "search_documents",
+                "content": tool_content,
+            })
+        else:
+            messages.append({"role": "assistant", "content": assistant_text.strip()})
+            messages.append({
+                "role": "user",
+                "content": f"Tool result from search_documents:\n\n{tool_content}",
+            })
         child_params = self._child_llm_params(snap, messages)
         child_params["tool_result"] = {
             "tool": "search_documents",
@@ -549,7 +638,7 @@ class Worker:
         }
 
     @staticmethod
-    def _child_llm_params(snap: JobSnapshot, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def _child_llm_params(snap: JobSnapshot, messages: list[dict[str, Any]]) -> dict[str, Any]:
         params: dict[str, Any] = {
             "messages": messages,
             "assistant_message_id": snap.params.get("assistant_message_id"),

@@ -17,7 +17,6 @@ import { SystemPanel } from "./components/SystemPanel";
 import { toast, ToastHost } from "./components/Toast";
 import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
-import { VisionPanel } from "./components/VisionPanel";
 import { VoicePanel } from "./components/VoicePanel";
 import { buildComposerApply } from "./components/imageComposerHelpers";
 import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
@@ -420,15 +419,6 @@ export default function App() {
               setView("llm");
             }}
           />
-        </main>
-      ),
-    },
-    {
-      id: "vision",
-      label: "Vision",
-      render: () => (
-        <main className="flex-1 overflow-hidden p-4">
-          <VisionPanel />
         </main>
       ),
     },

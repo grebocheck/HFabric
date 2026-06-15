@@ -160,8 +160,10 @@ class Settings(BaseSettings):
     embed_timeout_seconds: int = 120
     rag_chunk_chars: int = 1200
     rag_chunk_overlap: int = 160
-    # Vision uses llama-mtmd-cli for local multimodal GGUF + mmproj pairs. Keep
-    # it CPU-only by default; raising this should be treated like GPU work.
+    # Legacy /api/vision fallback uses llama-mtmd-cli for local multimodal GGUF +
+    # mmproj pairs. The primary UI path is chat-native llama-server --mmproj.
+    # Keep the fallback CPU-only by default; raising this should be treated like
+    # GPU work.
     vision_gpu_layers: int = 0
     vision_timeout_seconds: int = 900
     vision_max_upload_mb: int = 64

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
+import type { ChatAttachment, ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
 import { ModelPicker } from "./ModelPicker";
 import { PromptLibrary } from "./PromptLibrary";
 import { Select } from "./Select";
@@ -46,6 +46,9 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const [convQuery, setConvQuery] = useState("");
   const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
+  const [attachmentNote, setAttachmentNote] = useState("");
 
   // settings (per conversation)
   const [modelId, setModelId] = useState(saved.model_id ?? "");
@@ -59,9 +62,9 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const [repeatPenalty, setRepeatPenalty] = useState<NumOrEmpty>("");
   const [seed, setSeed] = useState<NumOrEmpty>("");
   const [stop, setStop] = useState("");
-  const [imageTool, setImageTool] = useState(false);
-  const [documentTool, setDocumentTool] = useState(false);
-  const [ragTopK, setRagTopK] = useState(5);
+  const [imageTool, setImageTool] = useState(Boolean(saved.image_tool));
+  const [documentTool, setDocumentTool] = useState(Boolean(saved.document_tool));
+  const [ragTopK, setRagTopK] = useState(saved.rag_top_k ?? 5);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // personas (stored as llm presets)
@@ -122,6 +125,21 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     });
   }, []);
 
+  const uploadAttachments = useCallback(async (files: FileList | File[]) => {
+    const list = Array.from(files).filter((file) => file.size > 0);
+    if (!list.length) return;
+    setAttachmentsUploading(true);
+    setAttachmentNote("");
+    try {
+      const uploaded = await Promise.all(list.map((file) => api.uploadChatAttachment(file)));
+      setAttachments((prev) => [...prev, ...uploaded].slice(0, 12));
+    } catch (err) {
+      setAttachmentNote(err instanceof Error ? err.message : "attachment upload failed");
+    } finally {
+      setAttachmentsUploading(false);
+    }
+  }, []);
+
   useEffect(() => {
     refreshConvs();
     refreshPersonas();
@@ -133,8 +151,15 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   }, [llmModels, modelId]);
 
   useEffect(() => {
-    localStorage.setItem(DEFAULTS_KEY, JSON.stringify({ model_id: modelId, temperature, max_tokens: maxTokens }));
-  }, [modelId, temperature, maxTokens]);
+    localStorage.setItem(DEFAULTS_KEY, JSON.stringify({
+      model_id: modelId,
+      temperature,
+      max_tokens: maxTokens,
+      image_tool: imageTool,
+      document_tool: documentTool,
+      rag_top_k: ragTopK,
+    }));
+  }, [modelId, temperature, maxTokens, imageTool, documentTool, ragTopK]);
 
   useEffect(() => {
     localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(promptHistory));
@@ -173,6 +198,8 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     try {
       const d = await api.getConversation(id);
       setMessages(d.messages);
+      setAttachments([]);
+      setAttachmentNote("");
       if (d.model_id) setModelId(d.model_id);
       setSystem(d.system ?? "");
       const pr = d.params ?? {};
@@ -208,6 +235,8 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     setConvs((p) => [c, ...p]);
     setActiveId(c.id);
     setMessages([]);
+    setAttachments([]);
+    setAttachmentNote("");
     setEditingId(null);
     setStats(null);
   }, [modelId, llmModels, setConvs, setStats]);
@@ -215,7 +244,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const deleteConversation = useCallback(async (id: string) => {
     await api.deleteConversation(id).catch(() => {});
     setConvs((p) => p.filter((c) => c.id !== id));
-    if (activeId === id) { setActiveId(null); setMessages([]); }
+    if (activeId === id) { setActiveId(null); setMessages([]); setAttachments([]); setAttachmentNote(""); }
   }, [activeId, setConvs]);
 
   const sampling = useCallback((): Omit<ChatSendBody, "content" | "model_id"> => ({
@@ -230,17 +259,22 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     stop: parseStop(stop),
   }), [system, temperature, maxTokens, topP, topK, minP, repeatPenalty, seed, stop]);
 
-  const submit = useCallback(async (content: string, convId: string) => {
+  const submit = useCallback(async (content: string, convId: string, outgoingAttachments: ChatAttachment[] = []) => {
     const mdl = modelId || llmModels[0]?.id;
     if (!mdl) return;
     stickToBottom.current = true;
     beginStream();
-    setMessages((p) => [...p, { id: "tmp-u", role: "user", content }, { id: "tmp-a", role: "assistant", content: "" }]);
+    setMessages((p) => [
+      ...p,
+      { id: "tmp-u", role: "user", content, attachments: outgoingAttachments },
+      { id: "tmp-a", role: "assistant", content: "" },
+    ]);
     try {
       const img = imageTool ? pickImageModel(models) : undefined;
       const res = await api.sendChatMessage(convId, {
         content,
         model_id: mdl,
+        attachments: outgoingAttachments.map((item) => ({ token: item.token })),
         ...sampling(),
         ...(imageTool && img ? { image_tool: true, image_model_id: img.id } : {}),
         ...(documentTool ? { document_tool: true, rag_top_k: ragTopK } : {}),
@@ -284,7 +318,8 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
 
   const send = useCallback(async () => {
     const content = input.trim();
-    if (!content || busy) return;
+    const outgoingAttachments = attachments;
+    if ((!content && outgoingAttachments.length === 0) || busy || attachmentsUploading) return;
     let cid = activeId;
     if (!cid) {
       const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
@@ -293,15 +328,17 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
       cid = c.id;
     }
     setInput("");
-    rememberPrompt(content);
+    setAttachments([]);
+    setAttachmentNote("");
+    if (content) rememberPrompt(content);
     const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
-    if (imgCmd) {
+    if (imgCmd && outgoingAttachments.length === 0) {
       const parsed = parseImageCommand(imgCmd[1].trim());
       if (!parsed.prompt) return;
       await submitImage(parsed.prompt, cid, parsed.negative);
     }
-    else await submit(content, cid);
-  }, [input, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage, setConvs, setInput]);
+    else await submit(content, cid, outgoingAttachments);
+  }, [input, attachments, attachmentsUploading, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage, setConvs, setInput]);
 
   const applyImagePromptSnippet = useCallback((body: string, negative?: string | null) => {
     const prompt = body.trim();
@@ -324,7 +361,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     await api.truncateFrom(activeId, lastUser.id).catch(() => {});
     const idx = messages.findIndex((m) => m.id === lastUser.id);
     setMessages((p) => p.slice(0, idx));
-    await submit(lastUser.content, activeId);
+    await submit(lastUser.content, activeId, lastUser.attachments ?? []);
   }, [busy, activeId, messages, submit]);
 
   const startEdit = (m: ChatMessage) => { setEditingId(m.id); setEditText(m.content); };
@@ -334,13 +371,19 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     const idx = messages.findIndex((m) => m.id === editingId);
     setEditingId(null);
     if (!content || idx < 0) return;
+    const editedAttachments = messages[idx]?.attachments ?? [];
     await api.truncateFrom(activeId, editingId).catch(() => {});
     setMessages((p) => p.slice(0, idx));
-    await submit(content, activeId);
+    await submit(content, activeId, editedAttachments);
   }, [activeId, editingId, editText, messages, submit]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
+  };
+
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files;
+    if (files?.length) void uploadAttachments(files);
   };
 
   const applyCtx = async () => {
@@ -443,6 +486,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
       messages: messages.map((m) => ({
         role: m.role,
         content: m.content,
+        attachments: m.attachments ?? [],
         error: m.error,
         created_at: m.created_at,
       })),
@@ -497,9 +541,12 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     ? convs.filter((c) => c.title.toLowerCase().includes(convQuery.trim().toLowerCase()))
     : convs;
 
+  const attachmentTokens = attachments.reduce((n, item) => (
+    n + (item.kind === "image" ? 1024 : Math.min(8192, Math.ceil(item.size_bytes / 4)))
+  ), 0);
   const approxTokens = Math.ceil(
     (system.length + input.length + messages.reduce((n, m) => n + m.content.length, 0)) / 4,
-  );
+  ) + attachmentTokens;
 
   return (
     <div className="flex h-full gap-3">
@@ -587,6 +634,12 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
           stats={stats}
           visiblePromptHistory={visiblePromptHistory}
           applyPersona={applyPersona}
+          attachmentNote={attachmentNote}
+          attachments={attachments}
+          attachmentsUploading={attachmentsUploading}
+          onAttachFiles={(files) => void uploadAttachments(files)}
+          onPaste={onPaste}
+          onRemoveAttachment={(token) => setAttachments((prev) => prev.filter((item) => item.token !== token))}
         />
         <PromptLibrary
           open={libraryOpen}
@@ -649,8 +702,8 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
 
         <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
           <span>
-            <span className="block text-sm font-medium text-white/70">Image tool</span>
-            <span className="block text-xs text-white/35">{pickImageModel(models)?.name ?? "no image model"}</span>
+            <span className="block text-sm font-medium text-white/70">Model image tool</span>
+            <span className="block text-xs text-white/35">{pickImageModel(models)?.name ?? "no image model"} · /image stays manual</span>
           </span>
           <Toggle checked={imageTool} disabled={!pickImageModel(models)} onChange={setImageTool} />
         </div>

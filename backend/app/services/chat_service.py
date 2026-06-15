@@ -79,9 +79,16 @@ async def add_message(
     *,
     role: str,
     content: str = "",
+    attachments: list[dict] | None = None,
     job_id: str | None = None,
 ) -> Message:
-    msg = Message(conversation_id=conv_id, role=role, content=content, job_id=job_id)
+    msg = Message(
+        conversation_id=conv_id,
+        role=role,
+        content=content,
+        attachments=attachments or [],
+        job_id=job_id,
+    )
     session.add(msg)
     await session.flush()
     return msg
