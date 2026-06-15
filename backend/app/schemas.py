@@ -214,7 +214,7 @@ class ChatSend(BaseModel):
     attachments: list[ChatAttachmentIn] = Field(default_factory=list, max_length=12)
     system: str | None = None
     temperature: float = 0.8
-    max_tokens: int = 512
+    max_tokens: int = 4096
     top_p: float | None = None
     top_k: int | None = None
     min_p: float | None = None

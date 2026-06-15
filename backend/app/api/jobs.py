@@ -182,7 +182,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     system: str | None = None
     temperature: float = 0.8
-    max_tokens: int = 512
+    max_tokens: int = 4096
     priority: int = 0
 
 
@@ -206,7 +206,7 @@ async def chat(
     params = {
         "messages": msgs,
         "temperature": max(0.0, min(2.0, body.temperature)),
-        "max_tokens": max(1, min(8192, body.max_tokens)),
+        "max_tokens": max(1, min(16384, body.max_tokens)),
     }
     payload = JobCreate(
         type=JobType.LLM, model_id=body.model_id, params=params, priority=body.priority

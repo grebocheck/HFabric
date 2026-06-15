@@ -83,7 +83,7 @@ function llmConfig(): LlmConfig {
     stub: true,
     loaded: false,
     model_id: null,
-    defaults: { temperature: 0.8, max_tokens: 512 },
+    defaults: { temperature: 0.8, max_tokens: 4096 },
   };
 }
 

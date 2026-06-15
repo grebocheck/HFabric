@@ -263,7 +263,7 @@ class LlamaCppBackend(LLMBackend):
             "model": self.descriptor.name,
             "messages": messages,
             "temperature": float(params.get("temperature", 0.8)),
-            "max_tokens": int(params.get("max_tokens", 2048)),
+            "max_tokens": int(params.get("max_tokens", 4096)),
             "stream": True,
         }
         if params.get("tools"):

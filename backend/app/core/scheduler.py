@@ -645,7 +645,7 @@ class Worker:
             "conversation_id": snap.params.get("conversation_id"),
             "source_llm_job_id": snap.id,
             "temperature": snap.params.get("temperature", 0.8),
-            "max_tokens": snap.params.get("max_tokens", 512),
+            "max_tokens": snap.params.get("max_tokens", 4096),
         }
         for key in ("top_p", "top_k", "min_p", "repeat_penalty", "seed", "stop"):
             if snap.params.get(key) is not None:

@@ -288,7 +288,7 @@ async def send_message(
     max_prompt_tokens = max(
         0,
         settings.llama_ctx
-        - max(1, min(8192, body.max_tokens))
+        - max(1, min(16384, body.max_tokens))
         - _estimate_history_tokens(
             system=system,
             history=previous_history,
@@ -334,7 +334,7 @@ async def send_message(
     params: dict = {
         "messages": msgs,
         "temperature": max(0.0, min(2.0, body.temperature)),
-        "max_tokens": max(1, min(8192, body.max_tokens)),
+        "max_tokens": max(1, min(16384, body.max_tokens)),
         # linkage so the worker can write the reply back to the DB message
         "assistant_message_id": assistant_msg.id,
         "conversation_id": conv_id,

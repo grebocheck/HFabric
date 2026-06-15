@@ -1568,7 +1568,7 @@ export interface components {
         ChatRequest: {
             /**
              * Max Tokens
-             * @default 512
+             * @default 4096
              */
             max_tokens: number;
             /** Messages */
@@ -1611,7 +1611,7 @@ export interface components {
             image_tool: boolean;
             /**
              * Max Tokens
-             * @default 512
+             * @default 4096
              */
             max_tokens: number;
             /** Min P */

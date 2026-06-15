@@ -54,7 +54,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const [modelId, setModelId] = useState(saved.model_id ?? "");
   const [system, setSystem] = useState("");
   const [temperature, setTemperature] = useState(saved.temperature ?? 0.8);
-  const [maxTokens, setMaxTokens] = useState(saved.max_tokens ?? 2048);
+  const [maxTokens, setMaxTokens] = useState(saved.max_tokens ?? 4096);
   // advanced sampling ("" = unset -> use model default)
   const [topP, setTopP] = useState<NumOrEmpty>("");
   const [topK, setTopK] = useState<NumOrEmpty>("");
@@ -798,7 +798,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
 
         <label>
           <div className={label}>Max tokens</div>
-          <input type="number" min={1} max={8192} step={64} value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} className={`${numField} mt-1`} />
+          <input type="number" min={1} max={16384} step={64} value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} className={`${numField} mt-1`} />
         </label>
 
         {/* advanced sampling */}
