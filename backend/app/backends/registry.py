@@ -58,19 +58,40 @@ def _is_mmproj(path: Path) -> bool:
     return path.name.lower().startswith("mmproj") and path.suffix.lower() == ".gguf"
 
 
+# Trailing quantization tag (q4_k_m, iq4_xs, q8_0, f16, bf16, mxfp4, …) so a model
+# and its projector compare on their base name, not their (often different) quant.
+_QUANT_TAG_RE = re.compile(r"[._-](q\d\w*|iq\d\w*|f16|f32|bf16|fp\d+|mxfp4)$", re.IGNORECASE)
+
+
+def _model_tokens(stem: str) -> set[str]:
+    name = stem.lower().replace("mmproj", "")
+    prev = None
+    while prev != name:  # strip stacked quant tags, e.g. "-instruct-q4_k_m"
+        prev = name
+        name = _QUANT_TAG_RE.sub("", name)
+    return {tok for tok in re.split(r"[^a-z0-9]+", name) if tok}
+
+
 def _find_mmproj(path: Path) -> Path | None:
+    """Pair a GGUF with its multimodal projector, if any lives beside it.
+
+    Match on base-name token overlap (quant tags stripped) so a stray projector
+    never attaches `--mmproj` to an unrelated text model. Only when a folder holds
+    exactly one model + projector do we pair them despite a name mismatch (the
+    common LLaVA layout, where the projector is named `mmproj-clip`)."""
     candidates = sorted(p for p in path.parent.glob("mmproj*.gguf") if p.is_file())
     if not candidates:
         return None
-    model_key = re.sub(r"[^a-z0-9]+", "", path.stem.lower())
-    scored: list[tuple[int, Path]] = []
+    model_tokens = _model_tokens(path.stem)
+    best: tuple[int, Path] | None = None
     for candidate in candidates:
-        key = re.sub(r"[^a-z0-9]+", "", candidate.stem.lower().replace("mmproj", ""))
-        overlap = len(set(model_key.split("-")) & set(key.split("-")))
-        substring = 1 if key and (key in model_key or model_key in key) else 0
-        scored.append((substring * 1000 + overlap, candidate))
-    scored.sort(key=lambda item: (-item[0], item[1].name.lower()))
-    return scored[0][1]
+        overlap = len(model_tokens & _model_tokens(candidate.stem))
+        if best is None or overlap > best[0]:
+            best = (overlap, candidate)
+    if best and best[0] > 0:
+        return best[1]
+    models = [p for p in path.parent.glob("*.gguf") if p.is_file() and not _is_mmproj(p)]
+    return candidates[0] if len(models) == 1 and len(candidates) == 1 else None
 
 
 def _image_safetensors_paths(root: Path) -> list[Path]:
