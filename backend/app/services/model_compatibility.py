@@ -37,7 +37,7 @@ def compatibility_for_model(
     warnings: list[str] = []
 
     if desc.job_type is JobType.IMAGE:
-        unavailable = _image_unavailable_reason(desc, profile, backend, disabled, estimated_vram_gb)
+        unavailable = _image_unavailable_reason(desc, profile, backend, disabled)
         if unavailable:
             return {
                 "available": False,
@@ -46,6 +46,16 @@ def compatibility_for_model(
                 "compatibility_warnings": warnings,
                 "recommendation": "hidden",
             }
+        # VRAM alone no longer blocks an image model: every diffusers family streams
+        # weights from RAM via CPU offload, so exceeding the card's VRAM means
+        # "slower", not "impossible". Surface it as a warning and let it run.
+        gpu_vram_gb = _primary_gpu_vram_gb(profile)
+        if estimated_vram_gb and gpu_vram_gb and estimated_vram_gb > gpu_vram_gb + 0.5:
+            warnings.append(
+                f"Needs ~{estimated_vram_gb:.1f} GB VRAM but the GPU has "
+                f"{gpu_vram_gb:.1f} GB — runs with CPU offload to RAM (slower) "
+                f"rather than being blocked."
+            )
         if backend == "rocm" and desc.family in {
             ModelFamily.FLUX,
             ModelFamily.FLUX2,
@@ -95,7 +105,6 @@ def _image_unavailable_reason(
     profile: dict[str, Any],
     backend: str,
     disabled: set[str],
-    estimated_vram_gb: float | None,
 ) -> str | None:
     quant = desc.quant or ""
     if quant.startswith("nunchaku") and "nunchaku_cuda" in disabled:
@@ -114,9 +123,17 @@ def _image_unavailable_reason(
     if backend == "cpu":
         return "Real image model loading requires an accelerator profile; use STUB/CPU-safe mode instead."
 
-    gpu_vram_gb = _primary_gpu_vram_gb(profile)
-    if estimated_vram_gb and gpu_vram_gb and estimated_vram_gb > gpu_vram_gb + 0.5:
-        return f"Estimated VRAM need is ~{estimated_vram_gb:.1f} GB, but the selected GPU reports {gpu_vram_gb:.1f} GB."
+    # Refuse only when even CPU offload can't hold the model: with offload the
+    # weights live in system RAM, so the hard limit is total RAM, not VRAM. The
+    # per-load RAM guard (sysmon.ram_budget) still refuses at runtime if free RAM
+    # is momentarily too low; here we only hide what this machine can never run.
+    ram_need_gb = sysmon.estimate_ram_need_gb(desc.family, desc.size_bytes, desc.quant, desc.id)
+    total_ram_gb = sysmon.ram_stats().get("total_gb")
+    if total_ram_gb and ram_need_gb > total_ram_gb:
+        return (
+            f"Needs ~{ram_need_gb:.1f} GB system RAM to run with CPU offload, but this "
+            f"machine has {total_ram_gb:.1f} GB."
+        )
 
     return None
 

@@ -103,15 +103,41 @@ def test_hidden_policy_bucket_blocks_queueing_even_before_load():
     assert "hidden" in compat["unavailable_reason"]
 
 
-def test_real_mode_blocks_models_that_exceed_gpu_vram():
+def test_vram_excess_offloads_to_ram_instead_of_blocking(monkeypatch):
+    # FLUX dev (~17 GB) on a 16 GB card: it streams weights from RAM via CPU
+    # offload, so it stays available with a "slower" warning rather than disabled.
+    from app.util import sysmon
+
+    monkeypatch.setattr(sysmon, "estimate_ram_need_gb", lambda *a, **k: 22.0)
+    monkeypatch.setattr(sysmon, "ram_stats", lambda: {"total_gb": 32.0, "available_gb": 24.0})
+
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.FLUX),
+        profile=profile(backend="cuda", vram_mb=16384),
+        estimated_vram_gb=17.1,
+    )
+
+    assert compat["available"] is True
+    assert compat["runtime_mode"] == "real"
+    assert any("offload" in w.lower() for w in compat["compatibility_warnings"])
+
+
+def test_blocks_only_when_even_ram_offload_cannot_hold_the_model(monkeypatch):
+    # bf16 model whose RAM need exceeds the whole machine: offload can't save it,
+    # so it is genuinely unavailable (the runtime guard would refuse anyway).
+    from app.util import sysmon
+
+    monkeypatch.setattr(sysmon, "estimate_ram_need_gb", lambda *a, **k: 64.0)
+    monkeypatch.setattr(sysmon, "ram_stats", lambda: {"total_gb": 32.0, "available_gb": 24.0})
+
     compat = model_compatibility.compatibility_for_model(
         desc(ModelFamily.QWEN_IMAGE),
-        profile=profile(backend="cuda", vram_mb=8192),
+        profile=profile(backend="cuda", vram_mb=16384),
         estimated_vram_gb=15,
     )
 
     assert compat["available"] is False
-    assert "Estimated VRAM" in compat["unavailable_reason"]
+    assert "RAM" in compat["unavailable_reason"]
 
 
 def test_recommendation_reflects_model_policy_buckets():
