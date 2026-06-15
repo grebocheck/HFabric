@@ -102,6 +102,34 @@ def test_multimodal_backend_adds_mmproj_launch_args(tmp_path, restore_llm_settin
     assert args[args.index("--image-min-tokens") + 1] == "1024"
 
 
+# ------------------------------------------------- reasoning budget safety net
+def test_budget_hint_fires_when_reasoning_eats_the_whole_budget():
+    # Reasoning model that thought until finish_reason="length" with no answer.
+    hint = LlamaCppBackend._budget_exhausted_hint(
+        in_reasoning=True, answer_emitted=False, has_tool_calls=False, finish_reason="length"
+    )
+    assert "Max tokens" in hint
+
+
+def test_budget_hint_silent_for_normal_replies():
+    # Answer was produced -> no note.
+    assert LlamaCppBackend._budget_exhausted_hint(
+        in_reasoning=True, answer_emitted=True, has_tool_calls=False, finish_reason="length"
+    ) == ""
+    # Natural stop while still reasoning (rare) -> not the budget failure.
+    assert LlamaCppBackend._budget_exhausted_hint(
+        in_reasoning=True, answer_emitted=False, has_tool_calls=False, finish_reason="stop"
+    ) == ""
+    # The model emitted a tool call instead of prose -> not a blank reply.
+    assert LlamaCppBackend._budget_exhausted_hint(
+        in_reasoning=True, answer_emitted=False, has_tool_calls=True, finish_reason="length"
+    ) == ""
+    # Non-reasoning model that hit the cap -> existing truncation, no special note.
+    assert LlamaCppBackend._budget_exhausted_hint(
+        in_reasoning=False, answer_emitted=False, has_tool_calls=False, finish_reason="length"
+    ) == ""
+
+
 # --------------------------------------------------------------- stderr tail
 class _FakeStderr:
     def __init__(self, lines: list[bytes]) -> None:

@@ -263,7 +263,7 @@ class LlamaCppBackend(LLMBackend):
             "model": self.descriptor.name,
             "messages": messages,
             "temperature": float(params.get("temperature", 0.8)),
-            "max_tokens": int(params.get("max_tokens", 512)),
+            "max_tokens": int(params.get("max_tokens", 2048)),
             "stream": True,
         }
         if params.get("tools"):
@@ -295,6 +295,8 @@ class LlamaCppBackend(LLMBackend):
         # / Qwen, which emit the tags inline themselves.
         in_reasoning = False
         reasoning_closed = False
+        answer_emitted = False
+        finish_reason: str | None = None
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST", f"{self._base_url}/v1/chat/completions", json=payload
@@ -323,9 +325,12 @@ class LlamaCppBackend(LLMBackend):
                         break
 
                     try:
-                        delta = json.loads(data)["choices"][0]["delta"]
+                        choice = json.loads(data)["choices"][0]
                     except (KeyError, IndexError, json.JSONDecodeError):
                         continue
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+                    delta = choice.get("delta") or {}
 
                     for call in delta.get("tool_calls") or []:
                         self._merge_tool_call_delta(tool_call_chunks, call)
@@ -342,17 +347,43 @@ class LlamaCppBackend(LLMBackend):
                         if in_reasoning and not reasoning_closed:
                             reasoning_closed = True
                             await emit("</think>")
+                        if content.strip():
+                            answer_emitted = True
                         await emit(content)
 
         # Reasoning with no following answer (e.g. cut short) — close the block so
         # the frontend doesn't treat the whole reply as still-active reasoning.
         if in_reasoning and not reasoning_closed:
             await emit("</think>")
+        hint = self._budget_exhausted_hint(
+            in_reasoning=in_reasoning,
+            answer_emitted=answer_emitted,
+            has_tool_calls=bool(tool_call_chunks),
+            finish_reason=finish_reason,
+        )
+        if hint:
+            await emit(hint)
         text = "".join(chunks).strip()
         tool_calls = self._finalize_tool_calls(tool_call_chunks)
         if tool_calls:
             return {"text": text, "tool_calls": tool_calls}
         return text
+
+    @staticmethod
+    def _budget_exhausted_hint(
+        *, in_reasoning: bool, answer_emitted: bool, has_tool_calls: bool, finish_reason: str | None
+    ) -> str:
+        """A reasoning model can burn its whole token budget thinking and stop
+        (finish_reason="length") before writing a single word of answer — the chat
+        would otherwise show only a <think> block and a blank reply. Return an
+        actionable note for that case, else "" (no change to normal replies)."""
+        if in_reasoning and not answer_emitted and not has_tool_calls and finish_reason == "length":
+            return (
+                "\n\n_⚠ The model used its entire token budget while reasoning and "
+                "didn't reach an answer. Raise **Max tokens** (reasoning models need "
+                "plenty) and retry._"
+            )
+        return ""
 
     @staticmethod
     def _merge_tool_call_delta(chunks: dict[int, dict[str, Any]], call: dict[str, Any]) -> None:

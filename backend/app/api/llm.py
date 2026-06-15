@@ -70,7 +70,7 @@ def _status(arbiter: GpuArbiter, **extra) -> dict:
         "stub": settings.stub_mode,
         "loaded": loaded,
         "model_id": cur.descriptor.id if loaded else None,
-        "defaults": {"temperature": 0.8, "max_tokens": 512},
+        "defaults": {"temperature": 0.8, "max_tokens": 2048},
         **extra,
     }
 
