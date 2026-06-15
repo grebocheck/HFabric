@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VisionResult, VisionStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, HealthStatus, ImageItem, ImageStats, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -305,7 +305,6 @@ export const api = {
     fetch("/api/rag/search", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
       .then(j<RagSearchResponse>),
 
-  visionStatus: () => fetch("/api/vision/status").then(j<VisionStatus>),
   voiceEngineStatus: () => fetch("/api/voice/engine/status").then(j<VoiceEngineStatus>),
   voiceEngineSettings: (body: VoiceEngineSettingsUpdate) =>
     fetch("/api/voice/engine/settings", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
@@ -344,15 +343,6 @@ export const api = {
     fetch("/api/voice/engine/convert", { method: "POST", body: form })
       .then(j<VoiceEngineConvertResult>)
       .then((res) => ({ ...res, url: apiAssetUrl(res.url), mp3_url: apiAssetUrl(res.mp3_url) })),
-  analyzeVision: (body: { file: File; prompt: string; model_id: string; projector_id: string }) => {
-    const form = new FormData();
-    form.append("file", body.file);
-    form.append("prompt", body.prompt);
-    form.append("model_id", body.model_id);
-    form.append("projector_id", body.projector_id);
-    return fetch("/api/vision/analyze", { method: "POST", body: form }).then(j<VisionResult>);
-  },
-
   listCodeFiles: (q?: string) => {
     const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
     return fetch(`/api/code/files${params}`).then(j<CodeFile[]>);

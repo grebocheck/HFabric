@@ -214,7 +214,7 @@ free_port() {
 sweep_llama() {
   # A run closed by killing the terminal can orphan child llama processes that
   # keep holding RAM/VRAM; sweep them so every launch starts clean.
-  for n in llama-server llama-tts llama-mtmd-cli; do
+  for n in llama-server llama-tts; do
     pkill -9 -f "$n" >/dev/null 2>&1 || true
   done
 }

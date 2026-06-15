@@ -139,7 +139,6 @@ def apply_active_to_settings() -> dict[str, str]:
     for name, attr in (
         ("llama-server", "llama_server_bin"),
         ("llama-tts", "llama_tts_bin"),
-        ("llama-mtmd-cli", "llama_mtmd_bin"),
     ):
         path = binaries.get(name)
         if path and Path(path).exists():

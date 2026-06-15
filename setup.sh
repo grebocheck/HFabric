@@ -239,7 +239,7 @@ fi
 # --- llama.cpp runtime -------------------------------------------------------
 if [ "$REAL" -eq 1 ]; then
   section "Installing llama.cpp runtime"
-  printf '  Downloading the matching prebuilt build (LLM/RAG/TTS/Vision)...\n'
+  printf '  Downloading the matching prebuilt build (LLM/RAG/TTS)...\n'
   if ! "$PYBIN" scripts/fetch_llama.py; then
     warn "llama.cpp auto-install failed; install it later from Settings -> LLM runtime."
   fi

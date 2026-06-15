@@ -20,7 +20,7 @@ def _fake_extracted(tmp: Path, name: str, system: str) -> Path:
 
 def _pin_llama_settings(monkeypatch):
     # Make the manager's setattr on these paths auto-revert after the test.
-    for attr in ("llama_server_bin", "llama_tts_bin", "llama_mtmd_bin"):
+    for attr in ("llama_server_bin", "llama_tts_bin"):
         monkeypatch.setattr(settings, attr, getattr(settings, attr))
 
 

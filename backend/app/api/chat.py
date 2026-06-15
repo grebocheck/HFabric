@@ -141,7 +141,7 @@ def _conversation_detail(conv: Conversation, messages: list[Message]) -> Convers
 
 @router.post("/uploads", response_model=ChatAttachmentOut)
 async def upload_chat_attachment(file: UploadFile = File(...)) -> ChatAttachmentOut:
-    max_bytes = settings.vision_max_upload_mb * 1024 * 1024
+    max_bytes = settings.chat_upload_max_mb * 1024 * 1024
     return ChatAttachmentOut.model_validate(await store_chat_upload(file, max_bytes=max_bytes))
 
 

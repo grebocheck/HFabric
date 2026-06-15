@@ -55,21 +55,12 @@ async def test_transcription_upload_cap_runs_before_model_execution(client, monk
     assert response.status_code == 413
 
 
-async def test_vision_upload_cap_runs_before_subprocess(client, monkeypatch, tmp_path):
-    bin_path = tmp_path / "llama-mtmd-cli.exe"
-    bin_path.write_bytes(b"stub")
-    models_dir = tmp_path / "vision"
-    models_dir.mkdir()
-    (models_dir / "vision-model.gguf").write_bytes(b"stub")
-    (models_dir / "mmproj-test.gguf").write_bytes(b"stub")
-    monkeypatch.setattr(settings, "llama_mtmd_bin", bin_path)
-    monkeypatch.setattr(settings, "vision_models_dir", models_dir)
-    monkeypatch.setattr(settings, "vision_max_upload_mb", 0)
+async def test_chat_attachment_upload_cap_runs_before_storage(client, monkeypatch):
+    monkeypatch.setattr(settings, "chat_upload_max_mb", 0)
 
     response = await client.post(
-        "/api/vision/analyze",
-        data={"model_id": "vision-model", "projector_id": "mmproj-test", "prompt": "describe"},
-        files={"file": ("image.png", b"x", "image/png")},
+        "/api/chat/uploads",
+        files={"file": ("image.png", _png_bytes(), "image/png")},
     )
 
     assert response.status_code == 413

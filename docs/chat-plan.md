@@ -93,7 +93,8 @@ already does the LLM↔image swap). New workspaces plug in the same way. The DB
 - [x] **C4.2 RAG tab.** Document indexing/search plus Send to LLM over local
   embedding vectors. Shipped 2026-06-04.
 - [x] **C4.2 Vision tab.** Local multimodal image analysis with persisted JSON
-  output. UI retired by P23; `/api/vision/*` remains a fallback endpoint.
+  output. Fully retired by P23 (tab, `/api/vision/*`, and the `llama-mtmd-cli`
+  runtime) in favor of chat-native `llama-server --mmproj` attachments.
 - [x] **C4.2 model-gated chat.** Chat tool mode supports `generate_image` and
   `search_documents`; document search runs local RAG and then queues a child LLM
   answer with retrieved context. Shipped 2026-06-04.

@@ -16,7 +16,7 @@ models/
 |- tts/     *.gguf                        (llama-tts voice/acoustic models)
 |- transcribe/ Whisper model folders/.pt  (local transcription models)
 |- embed/   *.gguf embedding models       (RAG workspace)
-|- vision/  *.gguf + mmproj GGUF          (Vision workspace)
+|- vision/  *.gguf + mmproj GGUF          (chat-native multimodal LLMs)
 `- voice/   RVC slots + pretrain assets   (native voice engine)
 ```
 
@@ -31,7 +31,7 @@ The backend scans these folders on startup:
 | `tts/` | `.gguf` | TTS models for `llama-tts` |
 | `transcribe/` | local faster-whisper folders or `.pt`/`.pth` | Whisper transcription models |
 | `embed/` | `.gguf` | RAG embedding models for llama.cpp `--embeddings` |
-| `vision/` | model `.gguf` + `mmproj*.gguf` | Multimodal models for `llama-mtmd-cli` |
+| `vision/` | model `.gguf` + `mmproj*.gguf` | Multimodal LLMs for chat-native `llama-server --mmproj` |
 | `voice/` | RVC checkpoint slots, `pretrain/*.onnx`, `pretrain/*.pt`, optional `pretrain/denoise/*.onnx` | Native RVC voice conversion |
 
 For a first REAL-mode run, prefer the profile-aware starter downloader instead

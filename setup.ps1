@@ -269,7 +269,7 @@ if ($Real) {
 
 if ($Real) {
     Write-Section "Installing llama.cpp runtime"
-    Write-Host "  Downloading the matching prebuilt build (LLM/RAG/TTS/Vision)..." -ForegroundColor Cyan
+    Write-Host "  Downloading the matching prebuilt build (LLM/RAG/TTS)..." -ForegroundColor Cyan
     & $venvPy "scripts\fetch_llama.py"
     if ($LASTEXITCODE -ne 0) {
         Write-Warning-Text "llama.cpp auto-install failed; you can install it later from Settings -> LLM runtime."

@@ -134,7 +134,6 @@ async def runtime_settings(
             "db_path": str(settings.db_path),
             "llama_server_bin": str(settings.llama_server_bin),
             "llama_tts_bin": str(settings.llama_tts_bin),
-            "llama_mtmd_bin": str(settings.llama_mtmd_bin),
         },
         "memory": {
             "min_free_ram_gb": settings.min_free_ram_gb,
@@ -183,8 +182,6 @@ async def runtime_settings(
             "embed_timeout_seconds": settings.embed_timeout_seconds,
             "rag_chunk_chars": settings.rag_chunk_chars,
             "rag_chunk_overlap": settings.rag_chunk_overlap,
-            "vision_gpu_layers": settings.vision_gpu_layers,
-            "vision_timeout_seconds": settings.vision_timeout_seconds,
         },
         "counts": {
             "models": len(descriptors),

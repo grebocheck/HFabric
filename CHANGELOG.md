@@ -33,8 +33,9 @@ are implemented but experimental (unvalidated on real hardware).
   and inpainting (SDXL); reproduce/vary; measured-VRAM model & LoRA pickers.
 - Chat LLM via llama.cpp: streaming, personas, sampling control,
   stop/regenerate/edit, `/image` bridge, `generate_image`/`search_documents` tools.
-- Workspaces: RAG, Vision, TTS, Transcribe, Notes, Code, and a native RVC Voice
-  changer (validated with a real mic) — all model-gated and CPU-first by default.
+- Workspaces: RAG, TTS, Transcribe, Notes, Code, and a native RVC Voice changer
+  (validated with a real mic) — all model-gated and CPU-first by default. Image
+  understanding is chat-native (attach an image to a multimodal LLM).
 - History: responsive grid, combinable filters, favorites/tags, bulk delete + ZIP.
 
 ### Trust, data, distribution

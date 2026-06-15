@@ -130,7 +130,6 @@ class Settings(BaseSettings):
     # the standard build; selected via `llama_backend` = "turbo".
     llama_server_bin_turbo: Path = ROOT / "bin" / "llama-turbo" / f"llama-server{_EXE}"
     llama_tts_bin: Path = ROOT / "bin" / "llama" / f"llama-tts{_EXE}"
-    llama_mtmd_bin: Path = ROOT / "bin" / "llama" / f"llama-mtmd-cli{_EXE}"
     llama_host: str = "127.0.0.1"
     llama_port: int = 8261
     llama_embed_port: int = 8262
@@ -160,13 +159,9 @@ class Settings(BaseSettings):
     embed_timeout_seconds: int = 120
     rag_chunk_chars: int = 1200
     rag_chunk_overlap: int = 160
-    # Legacy /api/vision fallback uses llama-mtmd-cli for local multimodal GGUF +
-    # mmproj pairs. The primary UI path is chat-native llama-server --mmproj.
-    # Keep the fallback CPU-only by default; raising this should be treated like
-    # GPU work.
-    vision_gpu_layers: int = 0
-    vision_timeout_seconds: int = 900
-    vision_max_upload_mb: int = 64
+    # Cap for chat attachment uploads (images for the multimodal path, documents
+    # for the extract-to-context path). Bounded read happens before any storage.
+    chat_upload_max_mb: int = 64
     # Voice changer (P6R, native RVC). CUDA by default: the realtime session is
     # arbiter-coordinated (frees the resident + parks GPU jobs via the voice
     # lane), and the P6R.2 bench shows CPU only sustains realtime at chunk 192

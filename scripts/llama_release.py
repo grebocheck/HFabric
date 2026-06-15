@@ -27,7 +27,7 @@ RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 KEEP_VERSIONS = 3
 
 # Binaries the app launches. Discovered case-insensitively after extraction.
-KNOWN_BINARIES = ("llama-server", "llama-tts", "llama-mtmd-cli")
+KNOWN_BINARIES = ("llama-server", "llama-tts")
 
 # accelerator -> the token llama.cpp uses in its release asset names.
 VARIANT_TOKENS = {

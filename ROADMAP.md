@@ -99,12 +99,14 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   (`generate_image`, `search_documents`); make the loop multi-step
   (model → tool → model → answer) and fall back to the current prompt protocol for
   models without tool support.
-- [x] **P23.5 — Fold in & retire the Vision tab.** *(P1, gated on P23.2.)* Once
-  chat-native vision is validated, remove the `vision` workspace entry from `App.tsx`
-  and `VisionPanel.tsx`. Decision: keep the `llama-mtmd-cli` path (`api/vision.py`)
-  only as an internal fallback for projectors the server can't load — delete it
-  entirely if P23.2 covers every shipped vision model. Update the README support
-  matrix + the "where to add the next thing" workspace notes.
+- [x] **P23.5 — Fold in & retire the Vision tab.** *(P1, gated on P23.2.)*
+  Chat-native vision validated, so the standalone path was removed outright (not
+  kept as a fallback): the `vision` workspace + `VisionPanel.tsx`, the
+  `api/vision.py` router, the `llama-mtmd-cli` binary from the managed runtime
+  (`llama_mtmd_bin`, `vision_gpu_layers`, `vision_timeout_seconds`), and the dead
+  frontend client/types. `models/vision/` still feeds the multimodal registry scan
+  and `chat_upload_max_mb` (renamed from `vision_max_upload_mb`) caps attachments.
+  A second engine would have been exactly the dead weight we warned about below.
 - [x] **P23.6 — Convenience & persistence polish.** *(P2.)* Render attachments
   inline in message history (image thumbnails, file chips) and persist them with the
   message so they survive a refresh/restart; per-conversation default tool toggles; a
@@ -114,8 +116,8 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 **Declined / out of scope (recorded so we don't relitigate):**
 - **A generic multi-tool agent / arbitrary tool plugins** — keep the two vetted
   tools plus native calling; no open-ended tool execution in a single-user local app.
-- **Two parallel vision engines long-term** — the CLI path is a fallback at most,
-  not a maintained second surface.
+- **Two parallel vision engines** — chat-native `llama-server --mmproj` is the
+  single surface; the `llama-mtmd-cli` engine was removed, not kept as a fallback.
 - **Vision on the heavy image-generation models** — understanding stays on the
   LLM + mmproj path; image *generation* stays the diffusers path. Don't conflate.
 

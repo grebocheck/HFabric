@@ -574,32 +574,6 @@ export interface RagSearchResponse {
   context: string;
 }
 
-export interface VisionModel {
-  id: string;
-  name: string;
-  path: string;
-  size_bytes: number;
-}
-
-export interface VisionStatus {
-  binary: string;
-  binary_exists: boolean;
-  models_dir: string;
-  models: VisionModel[];
-  projectors: VisionModel[];
-  ready: boolean;
-  gpu_layers: number;
-  max_upload_mb: number;
-}
-
-export interface VisionResult {
-  id: string;
-  text: string;
-  metadata_url: string;
-  metadata_path: string;
-  duration_seconds: number;
-}
-
 export interface VoiceModel {
   id: string;
   slot: string;

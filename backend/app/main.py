@@ -34,7 +34,6 @@ from .api import (
     rag,
     transcription,
     tts,
-    vision,
     voice_engine,
     ws,
 )
@@ -191,7 +190,6 @@ app.include_router(prompts.router)
 app.include_router(rag.router)
 app.include_router(transcription.router)
 app.include_router(tts.router)
-app.include_router(vision.router)
 app.include_router(voice_engine.router)
 app.include_router(ws.router)
 

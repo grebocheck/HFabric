@@ -141,10 +141,10 @@ from the shared arbiter.
   is accepted only when both an engine and a local model are present; output
   metadata lands under `data/outputs/<date>/`.
 - **Chat-native vision** — the LLM tab accepts image attachments when the selected
-  GGUF has a paired `mmproj*.gguf` projector. HFabric launches the persistent
-  `llama-server` with `--mmproj` and sends OpenAI `image_url` content parts, so
-  image understanding is multi-turn and arbiter-resident. The legacy
-  `llama-mtmd-cli` `/api/vision/*` path remains as an internal fallback.
+  GGUF has a paired `mmproj*.gguf` projector (dropped in `models/vision/` or
+  `models/llm/`). HFabric launches the persistent `llama-server` with `--mmproj`
+  and sends OpenAI `image_url` content parts, so image understanding is multi-turn
+  and arbiter-resident.
 - **RAG tab** — scans `models/embed` for GGUF embedding models and starts a
   dedicated `llama-server` on `HFAB_LLAMA_EMBED_PORT` (default 8262) in
   `--embeddings` mode. `HFAB_EMBED_GPU_LAYERS=0` keeps it CPU-only by default.

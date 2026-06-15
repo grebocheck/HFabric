@@ -95,7 +95,7 @@ GROUPS: tuple[dict[str, str], ...] = (
     },
     {
         "id": "tools",
-        "label": "Speech, RAG, vision",
+        "label": "Speech, RAG, attachments",
         "description": "CPU/GPU placement and upload limits for local tools.",
     },
     {
@@ -140,7 +140,6 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("llama_server_bin", "llama-server", "paths", "path", restart_required=True),
     SettingSpec("llama_server_bin_turbo", "Turbo llama-server", "paths", "path", restart_required=True),
     SettingSpec("llama_tts_bin", "llama-tts", "paths", "path", restart_required=True),
-    SettingSpec("llama_mtmd_bin", "llama-mtmd-cli", "paths", "path", restart_required=True),
 
     # LLM runtime
     SettingSpec("llama_host", "llama.cpp host", "llm", "text", restart_required=True),
@@ -211,7 +210,7 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("learn_memory_profiles", "Learn memory profiles", "memory", "boolean"),
     SettingSpec("learned_ram_margin_gb", "Learned RAM margin GB", "memory", "number", minimum=0, maximum=64, step=0.1),
 
-    # Speech, RAG, vision
+    # Speech, RAG, attachments
     SettingSpec("tts_gpu_layers", "TTS GPU layers", "tools", "integer", minimum=0, maximum=999, step=1),
     SettingSpec("tts_timeout_seconds", "TTS timeout seconds", "tools", "integer", minimum=30, maximum=7200, step=30),
     SettingSpec("transcription_device", "Transcription device", "tools", "choice", choices=_choices(("cpu", "cuda", "auto"))),
@@ -222,9 +221,7 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("embed_timeout_seconds", "Embedding timeout seconds", "tools", "integer", minimum=10, maximum=1800, step=10),
     SettingSpec("rag_chunk_chars", "RAG chunk chars", "tools", "integer", minimum=200, maximum=8000, step=50),
     SettingSpec("rag_chunk_overlap", "RAG chunk overlap", "tools", "integer", minimum=0, maximum=2000, step=10),
-    SettingSpec("vision_gpu_layers", "Vision GPU layers", "tools", "integer", minimum=0, maximum=999, step=1),
-    SettingSpec("vision_timeout_seconds", "Vision timeout seconds", "tools", "integer", minimum=60, maximum=7200, step=60),
-    SettingSpec("vision_max_upload_mb", "Vision upload MB", "tools", "integer", minimum=1, maximum=1024, step=1),
+    SettingSpec("chat_upload_max_mb", "Chat upload MB", "tools", "integer", minimum=1, maximum=1024, step=1),
 
     # Voice defaults
     SettingSpec("voice_device", "Voice device", "voice", "choice", choices=_choices(("cuda", "cpu"))),
