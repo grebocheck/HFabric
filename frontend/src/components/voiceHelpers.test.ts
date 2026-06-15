@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deviceHint,
   deviceName,
+  feminineVoicePreset,
   formatBytes,
   formatMs,
   latencyPresets,
@@ -54,6 +55,7 @@ describe("settings coercion", () => {
       input_gate_db: "-55",
       input_highpass_hz: "120",
       input_denoise: "dtln",
+      input_denoise_mix: "0.65",
       silence_threshold_db: "-48",
       silence_hold_ms: "400",
       index_ratio: "0.25",
@@ -78,6 +80,7 @@ describe("settings coercion", () => {
       inputGateDb: -55,
       inputHighpassHz: 120,
       inputDenoise: "dtln",
+      inputDenoiseMix: 0.65,
       silenceThresholdDb: -48,
       silenceHoldMs: 400,
       indexRatio: 0.25,
@@ -125,6 +128,7 @@ describe("settings coercion", () => {
       inputGateDb: -70,
       inputHighpassHz: 80,
       inputDenoise: "dtln",
+      inputDenoiseMix: 0.75,
       silenceThresholdDb: -52,
       silenceHoldMs: 250,
       indexRatio: 0.4,
@@ -139,6 +143,7 @@ describe("settings coercion", () => {
       input_gate_db: -70,
       input_highpass_hz: 80,
       input_denoise: "dtln",
+      input_denoise_mix: 0.75,
       silence_threshold_db: -52,
       silence_hold_ms: 250,
       index_ratio: 0.4,
@@ -158,6 +163,7 @@ describe("settings coercion", () => {
       inputGateDb: -90,
       inputHighpassHz: 80,
       inputDenoise: "off",
+      inputDenoiseMix: 0,
       silenceThresholdDb: -72,
       silenceHoldMs: 250,
       indexRatio: 0.33,
@@ -179,6 +185,7 @@ describe("settings coercion", () => {
       input_gate_db: -90,
       input_highpass_hz: 80,
       input_denoise: "off",
+      input_denoise_mix: 0,
       silence_threshold_db: -72,
       silence_hold_ms: 250,
       index_ratio: 0.33,
@@ -249,6 +256,7 @@ describe("formatters and constants", () => {
   it("exports the recommended voice preset without pitch", () => {
     expect(recommendedVoicePreset).toMatchObject({
       inputDenoise: "dtln",
+      inputDenoiseMix: 0.75,
       inputGateDb: -90,
       silenceThresholdDb: -72,
       silenceHoldMs: 250,
@@ -265,5 +273,19 @@ describe("formatters and constants", () => {
     // protect 0.5 would disable RVC consonant protection; quality presets must
     // keep it strictly below 0.5 so sibilants stay crisp.
     expect(recommendedVoicePreset.protect).toBeLessThan(0.5);
+  });
+
+  it("keeps the +12 feminine preset in the validated clarity range", () => {
+    expect(feminineVoicePreset).toMatchObject({
+      pitch: 12,
+      indexRatio: 0.3,
+      noiseScale: 0.5,
+      protect: 0.33,
+      f0Detector: "rmvpe",
+    });
+    expect(feminineVoicePreset.indexRatio).toBeGreaterThanOrEqual(0.25);
+    expect(feminineVoicePreset.indexRatio).toBeLessThanOrEqual(0.35);
+    expect(feminineVoicePreset.noiseScale).toBeGreaterThanOrEqual(0.45);
+    expect(feminineVoicePreset.noiseScale).toBeLessThanOrEqual(0.55);
   });
 });

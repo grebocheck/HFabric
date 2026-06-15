@@ -79,6 +79,7 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
             "input_gate_db": -999,
             "input_formant": 9,
             "input_denoise": "dtln",
+            "input_denoise_mix": 9,
             "silence_threshold_db": -999,
             "silence_hold_ms": 9999,
             "server_input_gain": 9,
@@ -97,6 +98,7 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
     assert current["input_gate_db"] == -90.0
     assert current["input_formant"] == 2.0
     assert current["input_denoise"] == "dtln"
+    assert current["input_denoise_mix"] == 1.0
     assert current["silence_threshold_db"] == -90.0
     assert current["silence_hold_ms"] == 2000.0
     assert current["server_input_gain"] == 4.0
@@ -117,6 +119,10 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
     assert accepted.status_code == 200
     assert accepted.json()["settings"]["input_denoise"] == "dtln"
 
+    mix = await client.post("/api/voice/engine/settings", json={"input_denoise_mix": 0.42})
+    assert mix.status_code == 200
+    assert mix.json()["settings"]["input_denoise_mix"] == 0.42
+
 
 async def test_settings_persist_and_fresh_engine_loads_file(client):
     response = await client.post(
@@ -127,6 +133,7 @@ async def test_settings_persist_and_fresh_engine_loads_file(client):
             "index_ratio": 0.33,
             "silence_threshold_db": -52,
             "silence_hold_ms": 250,
+            "input_denoise_mix": 0.6,
             "server_input_device_id": 1,
         },
     )
@@ -139,6 +146,7 @@ async def test_settings_persist_and_fresh_engine_loads_file(client):
     assert persisted["index_ratio"] == 0.33
     assert persisted["silence_threshold_db"] == -52.0
     assert persisted["silence_hold_ms"] == 250.0
+    assert persisted["input_denoise_mix"] == 0.6
 
     engine_mod._ENGINE = None
     fresh = (await client.get("/api/voice/engine/status")).json()["settings"]
@@ -147,6 +155,7 @@ async def test_settings_persist_and_fresh_engine_loads_file(client):
     assert fresh["index_ratio"] == 0.33
     assert fresh["silence_threshold_db"] == -52.0
     assert fresh["silence_hold_ms"] == 250.0
+    assert fresh["input_denoise_mix"] == 0.6
     assert fresh["server_input_device_id"] == 1
 
 
@@ -165,6 +174,7 @@ async def test_named_voice_presets_persist_clean_settings(client):
                 "index_ratio": 0.25,
                 "noise_scale": 0.45,
                 "f0_smoothing": 0.0,
+                "input_denoise_mix": 0.75,
                 "server_input_device_id": 99,
                 "unknown_future_key": "ignored",
             },
@@ -179,6 +189,7 @@ async def test_named_voice_presets_persist_clean_settings(client):
         "index_ratio": 0.25,
         "noise_scale": 0.45,
         "f0_smoothing": 0.0,
+        "input_denoise_mix": 0.75,
     }
     assert saved["id"]
 
@@ -216,6 +227,7 @@ async def test_corrupt_settings_file_falls_back_to_defaults(client):
     assert current["index_ratio"] == settings.voice_index_ratio
     assert current["noise_scale"] == settings.voice_noise_scale
     assert current["f0_smoothing"] == settings.voice_f0_smoothing
+    assert current["input_denoise_mix"] == settings.voice_input_denoise_mix
     assert current["silence_threshold_db"] == -72.0
     assert current["silence_hold_ms"] == 250.0
 
@@ -261,6 +273,7 @@ async def test_convert_round_trip_is_deterministic(client):
         "input_highpass_hz": "120",
         "input_gate_db": "-50",
         "input_formant": "1.5",
+        "input_denoise_mix": "0.25",
     }
 
     first = await client.post(
@@ -292,6 +305,7 @@ async def test_convert_round_trip_is_deterministic(client):
     assert first_body["params"]["input_gate_db"] == -50.0
     assert first_body["params"]["input_formant"] == 1.5
     assert first_body["params"]["input_denoise"] == "off"
+    assert first_body["params"]["input_denoise_mix"] == 0.25
     assert "stub_convert" in first_body["timings_ms"]
 
     first_wav = (await client.get(first_body["url"])).content

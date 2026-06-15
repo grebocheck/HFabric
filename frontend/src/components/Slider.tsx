@@ -5,12 +5,14 @@ export function Slider({
   min = 0,
   max = 1,
   step = 0.01,
+  disabled = false,
 }: {
   value: number;
   onChange: (value: number) => void;
   min?: number;
   max?: number;
   step?: number;
+  disabled?: boolean;
 }) {
   return (
     <div className="mt-1.5 flex items-center gap-2">
@@ -20,8 +22,9 @@ export function Slider({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-accent"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-accent disabled:cursor-not-allowed"
       />
       <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-white/55">{value.toFixed(2)}</span>
     </div>

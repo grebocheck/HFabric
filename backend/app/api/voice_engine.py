@@ -40,6 +40,7 @@ class VoiceEngineSettingsUpdate(BaseModel):
     input_gate_db: float | str | None = None
     input_formant: float | None = None
     input_denoise: str | None = None
+    input_denoise_mix: float | None = None
     silence_threshold_db: float | str | None = None
     silence_hold_ms: float | None = None
     server_input_device_id: int | None = None
@@ -145,9 +146,16 @@ def _status_payload() -> dict[str, Any]:
         "metrics": session.metrics() if session is not None else {
             "input_vu": 0.0,
             "output_vu": 0.0,
+            "output_peak": 0.0,
+            "output_peak_dbfs": None,
+            "limiter_reduction_db": 0.0,
             "timings_ms": {},
             "total_ms": None,
+            "total_p95_ms": None,
             "chunk_ms": None,
+            "latency_headroom_ms": None,
+            "latency_warning": None,
+            "provider_health": engine.provider_health(),
             "overruns": 0,
             "underruns": 0,
             "squelched": False,
@@ -277,6 +285,7 @@ async def voice_engine_convert(
     input_gate_db: str | None = Form(None),
     input_formant: float | None = Form(None),
     input_denoise: str | None = Form(None),
+    input_denoise_mix: float | None = Form(None),
 ) -> dict[str, Any]:
     engine = get_engine()
     if engine.get_model(model_id) is None:
@@ -310,6 +319,7 @@ async def voice_engine_convert(
                 input_gate_db=input_gate_db,
                 input_formant=input_formant,
                 input_denoise=input_denoise,
+                input_denoise_mix=input_denoise_mix,
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc

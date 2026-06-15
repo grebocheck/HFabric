@@ -46,6 +46,7 @@ def _processor_engine(**overrides):
         "input_highpass_hz": 80,
         "input_gate_db": -90.0,
         "input_formant": 0.0,
+        "input_denoise_mix": 0.75,
         "device": "cpu",
     }
     values.update(overrides)
@@ -118,6 +119,37 @@ def test_chunk_processor_output_rate_is_exact(monkeypatch):
     assert total_in - 2 * chunk_samples <= total_out <= total_in
 
 
+def test_chunk_processor_blends_realtime_denoise_mix(monkeypatch):
+    import numpy as np
+
+    from app.services.voice_engine import pipeline
+
+    class ZeroDenoiser:
+        def reset(self):
+            return None
+
+        def process_stream(self, audio):
+            return np.zeros_like(audio, dtype=np.float32)
+
+    def fake_convert_audio(audio_16k, loaded, **kwargs):  # noqa: ARG001
+        return np.asarray(audio_16k, dtype=np.float32), 16000, {"fake_convert": 1.0}
+
+    monkeypatch.setattr(pipeline, "convert_audio", fake_convert_audio)
+
+    engine = _processor_engine(
+        input_denoise="dtln",
+        input_denoise_mix=0.25,
+        input_highpass_hz=0,
+        silence_threshold_db=-90.0,
+        extra_convert_size=0.0,
+    )
+    processor = realtime.ChunkProcessor(engine, loaded=object(), stream_sr=16000, denoiser=ZeroDenoiser())
+    out = processor.process(np.ones(640, dtype=np.float32))
+
+    assert processor.last_timings["input_denoise_mix"] == 0.25
+    assert np.allclose(out, 0.75, atol=1e-6)
+
+
 async def test_session_lifecycle_and_metrics(client):
     before = (await client.get("/api/voice/engine/status")).json()
     assert before["live"] is False
@@ -134,7 +166,11 @@ async def test_session_lifecycle_and_metrics(client):
     assert 0.0 < metrics["input_vu"] <= 1.0
     assert 0.0 < metrics["output_vu"] <= 1.0
     assert metrics["total_ms"] == 5.0
+    assert metrics["total_p95_ms"] == 5.0
     assert metrics["chunk_ms"] > 0
+    assert metrics["latency_headroom_ms"] == pytest.approx(metrics["chunk_ms"] - 5.0)
+    assert metrics["output_peak"] > 0.0
+    assert metrics["provider_health"]["content_vec"]["actual"] == "stub"
     assert metrics["squelched"] is False
     assert body["session_config"]["server_audio_sample_rate"] == body["settings"]["server_audio_sample_rate"]
     assert body["session_config"]["server_read_chunk_size"] == body["settings"]["server_read_chunk_size"]

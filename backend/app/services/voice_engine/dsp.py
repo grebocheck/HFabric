@@ -14,6 +14,53 @@ DEFAULT_SILENCE_THRESHOLD_DB = -72.0
 DEFAULT_SILENCE_HOLD_MS = 250.0
 SQUELCH_OFF_DB = -90.0
 SQUELCH_CLOSE_HYSTERESIS_DB = 6.0
+OUTPUT_LIMITER_CEILING_DBFS = -1.0
+
+
+def dbfs_to_linear(dbfs: float) -> float:
+    return float(10.0 ** (float(dbfs) / 20.0))
+
+
+def peak_dbfs(audio) -> float:
+    import numpy as np  # noqa: PLC0415
+
+    arr = _as_float32(audio)
+    if arr.size == 0:
+        return -240.0
+    peak = float(np.max(np.abs(arr)))
+    return float(20.0 * np.log10(max(peak, 1e-12)))
+
+
+def limit_output(audio, *, ceiling_dbfs: float = OUTPUT_LIMITER_CEILING_DBFS):
+    """Transparent block limiter used as an output safety guard.
+
+    It leaves audio unchanged below the ceiling and applies only the gain
+    reduction needed to keep the block under the configured full-scale limit.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    arr = _as_float32(audio)
+    if arr.size == 0:
+        return arr.astype(np.float32, copy=True), {
+            "peak": 0.0,
+            "peak_dbfs": -240.0,
+            "limiter_reduction_db": 0.0,
+        }
+    ceiling = dbfs_to_linear(ceiling_dbfs)
+    peak_in = float(np.max(np.abs(arr)))
+    if peak_in <= ceiling:
+        out = arr.astype(np.float32, copy=True)
+        reduction = 0.0
+    else:
+        gain = ceiling / max(peak_in, 1e-12)
+        out = (arr * np.float32(gain)).astype(np.float32, copy=False)
+        reduction = float(-20.0 * np.log10(max(gain, 1e-12)))
+    peak_out = float(np.max(np.abs(out))) if out.size else 0.0
+    return out, {
+        "peak": min(1.0, peak_out),
+        "peak_dbfs": peak_dbfs(out),
+        "limiter_reduction_db": round(reduction, 3),
+    }
 
 
 def clamp_input_highpass_hz(value: object) -> int:

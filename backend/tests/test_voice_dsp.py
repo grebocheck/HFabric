@@ -95,6 +95,25 @@ def test_squelch_gate_off_passes_audio():
     assert gate.is_open
 
 
+def test_output_limiter_leaves_safe_audio_and_caps_peak():
+    import numpy as np
+
+    safe = np.array([-0.2, 0.0, 0.2], dtype=np.float32)
+    limited_safe, safe_meta = dsp.limit_output(safe)
+
+    assert np.allclose(limited_safe, safe)
+    assert safe_meta["limiter_reduction_db"] == 0.0
+
+    hot = np.array([-1.5, 0.0, 1.25], dtype=np.float32)
+    limited_hot, hot_meta = dsp.limit_output(hot)
+    ceiling = dsp.dbfs_to_linear(dsp.OUTPUT_LIMITER_CEILING_DBFS)
+
+    assert float(np.max(np.abs(limited_hot))) <= ceiling + 1e-6
+    assert hot_meta["peak"] <= ceiling + 1e-6
+    assert hot_meta["peak_dbfs"] <= dsp.OUTPUT_LIMITER_CEILING_DBFS + 1e-4
+    assert hot_meta["limiter_reduction_db"] > 0.0
+
+
 def test_formant_shift_moves_centroid_and_compensates_f0():
     import numpy as np
 

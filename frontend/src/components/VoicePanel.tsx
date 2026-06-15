@@ -84,6 +84,7 @@ export function VoicePanel() {
   const [inputGateDb, setInputGateDb] = useState(-90);
   const [inputHighpassHz, setInputHighpassHz] = useState(80);
   const [inputDenoise, setInputDenoise] = useState<"off" | "dtln">("off");
+  const [inputDenoiseMix, setInputDenoiseMix] = useState(0.75);
   const [silenceThresholdDb, setSilenceThresholdDb] = useState(-72);
   const [silenceHoldMs, setSilenceHoldMs] = useState(250);
   const [indexRatio, setIndexRatio] = useState(0.55);
@@ -183,6 +184,12 @@ export function VoicePanel() {
   const chunkRestartPending = Boolean(
     live && sessionConfig && sessionConfig.server_read_chunk_size !== readChunkSize,
   );
+  const protectRisk = protect >= 0.5;
+  const plus12Tuning = pitch >= 12;
+  const indexRisk = plus12Tuning && indexRatio > 0.45;
+  const noiseRisk = plus12Tuning && (noiseScale < 0.4 || noiseScale > 0.6);
+  const outputPeak = status?.metrics.output_peak ?? 0;
+  const outputPeakTone = outputPeak >= 0.85 || (status?.metrics.limiter_reduction_db ?? 0) > 0 ? "amber" : "sky";
 
   const routingPatch = useMemo(() => nativeRoutingSettingsPatch({
     inputDeviceId,
@@ -238,6 +245,7 @@ export function VoicePanel() {
       setInputGateDb(next.inputGateDb);
       setInputHighpassHz(next.inputHighpassHz);
       setInputDenoise(next.inputDenoise);
+      setInputDenoiseMix(next.inputDenoiseMix);
       setSilenceThresholdDb(next.silenceThresholdDb);
       setSilenceHoldMs(next.silenceHoldMs);
       setIndexRatio(next.indexRatio);
@@ -334,6 +342,7 @@ export function VoicePanel() {
     inputGateDb,
     inputHighpassHz,
     inputDenoise,
+    inputDenoiseMix,
     silenceThresholdDb,
     silenceHoldMs,
     indexRatio,
@@ -356,6 +365,7 @@ export function VoicePanel() {
     inputGateDb,
     inputHighpassHz,
     inputDenoise,
+    inputDenoiseMix,
     silenceThresholdDb,
     silenceHoldMs,
     indexRatio,
@@ -457,6 +467,7 @@ export function VoicePanel() {
     setFormantShift(profile.formantShift);
     setOfflineFormant(profile.formantShift);
     setInputDenoise(profile.inputDenoise);
+    setInputDenoiseMix(profile.inputDenoiseMix);
     setInputHighpassHz(profile.inputHighpassHz);
     setInputGateDb(profile.inputGateDb);
     setSilenceThresholdDb(profile.silenceThresholdDb);
@@ -465,6 +476,8 @@ export function VoicePanel() {
     setProtect(profile.protect);
     setNoiseScale(profile.noiseScale);
     setF0Smoothing(profile.f0Smoothing);
+    const nextF0Detector = "f0Detector" in profile ? profile.f0Detector : f0Detector;
+    if ("f0Detector" in profile) setF0Detector(nextF0Detector);
     setReadChunkSize(profile.readChunkSize);
     setCrossFadeOverlap(profile.crossFadeOverlap);
     setExtraConvert(profile.extraConvert);
@@ -473,6 +486,7 @@ export function VoicePanel() {
       pitch: nextPitch,
       input_formant: profile.formantShift,
       input_denoise: profile.inputDenoise,
+      input_denoise_mix: profile.inputDenoiseMix,
       input_highpass_hz: profile.inputHighpassHz,
       input_gate_db: profile.inputGateDb,
       silence_threshold_db: profile.silenceThresholdDb,
@@ -481,6 +495,7 @@ export function VoicePanel() {
       protect: profile.protect,
       noise_scale: profile.noiseScale,
       f0_smoothing: profile.f0Smoothing,
+      ...("f0Detector" in profile ? { f0_detector: nextF0Detector } : {}),
       server_read_chunk_size: profile.readChunkSize,
       cross_fade_overlap_size: profile.crossFadeOverlap,
       extra_convert_size: profile.extraConvert,
@@ -579,6 +594,7 @@ export function VoicePanel() {
     form.append("input_gate_db", String(inputGateDb));
     form.append("input_formant", String(offlineFormant));
     form.append("input_denoise", inputDenoise);
+    form.append("input_denoise_mix", String(inputDenoiseMix));
     setOfflineBusy(true);
     setOfflineError("");
     setOfflineResult(null);
@@ -773,9 +789,10 @@ export function VoicePanel() {
             ) : null}
           </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
             <Meter label="Input" value={meter(status?.metrics.input_vu ?? 0)} />
             <Meter label={monitorOn ? "Output / Monitor" : "Output"} value={meter(status?.metrics.output_vu ?? 0)} tone="sky" />
+            <Meter label="Output peak" value={meter(outputPeak)} tone={outputPeakTone} />
             <LatencyMeter value={status?.metrics.total_ms ?? status?.metrics.chunk_ms} />
           </div>
 
@@ -833,6 +850,9 @@ export function VoicePanel() {
             <Badge>overruns {status?.metrics.overruns ?? 0}</Badge>
             <Badge>underruns {status?.metrics.underruns ?? 0}</Badge>
             <Badge>chunk {formatMs(status?.metrics.chunk_ms)}</Badge>
+            <Badge color={status?.metrics.latency_warning ? "bg-amber-600/40 text-amber-100" : "bg-white/10 text-white/55"}>
+              p95 {formatMs(status?.metrics.total_p95_ms)}
+            </Badge>
             <Badge color={status?.metrics.squelched ? "bg-amber-600/40 text-amber-100" : "bg-emerald-700/45 text-emerald-100"}>
               {status?.metrics.squelched ? "silence" : "voice"}
             </Badge>
@@ -856,7 +876,7 @@ export function VoicePanel() {
                 {busy === "smooth-preset" ? "Applying..." : "Smooth"}
               </Button>
               <Button onClick={onFeminine} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
-                {busy === "female-preset" ? "Applying..." : "Female +12"}
+                {busy === "female-preset" ? "Applying..." : "Female +12 RMVPE"}
               </Button>
             </div>
           )}
@@ -914,11 +934,25 @@ export function VoicePanel() {
               <Select
                 value={inputDenoise}
                 onChange={(value) => {
-                  setInputDenoise(value === "dtln" ? "dtln" : "off");
+                  const nextDenoise = value === "dtln" ? "dtln" : "off";
+                  setInputDenoise(nextDenoise);
+                  if (nextDenoise === "dtln" && inputDenoiseMix <= 0) setInputDenoiseMix(0.75);
                   markTuning();
                 }}
                 options={denoiseOptions}
               />
+              <div className="mt-2">
+                <LabeledSlider
+                  label="Denoise mix"
+                  value={inputDenoiseMix}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={(value) => { setInputDenoiseMix(value); markTuning(); }}
+                  valueLabel={inputDenoise === "dtln" ? inputDenoiseMix.toFixed(2) : "off"}
+                  disabled={inputDenoise !== "dtln"}
+                />
+              </div>
             </label>
             <label className="min-w-0">
               <div className="mb-1.5 text-xs font-medium text-white/55">High-pass</div>
@@ -934,9 +968,39 @@ export function VoicePanel() {
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <LabeledSlider label="Index ratio" value={indexRatio} min={0} max={1} step={0.01} onChange={(value) => { setIndexRatio(value); markTuning(); }} valueLabel={indexRatio.toFixed(2)} />
-            <LabeledSlider label="Protect" value={protect} min={0} max={1} step={0.01} onChange={(value) => { setProtect(value); markTuning(); }} valueLabel={protect.toFixed(2)} />
-            <LabeledSlider label="Noise scale" value={noiseScale} min={0} max={1} step={0.01} onChange={(value) => { setNoiseScale(value); markTuning(); }} valueLabel={noiseScale.toFixed(2)} />
+            <LabeledSlider
+              label="Index ratio"
+              value={indexRatio}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => { setIndexRatio(value); markTuning(); }}
+              valueLabel={indexRatio.toFixed(2)}
+              tone={indexRisk ? "warn" : "neutral"}
+              note={plus12Tuning ? "safe zone +12: 0.25-0.35" : "speech safe zone: 0.20-0.45"}
+            />
+            <LabeledSlider
+              label="Protect"
+              value={protect}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => { setProtect(value); markTuning(); }}
+              valueLabel={protect.toFixed(2)}
+              tone={protectRisk ? "warn" : "neutral"}
+              note={protectRisk ? "risk zone: consonant protection off" : "safe zone: 0.25-0.35"}
+            />
+            <LabeledSlider
+              label="Noise scale"
+              value={noiseScale}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => { setNoiseScale(value); markTuning(); }}
+              valueLabel={noiseScale.toFixed(2)}
+              tone={noiseRisk ? "warn" : "neutral"}
+              note={plus12Tuning ? "safe zone +12: 0.45-0.55" : "speech safe zone: 0.45-0.60"}
+            />
             <LabeledSlider label="F0 smooth" value={f0Smoothing} min={0} max={1} step={0.01} onChange={(value) => { setF0Smoothing(value); markTuning(); }} valueLabel={f0Smoothing.toFixed(2)} />
           </div>
 

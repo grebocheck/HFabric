@@ -87,6 +87,7 @@ class ConvertParams:
     input_gate_db: float
     input_formant: float
     input_denoise: str
+    input_denoise_mix: float
 
     def public(self) -> dict[str, float | int | str]:
         return {
@@ -101,6 +102,7 @@ class ConvertParams:
             "input_gate_db": self.input_gate_db,
             "input_formant": self.input_formant,
             "input_denoise": self.input_denoise,
+            "input_denoise_mix": self.input_denoise_mix,
         }
 
 
@@ -125,6 +127,7 @@ class VoiceEngine:
         self.input_gate_db = dsp.clamp_input_gate_db(settings.voice_input_gate_db)
         self.input_formant = dsp.clamp_input_formant(settings.voice_input_formant)
         self.input_denoise = _validate_input_denoise(settings.voice_input_denoise)
+        self.input_denoise_mix = _clamp_ratio(settings.voice_input_denoise_mix)
         self.silence_threshold_db = dsp.clamp_silence_threshold_db(dsp.DEFAULT_SILENCE_THRESHOLD_DB)
         self.silence_hold_ms = dsp.clamp_silence_hold_ms(dsp.DEFAULT_SILENCE_HOLD_MS)
         self.device = settings.voice_device
@@ -195,6 +198,7 @@ class VoiceEngine:
             "input_gate_db": self.input_gate_db,
             "input_formant": self.input_formant,
             "input_denoise": self.input_denoise,
+            "input_denoise_mix": self.input_denoise_mix,
             "silence_threshold_db": self.silence_threshold_db,
             "silence_hold_ms": self.silence_hold_ms,
             "server_input_device_id": self.server_input_device_id,
@@ -237,6 +241,8 @@ class VoiceEngine:
             self.input_formant = dsp.clamp_input_formant(data["input_formant"])
         if data.get("input_denoise") is not None:
             self.input_denoise = _validate_input_denoise(data["input_denoise"])
+        if data.get("input_denoise_mix") is not None:
+            self.input_denoise_mix = _clamp_ratio(data["input_denoise_mix"])
         if data.get("silence_threshold_db") is not None:
             self.silence_threshold_db = dsp.clamp_silence_threshold_db(data["silence_threshold_db"])
         if data.get("silence_hold_ms") is not None:
@@ -340,6 +346,7 @@ class VoiceEngine:
         input_gate_db: float | str | None = None,
         input_formant: float | None = None,
         input_denoise: str | None = None,
+        input_denoise_mix: float | None = None,
     ) -> ConvertParams:
         return ConvertParams(
             pitch=self.pitch if pitch is None else _clamp_pitch(pitch),
@@ -359,6 +366,9 @@ class VoiceEngine:
             ),
             input_formant=self.input_formant if input_formant is None else dsp.clamp_input_formant(input_formant),
             input_denoise=self.input_denoise if input_denoise is None else _validate_input_denoise(input_denoise),
+            input_denoise_mix=(
+                self.input_denoise_mix if input_denoise_mix is None else _clamp_ratio(input_denoise_mix)
+            ),
         )
 
     async def unload(self) -> None:
@@ -391,6 +401,7 @@ class VoiceEngine:
         input_gate_db: float | str | None = None,
         input_formant: float | None = None,
         input_denoise: str | None = None,
+        input_denoise_mix: float | None = None,
     ) -> dict:
         params = self._params(
             pitch,
@@ -403,6 +414,7 @@ class VoiceEngine:
             input_gate_db,
             input_formant,
             input_denoise,
+            input_denoise_mix,
         )
         async with self._lock:
             if settings.stub_mode:
@@ -496,6 +508,34 @@ class VoiceEngine:
             return None
         return self._dtln_denoiser_sync()
 
+    def provider_health(self) -> dict[str, dict[str, object] | None]:
+        if settings.stub_mode:
+            return {
+                "content_vec": {"name": "ContentVec", "requested": "stub", "actual": "stub", "loaded": True},
+                "f0": {
+                    "name": str(self.f0_detector),
+                    "requested": "stub",
+                    "actual": "stub",
+                    "loaded": True,
+                },
+            }
+
+        loaded = self._loaded_model
+        content_vec = None
+        f0_health = {
+            "name": str(self.f0_detector),
+            "requested": f"torch:{self.device}",
+            "actual": None,
+            "loaded": False,
+        }
+        if loaded is not None:
+            content_vec = loaded.content_vec.provider_health()
+            if getattr(loaded, "f0", False):
+                from .f0 import provider_health as f0_provider_health  # noqa: PLC0415
+
+                f0_health = f0_provider_health(self.f0_detector, loaded.f0_model_path, self.device)
+        return {"content_vec": content_vec, "f0": f0_health}
+
     def _dtln_denoiser_sync(self):
         paths = asset_discovery.dtln_model_paths()
         if paths is None:
@@ -535,6 +575,7 @@ class VoiceEngine:
             input_highpass_hz=params.input_highpass_hz,
             input_gate_db=params.input_gate_db,
             input_formant=params.input_formant,
+            denoise_mix=params.input_denoise_mix,
             denoiser=denoiser,
             device=self.device,
         )

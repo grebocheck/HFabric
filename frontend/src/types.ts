@@ -625,6 +625,7 @@ export interface VoiceEngineSettings {
   input_gate_db: number;
   input_formant: number;
   input_denoise: "off" | "dtln";
+  input_denoise_mix: number;
   silence_threshold_db: number;
   silence_hold_ms: number;
   server_input_device_id: number | null;
@@ -659,12 +660,30 @@ export interface VoiceEnginePreset {
 export interface VoiceEngineMetrics {
   input_vu: number;
   output_vu: number;
+  output_peak: number;
+  output_peak_dbfs: number | null;
+  limiter_reduction_db: number;
   timings_ms: Record<string, number>;
   total_ms: number | null;
+  total_p95_ms: number | null;
   chunk_ms: number | null;
+  latency_headroom_ms: number | null;
+  latency_warning: string | null;
+  provider_health: {
+    content_vec?: VoiceProviderHealth | null;
+    f0?: VoiceProviderHealth | null;
+  };
   overruns: number;
   underruns: number;
   squelched: boolean;
+}
+
+export interface VoiceProviderHealth {
+  name?: string | null;
+  requested?: string | null;
+  actual?: string | null;
+  loaded?: boolean;
+  error?: string | null;
 }
 
 export interface VoiceEngineSessionConfig {
@@ -732,6 +751,7 @@ export interface VoiceEngineConvertResult {
     input_gate_db: number;
     input_formant: number;
     input_denoise: "off" | "dtln";
+    input_denoise_mix: number;
   };
 }
 

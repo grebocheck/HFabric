@@ -6,8 +6,16 @@ export type MeterSample = {
   output: number;
 };
 
-export function Meter({ label, value, tone = "emerald" }: { label: string; value: number; tone?: "emerald" | "sky" }) {
-  const bar = tone === "sky" ? "bg-sky-400/80" : "bg-emerald-400/80";
+export function Meter({
+  label,
+  value,
+  tone = "emerald",
+}: {
+  label: string;
+  value: number;
+  tone?: "emerald" | "sky" | "amber";
+}) {
+  const bar = tone === "sky" ? "bg-sky-400/80" : tone === "amber" ? "bg-amber-300/85" : "bg-emerald-400/80";
   return (
     <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
       <div className="flex items-center justify-between text-xs">

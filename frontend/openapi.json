@@ -180,6 +180,17 @@
             ],
             "title": "Input Denoise"
           },
+          "input_denoise_mix": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Denoise Mix"
+          },
           "input_formant": {
             "anyOf": [
               {
@@ -2357,6 +2368,17 @@
               }
             ],
             "title": "Input Denoise"
+          },
+          "input_denoise_mix": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Denoise Mix"
           },
           "input_formant": {
             "anyOf": [

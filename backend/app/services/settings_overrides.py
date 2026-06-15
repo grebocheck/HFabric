@@ -241,6 +241,7 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("voice_input_gate_db", "Input gate dB", "voice", "number", minimum=-90, maximum=-20, step=1),
     SettingSpec("voice_input_formant", "Input formant", "voice", "number", minimum=-2, maximum=2, step=0.1),
     SettingSpec("voice_input_denoise", "Input denoise", "voice", "choice", choices=_choices(("off", "dtln"))),
+    SettingSpec("voice_input_denoise_mix", "Input denoise mix", "voice", "number", minimum=0, maximum=1, step=0.01),
 
     # Advanced sources
     SettingSpec("flux_config_repo", "FLUX config repo", "sources", "text", restart_required=True),

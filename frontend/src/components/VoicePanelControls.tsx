@@ -327,6 +327,9 @@ export function LabeledSlider({
   step,
   onChange,
   valueLabel,
+  tone = "neutral",
+  note,
+  disabled = false,
 }: {
   label: string;
   value: number;
@@ -335,14 +338,20 @@ export function LabeledSlider({
   step: number;
   onChange: (value: number) => void;
   valueLabel?: string;
+  tone?: "neutral" | "warn";
+  note?: ReactNode;
+  disabled?: boolean;
 }) {
+  const toneClass = tone === "warn" ? "text-amber-200/85" : "text-white/55";
+  const noteClass = tone === "warn" ? "text-amber-200/75" : "text-white/35";
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 ${disabled ? "opacity-45" : ""}`}>
       <div className="flex items-center justify-between gap-2">
-        <div className="truncate text-xs font-medium text-white/55">{label}</div>
+        <div className={`truncate text-xs font-medium ${toneClass}`}>{label}</div>
         {valueLabel ? <div className="shrink-0 font-mono text-xs tabular-nums text-white/45">{valueLabel}</div> : null}
       </div>
-      <Slider value={value} min={min} max={max} step={step} onChange={onChange} />
+      <Slider value={value} min={min} max={max} step={step} onChange={onChange} disabled={disabled} />
+      {note ? <div className={`mt-1 truncate text-[11px] ${noteClass}`} title={String(note)}>{note}</div> : null}
     </div>
   );
 }
@@ -434,18 +443,29 @@ function PresetMini({ label, value }: { label: string; value: string }) {
 
 export function DiagnosticsCompact({ status, samples }: { status: VoiceEngineStatus | null; samples: MeterSample[] }) {
   const metrics = status?.metrics;
+  const providers = metrics?.provider_health;
   const timings = Object.entries(metrics?.timings_ms ?? {})
     .filter(([, value]) => Number.isFinite(value))
     .slice(0, 5);
+  const peak = metrics?.output_peak ?? 0;
   return (
     <div className="grid gap-3">
       <div className="grid grid-cols-2 gap-2">
         <StatusTile label="Total" value={formatMs(metrics?.total_ms ?? metrics?.chunk_ms)} />
+        <StatusTile label="P95" value={formatMs(metrics?.total_p95_ms)} tone={metrics?.latency_warning ? "warn" : "neutral"} />
         <StatusTile label="Chunk" value={formatMs(metrics?.chunk_ms)} />
+        <StatusTile label="Headroom" value={formatMs(metrics?.latency_headroom_ms)} tone={(metrics?.latency_headroom_ms ?? 1) <= 0 ? "warn" : "neutral"} />
+        <StatusTile label="Peak" value={`${Math.round(peak * 100)}%`} tone={peak >= 0.85 ? "warn" : "neutral"} />
         <StatusTile label="Overruns" value={metrics?.overruns ?? 0} tone={metrics?.overruns ? "warn" : "neutral"} />
         <StatusTile label="Squelch" value={metrics?.squelched ? "silence" : "voice"} tone={metrics?.squelched ? "warn" : "good"} />
       </div>
+      {metrics?.latency_warning ? (
+        <div className="rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100/85">
+          {metrics.latency_warning}
+        </div>
+      ) : null}
       <WaveformMonitor samples={samples} />
+      <ProviderHealth providers={providers} />
       <div className="grid gap-1.5">
         {timings.length ? timings.map(([label, value]) => (
           <div key={label} className="flex items-center justify-between gap-3 rounded border border-white/10 bg-black/15 px-2 py-1 text-xs">
@@ -456,6 +476,29 @@ export function DiagnosticsCompact({ status, samples }: { status: VoiceEngineSta
           <div className="rounded border border-white/10 bg-black/15 px-2 py-1.5 text-xs text-white/36">waiting for stages</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ProviderHealth({
+  providers,
+}: {
+  providers?: VoiceEngineStatus["metrics"]["provider_health"];
+}) {
+  const rows = [
+    ["ContentVec", providers?.content_vec],
+    ["F0", providers?.f0],
+  ] as const;
+  return (
+    <div className="grid gap-1.5">
+      {rows.map(([label, item]) => (
+        <div key={label} className="flex items-center justify-between gap-3 rounded border border-white/10 bg-black/15 px-2 py-1 text-xs">
+          <span className="truncate text-white/42">{label}</span>
+          <span className="shrink-0 truncate font-mono text-white/65" title={String(item?.actual ?? item?.requested ?? "unknown")}>
+            {item?.actual ?? item?.requested ?? "unknown"}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

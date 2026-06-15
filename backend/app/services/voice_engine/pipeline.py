@@ -313,6 +313,7 @@ def convert(
     noise_scale: float = 0.66666,
     f0_smoothing: float = 0.0,
     denoiser: Any | None = None,
+    denoise_mix: float = 1.0,
 ):
     import numpy as np  # noqa: PLC0415
     import soundfile as sf  # noqa: PLC0415
@@ -343,6 +344,7 @@ def convert(
         noise_scale=noise_scale,
         f0_smoothing=f0_smoothing,
         denoiser=denoiser,
+        denoise_mix=denoise_mix,
         device=device,
     )
     timings.update(core_timings)
@@ -365,6 +367,7 @@ def convert_audio(
     noise_scale: float = 0.66666,
     f0_smoothing: float = 0.0,
     denoiser: Any | None = None,
+    denoise_mix: float = 1.0,
     external_formant_factor: float | None = None,
     compensate_duration: bool = True,
     latent_noise: Any | None = None,
@@ -389,8 +392,16 @@ def convert_audio(
     audio = np.asarray(audio_16k, dtype=np.float32).reshape(-1)
     if denoiser is not None:
         stage = time.perf_counter()
-        audio = denoiser.process(audio)
+        raw_audio = audio
+        denoised = np.asarray(denoiser.process(audio), dtype=np.float32).reshape(-1)
+        mix = max(0.0, min(1.0, float(denoise_mix)))
+        if denoised.size != raw_audio.size:
+            target = min(denoised.size, raw_audio.size)
+            denoised = denoised[:target]
+            raw_audio = raw_audio[:target]
+        audio = denoised * np.float32(mix) + raw_audio * np.float32(1.0 - mix)
         timings["input_denoise"] = _ms(stage)
+        timings["input_denoise_mix"] = round(mix, 3)
 
     if external_formant_factor is None:
         stage = time.perf_counter()

@@ -42,6 +42,64 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ## Active backlog
 
+### P22 — Voice realtime quality & observability (NEW — from the RVC research doc)
+
+> Derived from [`docs/RVC_realtime_audio_pipeline_HFabric_research_UA.docx`](docs/RVC_realtime_audio_pipeline_HFabric_research_UA.docx)
+> (2026-06-15). The doc statically audited this engine; most of its advice is
+> **already shipped** in P6R (streaming-stateful chain, SOLA + equal-power
+> crossfade, pinned latent noise, frame-repeat upsample, FCPE default / RMVPE for
+> quality, `protect` 0.33, gate off by default, 80 Hz streaming HPF, ContentVec on
+> CUDA EP, per-stage timings). Below is only the **residual high-value delta** that
+> is not yet done. Defaults are not changed blind — anything touching audio is A/B'd
+> on the RTX 5070 Ti with the sibilant test phrase first.
+
+- [x] **P22.1 — `protect ≥ 0.5` guardrail in the UI.** *(P0, cheap.)* The code
+  comment and the shipped presets already keep `protect` at 0.33, but the slider
+  still lets a user walk to ≥0.5, which silently disables consonant protection (the
+  #1 "картавість" footgun in the doc and in `voice-realtime-findings`). Add a
+  `warn`-tone hint on the slider past 0.5; the tone infra already exists in
+  `VoicePanelControls.tsx`.
+- [x] **P22.2 — Denoise wet/dry mix.** *(P0/P1.)* Today denoise is binary
+  `off`/`dtln` (full strength). Add a `0..1` mix (default < 1.0) so noisy-room users
+  suppress noise without losing `/с/ /ш/` fricatives. `denoise.py` is already
+  stateful-once on the rolling context — blend `mix·denoised + (1-mix)·raw` in the
+  realtime denoise step (`realtime.py`) + a slider.
+- [x] **P22.3 — Output safety: soft limiter + output peak meter.** *(P1.)* The
+  output path only hard-clips (`np.clip` in `realtime.py:67`) and meters *input* RMS.
+  Add a light soft-clip/limiter ceiling (~−1 dBFS) used purely as a guard (not a
+  loudness tool) plus an output peak tile beside the existing RMS/overrun tiles.
+- [x] **P22.4 — Provider health surfacing.** *(P1, cheap.)* `features.py` requests
+  CUDA→CPU fallback for ContentVec but never logs `get_providers()`; a silent CPU
+  fallback currently only shows up later as underruns. Log + surface the *actual* EP
+  for ContentVec/F0 in the `hfabric` log and the Voice/System metrics.
+- [x] **P22.5 — Latency headroom guard.** *(P1, cheap.)* We already collect
+  `last_timings`/`_metrics`; add a rolling p95 of `total` and, when it nears the
+  block budget, surface a concrete hint (reduce `extra_convert`, RMVPE→FCPE, denoise
+  off, larger `read_chunk`) instead of leaving the user to discover stutter.
+- [x] **P22.6 — Re-tune + label the +12 preset (validate before shipping).** *(P1.)*
+  The doc argues `feminineVoicePreset` (index 0.5, `noise_scale` 0.666) is too
+  aggressive for +12 clarity. A/B index 0.25–0.35 / `noise_scale` 0.45–0.55 / RMVPE
+  against the current values on real hardware with the sibilant phrase; only then
+  adjust. Also label safe-zone vs risk-zone ranges on the sliders.
+  - Validated 2026-06-15 on RTX 5070 Ti / CUDA with SAPI sibilant phrase:
+    `index_ratio=0.30`, `noise_scale=0.50`, RMVPE ranked best on sibilant
+    high/mid balance without peak or full-band hiss penalty.
+- [ ] **P22.7 — *(optional)* High-band detail preserve + one-click A/B capture.**
+  Only if P22.2 is not enough for noisy rooms: re-inject raw > 3.5 kHz at low gain
+  (risk: brings back keyboard hiss). A/B capture = a 10 s "raw + output + params
+  JSON" button to make preset tuning objective.
+
+**Declined from the doc (recorded so we don't relitigate):**
+- **DTLN on a CUDA EP** — the doc *and* `voice-realtime-findings` agree DTLN is
+  tiny; H2D/D2H transfer would add jitter while ContentVec is already ~4.5 ms on
+  GPU. Net-negative; keep it on CPU.
+- **CUDA Graphs / TensorRT / ONNX IO-binding / fp16 synth** — warm per-chunk is
+  ~46 ms against a ~355 ms budget; these optimize a bottleneck we don't have. fp16
+  was already assessed and declined. Revisit only if context sizes grow a lot.
+- **Full ASR WER/CER + automated sibilant-energy benchmark** — too heavy for a
+  single-user app; keep the cheap subjective AB phrase + protocol from the doc and
+  the existing `scripts/voice_realtime_bench.py` for latency.
+
 ### P21 — Release readiness (NEW — prep for external testers)
 
 > Derived from the 2026-06-14 audit. Most of these are cheap and unblock a first

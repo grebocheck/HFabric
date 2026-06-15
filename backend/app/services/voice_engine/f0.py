@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import numpy as np
+
+logger = logging.getLogger("hfabric")
 
 F0_DETECTORS = {
     "rmvpe_onnx",
@@ -44,6 +47,15 @@ class F0Extractor:
         self.model_path = Path(model_path)
         self.device = device
         self._impl = None
+        self._actual_provider: str | None = None
+
+    def provider_health(self) -> dict[str, object]:
+        return {
+            "name": self.detector,
+            "requested": f"torch:{self.device}",
+            "actual": self._actual_provider,
+            "loaded": self._impl is not None,
+        }
 
     def _load(self):
         if self._impl is not None:
@@ -54,6 +66,13 @@ class F0Extractor:
             # FCPE is ~8x faster than RMVPE on GPU and bundles its own weights
             # (downloaded/cached on first spawn); the rmvpe.pt path is ignored.
             self._impl = spawn_bundled_infer_model(device=self.device)
+            self._actual_provider = f"torch:{self.device}"
+            logger.info(
+                "event=voice.provider component=f0 detector=%s requested=%s actual=%s",
+                self.detector,
+                f"torch:{self.device}",
+                self._actual_provider,
+            )
             return self._impl
         if self.detector in _CREPE_MODELS:
             import torchcrepe  # noqa: PLC0415
@@ -63,10 +82,25 @@ class F0Extractor:
             # use the module itself as the impl handle (the cache key keeps tiny
             # and full as separate extractors).
             self._impl = torchcrepe
+            self._actual_provider = f"torch:{self.device}"
+            logger.info(
+                "event=voice.provider component=f0 detector=%s requested=%s actual=%s",
+                self.detector,
+                f"torch:{self.device}",
+                self._actual_provider,
+            )
             return self._impl
         from .rvc.rmvpe import RMVPE  # noqa: PLC0415
 
         self._impl = RMVPE(self.model_path, device=self.device)
+        actual_device = getattr(self._impl, "device", self.device)
+        self._actual_provider = f"torch:{actual_device}"
+        logger.info(
+            "event=voice.provider component=f0 detector=%s requested=%s actual=%s",
+            self.detector,
+            f"torch:{self.device}",
+            self._actual_provider,
+        )
         return self._impl
 
     def compute(self, audio_16k: np.ndarray, sr: int = 16000) -> np.ndarray:
@@ -135,3 +169,16 @@ def create_f0_extractor(detector: str, model_path: Path, device: str) -> F0Extra
     if cached is None:
         cached = _EXTRACTOR_CACHE[key] = F0Extractor(detector, model_path, device)
     return cached
+
+
+def provider_health(detector: str, model_path: Path, device: str) -> dict[str, object]:
+    key = (detector, str(model_path), device)
+    cached = _EXTRACTOR_CACHE.get(key)
+    if cached is not None:
+        return cached.provider_health()
+    return {
+        "name": detector,
+        "requested": f"torch:{device}",
+        "actual": None,
+        "loaded": False,
+    }

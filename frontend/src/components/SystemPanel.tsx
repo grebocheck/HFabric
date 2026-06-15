@@ -3,7 +3,18 @@ import { api } from "../api/client";
 import { SetupDoctor } from "./SetupDoctor";
 import { ModelDownloads } from "./ModelDownloads";
 import { StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
-import type { ArbiterNote, GpuStatus, ImageStats, MemPoint, MemSnapshot, ModelProfile, QueuePlan, RuntimeSettings } from "../types";
+import type {
+  ArbiterNote,
+  GpuStatus,
+  ImageStats,
+  MemPoint,
+  MemSnapshot,
+  ModelProfile,
+  QueuePlan,
+  RuntimeSettings,
+  VoiceEngineStatus,
+  VoiceProviderHealth,
+} from "../types";
 
 export function SystemPanel({
   gpu,
@@ -26,6 +37,7 @@ export function SystemPanel({
   const [plan, setPlan] = useState<QueuePlan | null>(null);
   const [imageStats, setImageStats] = useState<ImageStats | null>(null);
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceEngineStatus | null>(null);
 
   useEffect(() => {
     api.runtimeSettings().then(setSettings).catch(() => {});
@@ -47,6 +59,10 @@ export function SystemPanel({
   useEffect(() => {
     api.imageStats().then(setImageStats).catch(() => {});
   }, [imageSignal]);
+
+  useEffect(() => {
+    api.voiceEngineStatus().then(setVoiceStatus).catch(() => {});
+  }, []);
 
   const ram = mem?.ram;
   const vram = mem?.vram;
@@ -134,6 +150,8 @@ export function SystemPanel({
               "Attention": String(settings.acceleration.attention_backend ?? "-"),
               "torch.compile": String(settings.acceleration.torch_compile ?? false),
               "FLUX step cache": String(settings.acceleration.flux_step_cache ?? "-"),
+              "Voice ContentVec": providerLabel(voiceStatus?.metrics.provider_health.content_vec),
+              "Voice F0": providerLabel(voiceStatus?.metrics.provider_health.f0),
               "Min free RAM (guard)": `${settings.memory.min_free_ram_gb ?? "-"} GB`,
             }} />
           </Card>
@@ -203,6 +221,10 @@ function ModelCounts({ rows }: { rows: ImageStats["by_model"] }) {
 }
 
 const gb = (v: number) => `${v.toFixed(1)} GB`;
+
+function providerLabel(provider?: VoiceProviderHealth | null): string {
+  return String(provider?.actual ?? provider?.requested ?? "-");
+}
 
 const NOTE_TONES: Record<string, string> = {
   ram_budget: "border-red-400/30 bg-red-500/10 text-red-200",

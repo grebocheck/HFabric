@@ -24,6 +24,8 @@ and the voice-lane parking are all testable in CI.
 
 from __future__ import annotations
 
+from collections import deque
+import math
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -56,6 +58,8 @@ MAX_RECORD_SECONDS = 180.0
 # audible tail even after the raw mic chunk drops below the silence threshold.
 POST_SPEECH_FLUSH_MS = 450.0
 RECORD_STOP_GRACE_MS = 650.0
+LATENCY_HISTORY = 96
+LATENCY_WARN_RATIO = 0.80
 
 
 def _write_wav(path, samples, sample_rate: int) -> None:
@@ -148,6 +152,7 @@ class ChunkProcessor:
         self._formant_factor = 1.0
         self._out_rs: Any | None = None
         self._out_rs_key: tuple[int, float] | None = None
+        self._denoise_raw_pending = np.zeros(0, dtype=np.float32)
         self._fifo_16k = np.zeros(0, dtype=np.float32)
         self._block_16k = 0
         self._context_16k = np.zeros(0, dtype=np.float32)
@@ -383,8 +388,19 @@ class ChunkProcessor:
         denoiser = self._active_denoiser()
         if denoiser is not None and piece.size:
             stage = time.perf_counter()
-            piece = denoiser.process_stream(piece)
+            raw_piece = piece
+            self._denoise_raw_pending = np.concatenate([self._denoise_raw_pending, raw_piece])
+            denoised = np.asarray(denoiser.process_stream(piece), dtype=np.float32).reshape(-1)
+            mix = max(0.0, min(1.0, float(self._engine.input_denoise_mix)))
+            if denoised.size > self._denoise_raw_pending.size:
+                denoised = denoised[: self._denoise_raw_pending.size]
+            raw_for_mix = self._denoise_raw_pending[: denoised.size]
+            self._denoise_raw_pending = self._denoise_raw_pending[denoised.size :]
+            piece = denoised * np.float32(mix) + raw_for_mix * np.float32(1.0 - mix)
             timings["input_denoise"] = round((time.perf_counter() - stage) * 1000, 3)
+            timings["input_denoise_mix"] = round(mix, 3)
+        elif denoiser is None:
+            self._denoise_raw_pending = np.zeros(0, dtype=np.float32)
 
         stage = time.perf_counter()
         piece = self._hpf.process(piece, cutoff_hz=self._engine.input_highpass_hz)
@@ -417,6 +433,25 @@ def _rms(samples) -> float:
     return float(min(1.0, np.sqrt(np.mean(np.square(samples))) * 4.0))
 
 
+def _rolling_p95(values) -> float | None:
+    items = sorted(float(value) for value in values if value is not None and math.isfinite(float(value)))
+    if not items:
+        return None
+    idx = max(0, min(len(items) - 1, math.ceil(len(items) * 0.95) - 1))
+    return round(items[idx], 3)
+
+
+def _latency_warning(total_p95_ms: float | None, chunk_ms: float | None) -> str | None:
+    if total_p95_ms is None or chunk_ms is None or chunk_ms <= 0:
+        return None
+    if total_p95_ms < chunk_ms * LATENCY_WARN_RATIO:
+        return None
+    return (
+        "Realtime p95 is near the chunk budget; reduce extra buffer, switch RMVPE to FCPE, "
+        "turn denoise off, or raise chunk size."
+    )
+
+
 class RealtimeSession:
     """Owns the duplex stream + worker thread for one live voice session."""
 
@@ -430,13 +465,21 @@ class RealtimeSession:
         self._metrics: dict[str, Any] = {
             "input_vu": 0.0,
             "output_vu": 0.0,
+            "output_peak": 0.0,
+            "output_peak_dbfs": None,
+            "limiter_reduction_db": 0.0,
             "timings_ms": {},
             "total_ms": None,
+            "total_p95_ms": None,
             "chunk_ms": None,
+            "latency_headroom_ms": None,
+            "latency_warning": None,
+            "provider_health": engine.provider_health(),
             "overruns": 0,
             "underruns": 0,
             "squelched": False,
         }
+        self._latency_totals_ms: deque[float] = deque(maxlen=LATENCY_HISTORY)
         self._input_ring: _Ring | None = None
         self._output_ring: _Ring | None = None
         self._monitor_ring: _Ring | None = None
@@ -479,6 +522,7 @@ class RealtimeSession:
         self._output_ring.push(np.zeros(self.chunk_samples, dtype=np.float32))
         with self._metrics_lock:
             self._metrics["chunk_ms"] = round(self.chunk_samples / self.stream_sr * 1000, 1)
+            self._metrics["provider_health"] = engine.provider_health()
 
         in_dev = engine.server_input_device_id
         out_dev = engine.server_output_device_id
@@ -493,11 +537,16 @@ class RealtimeSession:
             # (drops old audio) instead of growing without limit.
             dropped = self._input_ring.drop_to(self.stream_sr * 2)
             samples, missing = self._output_ring.pull(frames)
+            rendered, limiter = dsp.limit_output(samples * float(self._engine.server_output_gain))
             if missing or dropped:
                 with self._metrics_lock:
                     self._metrics["underruns"] += 1 if missing else 0
                     self._metrics["overruns"] += 1 if dropped else 0
-            outdata[:] = (samples * float(self._engine.server_output_gain)).reshape(-1, 1).astype(np.float32)
+            with self._metrics_lock:
+                self._metrics["output_peak"] = limiter["peak"]
+                self._metrics["output_peak_dbfs"] = limiter["peak_dbfs"]
+                self._metrics["limiter_reduction_db"] = limiter["limiter_reduction_db"]
+            outdata[:] = rendered.reshape(-1, 1).astype(np.float32)
 
         self._stop.clear()
         self._stream = sd.Stream(
@@ -532,7 +581,8 @@ class RealtimeSession:
 
         assert self._monitor_ring is not None
         samples, _missing = self._monitor_ring.pull(frames)
-        outdata[:] = (samples * float(self._engine.server_monitor_gain)).reshape(-1, 1).astype(np.float32)
+        rendered, _limiter = dsp.limit_output(samples * float(self._engine.server_monitor_gain))
+        outdata[:] = rendered.reshape(-1, 1).astype(np.float32)
 
     def stop(self) -> None:
         self._stop.set()
@@ -590,12 +640,26 @@ class RealtimeSession:
             squelched = bool(timings.pop("squelched", False))
             total_raw = timings.get("total")
             total = float(total_raw) if isinstance(total_raw, (int, float)) and not isinstance(total_raw, bool) else None
+            if total is not None:
+                self._latency_totals_ms.append(total)
+            total_p95 = _rolling_p95(self._latency_totals_ms)
+            chunk_ms_raw = self._metrics.get("chunk_ms")
+            chunk_ms = (
+                float(chunk_ms_raw)
+                if isinstance(chunk_ms_raw, (int, float)) and not isinstance(chunk_ms_raw, bool)
+                else None
+            )
+            headroom = round(chunk_ms - total_p95, 3) if chunk_ms is not None and total_p95 is not None else None
             with self._metrics_lock:
                 self._metrics["input_vu"] = in_vu
                 if len(out) or squelched:
                     self._metrics["output_vu"] = _rms(out)
                 self._metrics["timings_ms"] = timings
                 self._metrics["total_ms"] = total
+                self._metrics["total_p95_ms"] = total_p95
+                self._metrics["latency_headroom_ms"] = headroom
+                self._metrics["latency_warning"] = _latency_warning(total_p95, chunk_ms)
+                self._metrics["provider_health"] = self._engine.provider_health()
                 self._metrics["squelched"] = squelched
 
     def metrics(self) -> dict[str, Any]:
@@ -698,9 +762,16 @@ class StubRealtimeSession:
         return {
             "input_vu": ((tick % 10) + 1) / 10.0,
             "output_vu": ((tick % 7) + 1) / 10.0,
+            "output_peak": 0.5,
+            "output_peak_dbfs": -6.0,
+            "limiter_reduction_db": 0.0,
             "timings_ms": {"stub": 1.0, "total": 5.0},
             "total_ms": 5.0,
+            "total_p95_ms": 5.0,
             "chunk_ms": chunk_ms,
+            "latency_headroom_ms": round(chunk_ms - 5.0, 3),
+            "latency_warning": _latency_warning(5.0, chunk_ms),
+            "provider_health": self._engine.provider_health(),
             "overruns": 0,
             "underruns": 0,
             "squelched": False,

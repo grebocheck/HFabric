@@ -167,6 +167,14 @@ Optional neural microphone denoise uses breizhn/DTLN ONNX weights under
 python scripts/fetch_dtln.py
 ```
 
+When DTLN is enabled, the Voice tab exposes a wet/dry denoise mix so full
+suppression is not the only option. Live diagnostics also report output peak,
+limiter reduction, rolling p95 latency/headroom, and the actual ContentVec/F0
+provider selected by the runtime.
+
+The `Female +12 RMVPE` quality profile is tuned for clarity rather than maximum
+voice imprint: `index_ratio=0.30`, `noise_scale=0.50`, `protect=0.33`, and RMVPE.
+
 ## History, export, settings APIs
 
 - `/api/images?q=...` searches across image ids, job ids, seeds, prompts, models,

@@ -37,6 +37,7 @@ export const latencyPresets = [
 // frames close to the source so sibilants stay crisp.
 export const recommendedVoicePreset = {
   inputDenoise: "dtln" as const,
+  inputDenoiseMix: 0.75,
   inputHighpassHz: 80,
   inputGateDb: -90,
   silenceThresholdDb: -72,
@@ -54,6 +55,7 @@ export const recommendedVoicePreset = {
 
 export const clearVoicePreset = {
   inputDenoise: "off" as const,
+  inputDenoiseMix: 0.0,
   inputHighpassHz: 80,
   inputGateDb: -90,
   silenceThresholdDb: -78,
@@ -71,6 +73,7 @@ export const clearVoicePreset = {
 
 export const smoothVoicePreset = {
   inputDenoise: "off" as const,
+  inputDenoiseMix: 0.0,
   inputHighpassHz: 80,
   inputGateDb: -90,
   silenceThresholdDb: -72,
@@ -93,11 +96,13 @@ export const feminineVoicePreset = {
   pitch: 12,
   formantShift: 0.5,
   inputDenoise: "dtln" as const,
+  inputDenoiseMix: 0.75,
   inputHighpassHz: 80,
-  indexRatio: 0.5,
+  indexRatio: 0.3,
   protect: 0.33,
-  noiseScale: 0.66666,
+  noiseScale: 0.5,
   f0Smoothing: 0.15,
+  f0Detector: "rmvpe",
   inputGateDb: -90,
   silenceThresholdDb: -72,
   silenceHoldMs: 250,
@@ -117,6 +122,7 @@ export type VoiceControlState = {
   inputGateDb: number;
   inputHighpassHz: number;
   inputDenoise: "off" | "dtln";
+  inputDenoiseMix: number;
   silenceThresholdDb: number;
   silenceHoldMs: number;
   indexRatio: number;
@@ -165,6 +171,7 @@ export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceE
     inputGateDb: num(settings.input_gate_db, -90),
     inputHighpassHz: num(settings.input_highpass_hz, 80),
     inputDenoise: settings.input_denoise === "dtln" ? "dtln" : "off",
+    inputDenoiseMix: num(settings.input_denoise_mix, 0.75),
     silenceThresholdDb: num(settings.silence_threshold_db, -72),
     silenceHoldMs: num(settings.silence_hold_ms, 250),
     indexRatio: num(settings.index_ratio, 0.55),
@@ -209,6 +216,7 @@ export function nativeTuningSettingsPatch(state: Pick<
   | "inputGateDb"
   | "inputHighpassHz"
   | "inputDenoise"
+  | "inputDenoiseMix"
   | "silenceThresholdDb"
   | "silenceHoldMs"
   | "indexRatio"
@@ -225,6 +233,7 @@ export function nativeTuningSettingsPatch(state: Pick<
     input_gate_db: state.inputGateDb,
     input_highpass_hz: state.inputHighpassHz,
     input_denoise: state.inputDenoise,
+    input_denoise_mix: state.inputDenoiseMix,
     silence_threshold_db: state.silenceThresholdDb,
     silence_hold_ms: state.silenceHoldMs,
     index_ratio: state.indexRatio,
@@ -244,6 +253,7 @@ export function nativeVoicePresetSettingsPatch(state: Pick<
   | "inputGateDb"
   | "inputHighpassHz"
   | "inputDenoise"
+  | "inputDenoiseMix"
   | "silenceThresholdDb"
   | "silenceHoldMs"
   | "indexRatio"
@@ -266,6 +276,7 @@ export function nativeVoicePresetSettingsPatch(state: Pick<
     input_gate_db: state.inputGateDb,
     input_highpass_hz: state.inputHighpassHz,
     input_denoise: state.inputDenoise,
+    input_denoise_mix: state.inputDenoiseMix,
     silence_threshold_db: state.silenceThresholdDb,
     silence_hold_ms: state.silenceHoldMs,
     index_ratio: state.indexRatio,

@@ -24,6 +24,7 @@ PRESET_SETTING_KEYS = {
     "input_gate_db",
     "input_formant",
     "input_denoise",
+    "input_denoise_mix",
     "silence_threshold_db",
     "silence_hold_ms",
     "server_audio_sample_rate",

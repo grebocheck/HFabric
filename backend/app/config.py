@@ -186,6 +186,9 @@ class Settings(BaseSettings):
     voice_input_gate_db: float = -90.0
     voice_input_formant: float = 0.0
     voice_input_denoise: str = "off"
+    # DTLN is useful in noisy rooms but full wet can soften fricatives; keep a
+    # little dry signal by default when users enable neural denoise.
+    voice_input_denoise_mix: float = 0.75
 
     # --- FLUX loading (M0 finding) ---
     # The local flux_dev is an fp8 all-in-one checkpoint; diffusers needs a

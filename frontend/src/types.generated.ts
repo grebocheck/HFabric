@@ -1521,6 +1521,8 @@ export interface components {
             index_ratio?: number | null;
             /** Input Denoise */
             input_denoise?: string | null;
+            /** Input Denoise Mix */
+            input_denoise_mix?: number | null;
             /** Input Formant */
             input_formant?: number | null;
             /** Input Gate Db */
@@ -2253,6 +2255,8 @@ export interface components {
             index_ratio?: number | null;
             /** Input Denoise */
             input_denoise?: string | null;
+            /** Input Denoise Mix */
+            input_denoise_mix?: number | null;
             /** Input Formant */
             input_formant?: number | null;
             /** Input Gate Db */
