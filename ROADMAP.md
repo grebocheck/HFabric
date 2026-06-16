@@ -6,10 +6,13 @@
 > auth, Alembic migrations, rotating logs, backups, production serving, and a
 > universal hardware-aware installer + capability profile.
 >
-> The work now is **release readiness** — preparing the app for testing by other
-> people. See the [release-readiness audit (2026-06-14)](docs/audit-2026-06-14.md)
-> for the current weaknesses and plan; the original [2026-06-11 audit](docs/audit-2026-06.md)
-> is kept as the origin of phases P14–P20.
+> The work now is **shipping a public `0.1` beta** — the app is good for daily use
+> but hasn't had wide testing, so the honest next step is an automated GitHub
+> release pipeline + an honestly-framed beta that invites people to try it (**P24**).
+> P21 got the app *safe to hand to a tester*; P24 *actually ships it*. See the
+> [release-readiness audit (2026-06-14)](docs/audit-2026-06-14.md) for the current
+> weaknesses and plan; the original [2026-06-11 audit](docs/audit-2026-06.md) is kept
+> as the origin of phases P14–P20.
 >
 > Marking: `[ ]` not started · `[~]` in progress / partially done · `[x]` done.
 
@@ -41,6 +44,84 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 ---
 
 ## Active backlog
+
+### P24 — Release pipeline & public v0.1 beta (NEW — actually ship it)
+
+> P21 made the app **safe to hand to a tester**; P24 **ships it and invites people
+> in**. The app is good and convenient for daily use, but it has not had wide
+> testing and still needs polish — so the honest move is a **public `0.1` beta on
+> GitHub**, cut by an *automated* release pipeline (tag → build → publish), framed
+> plainly as beta. The point of this phase is the moment a stranger can find the
+> repo, understand in 30 seconds what it does, click one path to run it, and have a
+> one-click way to tell us what broke.
+>
+> Sequenced cheapest-first. P24.1–.3 are the pipeline + distribution decision
+> (closes the open P21.5); P24.4–.7 are the "invite-readiness" polish that turns a
+> working repo into something worth trying. Nothing here builds a frozen installer —
+> the hardware-aware setup script is the right shape for a GPU app whose torch /
+> llama.cpp stack is platform- and accelerator-specific (see Declined).
+
+- [ ] **P24.1 — Release CI workflow (tag → GitHub pre-release).** *(P1 — the
+  load-bearing item.)* Add `.github/workflows/release.yml` triggered on `v*` tags:
+  reuse the existing `ci.yml` gates (ruff + pytest coverage floor + eslint + `tsc` +
+  vitest + frontend build) as a required precondition, then assemble the release
+  bundle, generate the release body from the matching `CHANGELOG.md` section, attach
+  a SHA-256 checksum, and publish with the **pre-release flag set** (GitHub's "beta"
+  marker). No hand-uploading — the tag is the trigger and the single source of truth.
+- [ ] **P24.2 — Version & tag discipline.** *(P1.)* **Decided:** plain `v0.1.0` tag,
+  no `-beta` suffix — "beta" is carried solely by the GitHub pre-release flag (P24.1).
+  Rationale: a single-author project shouldn't fork effort maintaining parallel
+  `-beta`/stable version lines; one clean `0.1.0` line is enough. Add a small
+  `scripts/release.py` (or documented steps) that bumps `app.__version__`, promotes
+  the `CHANGELOG.md` `[Unreleased]` block to the new dated `0.1.0` version, and
+  creates the annotated `v0.1.0` tag. CI guard: a release fails fast if the tag does
+  not match `app.__version__` (the existing `/api/health` version stamp stays the
+  runtime source of truth).
+- [ ] **P24.3 — Distribution shape — decide & document (closes P21.5).** *(P1.)*
+  For the beta, **clone-and-run stays the supported path** (REAL mode resolves
+  platform-specific torch/llama.cpp wheels via the installer; a frozen artifact is
+  premature — see Declined). The release attaches a source zip + the lockfiles
+  (`requirements-gpu.lock`) and the release body carries a one-page
+  **"download → run"** that does not require reading the full README: `setup` → start
+  in STUB to see the UI → switch to REAL → Model downloads. This is the page a new
+  user actually follows.
+- [ ] **P24.4 — Beta framing & honest expectations.** *(P1, cheap, high-trust.)*
+  Lead the README and the release notes with a plain **"this is a beta"** notice: a
+  short *what works / what's rough* summary, the NVIDIA-validated vs.
+  ROCm/MPS-experimental support matrix kept front-and-centre, the "everything runs
+  locally, nothing leaves your machine" privacy line, and a linked **known-issues**
+  list. Add `SECURITY.md` (how to report a vulnerability privately) if absent.
+- [ ] **P24.5 — Feedback & bug-report loop.** *(P1.)* GitHub issue templates
+  (bug · feature · hardware-validation report — the ROCm/MPS testers from P21.4 file
+  through this) plus an in-app **"Export diagnostics"** action (System tab) that
+  bundles the rotating `hfabric.log`, the `hardware_probe.py` report, the capability
+  profile, and version stamps into one secret-scrubbed zip — so a tester can file an
+  actionable report in one click instead of pasting fragments. Builds on the
+  bug-report template already in `CONTRIBUTING.md`.
+- [ ] **P24.6 — Invite-readiness / first impression.** *(P1/P2 — what makes someone
+  actually try it.)* README hero with screenshots or a short demo GIF (chat + image
+  gen + the live VRAM bar — the differentiator is "two heavy models, one 16 GB GPU,
+  no OOM"); a concise above-the-fold feature list; a tight GitHub repo description +
+  topics. The current README is honest but long and text-only — a stranger needs to
+  *see* it work before they'll `git clone`.
+- [ ] **P24.7 — First-run experience & resilience.** *(P2 — the newcomer's first ten
+  minutes.)* Guiding empty states (no image models → point to System → Model
+  downloads; no GPU detected → explain CPU-safe / STUB; empty gallery/chat → a "try
+  this" nudge); graceful, legible failure when a model load is OOM-guarded or a
+  managed binary is missing (a clear message + next step, never a stuck spinner); a
+  one-time welcome that names the three core surfaces. Lean on the existing Setup
+  Doctor and arbiter notes rather than adding a new system.
+
+**Declined / out of scope (recorded so we don't relitigate):**
+- **A frozen single-file installer (PyInstaller / Electron / one `.exe`).** REAL mode's
+  torch + CUDA/ROCm + llama.cpp stack is platform- and accelerator-specific and tens
+  of GB; the hardware-aware setup script + managed llama runtime is the correct shape
+  for a beta. Revisit only after 1.0 if demand is real.
+- **Publishing to package registries (PyPI / winget / Homebrew / Docker Hub).**
+  Premature for a single-author local-GPU beta; the GitHub release is the one channel.
+- **Telemetry / crash phone-home — even anonymised.** The privacy promise is that
+  nothing leaves the machine; diagnostics are export-on-demand (P24.5), never
+  auto-sent. Don't break the core promise to gather metrics.
 
 ### P23 — LLM workspace: attachments, native multimodal & reliable tools (NEW)
 
@@ -199,9 +280,11 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   testers; run `scripts/install_smoke.py` + the GPU smoke checklist on each and
   fill the validation log in `docs/gpu-smoke.md`. Promote a profile from
   experimental to supported only after a clean real run.
-- [ ] **P21.5 — Packaged release.** Decide the distribution shape (tagged release
-  zip vs. clone-and-run) and produce a one-page "download → run" path that does not
-  require reading the full README. Gates on P21.2.
+- [ ] **P21.5 — Packaged release.** *(Folded into P24.3 — the distribution-shape
+  decision and the one-page "download → run" path now live in the release pipeline
+  phase.)* Decide the distribution shape (tagged release zip vs. clone-and-run) and
+  produce a one-page "download → run" path that does not require reading the full
+  README. Gates on P21.2.
 
 ### P17 — Code health round 2 (carries the hard splits)
 
