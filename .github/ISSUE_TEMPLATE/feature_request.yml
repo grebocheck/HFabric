@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. A quick check of the
+        [ROADMAP](https://github.com/grebocheck/HFabric/blob/main/ROADMAP.md)
+        (including the "Declined / out of scope" notes) saves us both time — some
+        things are deliberately not planned for this single-user local app.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The need behind the request, not just the solution.
+      placeholder: When I switch models a lot, I lose track of…
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like to see. Rough is fine.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: Anything you've tried or considered.
+    validations:
+      required: false

@@ -1,0 +1,67 @@
+name: Hardware validation report
+description: Report whether HFabric runs on your GPU/OS — especially AMD ROCm or Apple Silicon.
+title: "[hw] <OS> / <GPU> / <profile>"
+labels: ["hardware-validation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the **most valuable report a non-NVIDIA tester can file.** Only
+        NVIDIA/Windows is validated end-to-end; AMD ROCm (Linux) and Apple Silicon
+        (MPS) are implemented but unproven on real hardware. A "it worked" report is
+        as useful as a "it broke" one. The
+        [GPU smoke checklist](https://github.com/grebocheck/HFabric/blob/main/docs/gpu-smoke.md)
+        has the exact steps.
+  - type: input
+    id: hardware
+    attributes:
+      label: OS + GPU + VRAM + RAM
+      placeholder: Ubuntu 24.04, Radeon RX 7900 XTX 24 GB, 32 GB RAM
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Profile the app selected
+      description: From `python scripts/install_profiles.py --pretty` or the Setup Doctor.
+      options:
+        - nvidia-cuda
+        - amd-rocm-linux
+        - apple-mps
+        - cpu-safe
+        - Other (note below)
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Overall result
+      options:
+        - Works — generated an image and/or got a chat reply
+        - Partially works (note what failed)
+        - Setup/install failed
+        - Crashes at runtime
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What worked / what didn't
+      description: Which models, which workspaces, and any errors. Paste the relevant `data/logs/hfabric.log` tail.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: 0.1.0 / abc1234
+    validations:
+      required: true
+  - type: checkboxes
+    id: smoke
+    attributes:
+      label: Smoke checklist
+      options:
+        - label: I followed (or will follow) docs/gpu-smoke.md and can fill in the validation log.
+          required: false

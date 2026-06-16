@@ -16,10 +16,14 @@ include breaking changes — this is pre-release software.
   **pre-release** with a `git archive` source bundle + SHA-256 checksum and notes
   drawn from this changelog. New `scripts/release.py` handles version/tag/changelog
   discipline (`check-tag` guards that a tag matches `app.__version__`).
+- **Beta framing & feedback loop** (P24.4/.5): a public-beta README status block,
+  `KNOWN_ISSUES.md`, `SECURITY.md` (private vulnerability reporting), and GitHub
+  issue templates (bug · feature · hardware-validation) with security reports routed
+  to private advisories.
 
 _Toward the first public `0.1` beta (see [ROADMAP](ROADMAP.md) phase P24): the
-release pipeline above is in place; remaining are the beta framing, a feedback/
-bug-report loop, and first-impression polish._
+release pipeline, beta framing, and feedback loop are in place; remaining are the
+in-app diagnostics export and first-impression polish (P24.5 tail, P24.6–.7)._
 
 ## [0.1.0] — pre-release
 

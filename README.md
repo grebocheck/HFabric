@@ -12,11 +12,21 @@ chat-native vision through multimodal attachments, text-to-speech, transcription
 and a native real-time voice changer — all gated through the same GPU arbiter so
 they never collide.
 
-> **Project status: pre-release (B+ / 8.0).** Solid for the author's own daily use
-> and being prepared for testing by others. The core pipeline is real-GPU
-> validated; some platforms and features are still experimental. See
-> [Platform support](#platform-support) and the
-> [release-readiness audit](docs/audit-2026-06-14.md) for an honest picture.
+> **Project status: public beta (v0.1, B+ / 8.0).** This is a `0.1` beta — solid for
+> the author's own daily use and now open to other testers, but it has **not** had
+> wide testing and still has rough edges.
+>
+> - **What works:** the full local pipeline — chat LLM, image generation, the VRAM
+>   arbiter, and the workspaces — is real-GPU validated on **NVIDIA / Windows**.
+> - **What's rough:** AMD ROCm and Apple Silicon are **experimental** (unvalidated on
+>   real hardware); first-run/empty-state UX and some error paths are unpolished.
+> - **Privacy:** everything runs on your machine; nothing is sent to a cloud service.
+>
+> Before reporting, skim [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and the
+> [Platform support](#platform-support) matrix; the
+> [release-readiness audit](docs/audit-2026-06-14.md) is the most candid status
+> snapshot. Found a security issue? See [SECURITY.md](SECURITY.md) — please report it
+> privately.
 
 ## Table of contents
 
@@ -317,6 +327,8 @@ python scripts/install_profiles.py --pretty
 | [docs/voice-routing.md](docs/voice-routing.md) | Routing the voice changer into Discord/OBS/etc. |
 | [docs/audit-2026-06-14.md](docs/audit-2026-06-14.md) | Current release-readiness audit (weaknesses + plan) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to report a bug + open a PR |
+| [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Beta limitations, by-design behavior, rough edges |
+| [SECURITY.md](SECURITY.md) | Security model + how to report a vulnerability privately |
 | [CHANGELOG.md](CHANGELOG.md) | What changed between versions |
 | [ROADMAP.md](ROADMAP.md) | Shipped milestones + active backlog |
 

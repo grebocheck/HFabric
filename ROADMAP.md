@@ -90,19 +90,22 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   and the release body carries a one-page **"download → run"** (`docs/release-footer.md`)
   that does not require reading the full README: `setup` → start in STUB to see the
   UI → switch to REAL → Model downloads. Resolves the open P21.5.
-- [ ] **P24.4 — Beta framing & honest expectations.** *(P1, cheap, high-trust.)*
-  Lead the README and the release notes with a plain **"this is a beta"** notice: a
-  short *what works / what's rough* summary, the NVIDIA-validated vs.
-  ROCm/MPS-experimental support matrix kept front-and-centre, the "everything runs
-  locally, nothing leaves your machine" privacy line, and a linked **known-issues**
-  list. Add `SECURITY.md` (how to report a vulnerability privately) if absent.
-- [ ] **P24.5 — Feedback & bug-report loop.** *(P1.)* GitHub issue templates
-  (bug · feature · hardware-validation report — the ROCm/MPS testers from P21.4 file
-  through this) plus an in-app **"Export diagnostics"** action (System tab) that
-  bundles the rotating `hfabric.log`, the `hardware_probe.py` report, the capability
-  profile, and version stamps into one secret-scrubbed zip — so a tester can file an
-  actionable report in one click instead of pasting fragments. Builds on the
-  bug-report template already in `CONTRIBUTING.md`.
+- [x] **P24.4 — Beta framing & honest expectations.** *(P1, cheap, high-trust.)*
+  The README status block now leads with a plain **"public beta (v0.1)"** notice — a
+  *what works / what's rough* summary, the privacy line, and links to the support
+  matrix and the new docs. Added [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) (beta
+  limitations + by-design behavior, drawn from the hard-won facts) and
+  [`SECURITY.md`](SECURITY.md) (security-model summary + private vulnerability
+  reporting via GitHub advisories), both in the README Documentation table. The
+  release body already carries the same framing via `docs/release-footer.md`.
+- [~] **P24.5 — Feedback & bug-report loop.** *(P1.)* **Done:** GitHub issue
+  templates under `.github/ISSUE_TEMPLATE/` (bug · feature · hardware-validation
+  report — the ROCm/MPS testers from P21.4 file through this) with a `config.yml`
+  that disables blank issues and routes security reports to private advisories.
+  **Remaining:** the in-app **"Export diagnostics"** action (System tab) that bundles
+  the rotating `hfabric.log`, the `hardware_probe.py` report, the capability profile,
+  and version stamps into one secret-scrubbed zip — a backend+frontend feature, still
+  to do. Builds on the bug-report template in `CONTRIBUTING.md`.
 - [ ] **P24.6 — Invite-readiness / first impression.** *(P1/P2 — what makes someone
   actually try it.)* README hero with screenshots or a short demo GIF (chat + image
   gen + the live VRAM bar — the differentiator is "two heavy models, one 16 GB GPU,

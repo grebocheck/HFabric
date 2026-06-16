@@ -1,0 +1,65 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing HFabric — it's pre-release software, so bug reports are
+        genuinely useful. Please check [KNOWN_ISSUES.md](https://github.com/grebocheck/HFabric/blob/main/KNOWN_ISSUES.md)
+        first in case it's a known limitation, and **do not report security issues
+        here** — see [SECURITY.md](https://github.com/grebocheck/HFabric/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+      placeholder: I queued an SDXL image and the job stayed "running" forever; the log shows…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps, and the model(s) involved.
+      placeholder: |
+        1. Select model X
+        2. Prompt "…"
+        3. Click Generate
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: Were you in REAL mode (real models) or STUB mode (mock results)?
+      options:
+        - REAL
+        - STUB
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: OS + GPU + VRAM, and the selected profile
+      description: From System tab → Setup doctor, or `python scripts/hardware_probe.py --pretty`.
+      placeholder: Windows 11, RTX 5070 Ti 16 GB, profile nvidia-cuda
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: From the System tab (app version) or `git rev-parse --short HEAD`.
+      placeholder: 0.1.0 / abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: The relevant tail of `data/logs/hfabric.log` and/or the backend console. (Export diagnostics is coming in a later build.)
+      render: text
+    validations:
+      required: false

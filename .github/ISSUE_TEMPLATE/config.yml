@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Known issues & limitations
+    url: https://github.com/grebocheck/HFabric/blob/main/KNOWN_ISSUES.md
+    about: Check here first — it may be a known beta limitation or by-design behavior.
+  - name: Troubleshooting & setup
+    url: https://github.com/grebocheck/HFabric/blob/main/README.md#troubleshooting
+    about: Common setup/runtime problems and fixes.
+  - name: Report a security vulnerability (private)
+    url: https://github.com/grebocheck/HFabric/security/advisories/new
+    about: Do not file security issues publicly — use private vulnerability reporting.
