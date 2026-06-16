@@ -258,9 +258,14 @@ if (-not (Test-Path $venvPy)) {
 # run.ps1 always drives npm (install + dev/build), so make sure the toolchain is
 # really there before the first `npm` call turns into a CommandNotFoundException.
 Assert-NodeToolchain
-if (-not (Test-Path (Join-Path $root "frontend\node_modules"))) {
-    Write-Host "[setup] installing frontend deps..." -ForegroundColor Cyan
-    Push-Location frontend; npm install; Pop-Location
+$frontendDir = Join-Path $root "frontend"
+if (-not (Test-FrontendReady $frontendDir)) {
+    if (Test-Path (Join-Path $frontendDir "node_modules")) {
+        Write-Host "[setup] frontend deps look incomplete -> reinstalling..." -ForegroundColor DarkYellow
+    } else {
+        Write-Host "[setup] installing frontend deps..." -ForegroundColor Cyan
+    }
+    Install-FrontendDeps $frontendDir
 }
 
 if ($Prod -and (Test-DistStale)) {

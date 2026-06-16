@@ -35,6 +35,15 @@ include breaking changes — this is pre-release software.
   Node/npm in both `run.ps1` and `setup.ps1` — it refreshes PATH from the registry
   to catch the common "installed but stale PATH" case, offers a one-shot
   `winget install`, and otherwise prints actionable steps instead of a stack trace.
+- **`npm install` failures no longer cascade into "'vite' is not recognized"**
+  (tester feedback): `run.ps1` ignored npm's exit code and skipped reinstall when a
+  *partial* `node_modules` existed, so a failed download (e.g.
+  `ERR_SSL_CIPHER_OPERATION_FAILED`) or an `EPERM` cleanup left a broken tree and
+  the launcher marched on to a missing-vite crash. `Install-FrontendDeps` now checks
+  the exit code, retries once after `npm cache clean --force`, and on failure prints
+  targeted help (TLS interception by VPN/proxy/AV; `EPERM` from OneDrive-synced
+  folders; update npm) instead of continuing. A completeness sentinel
+  (`Test-FrontendReady`) treats a vite-less `node_modules` as "needs reinstall".
 
 _Toward the first public `0.1` beta (see [ROADMAP](ROADMAP.md) phase P24): the
 release pipeline, beta framing, feedback loop, and first-run polish are in place;

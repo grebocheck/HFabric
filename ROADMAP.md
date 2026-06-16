@@ -123,11 +123,15 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   P17.6 friendly job errors (the `generating` spinner clears on error, so no stuck
   spinner); a deeper audit of the OOM-guarded / missing-binary paths and any
   Setup-Doctor cross-links can be revisited if testers hit them.
-  **First tester fix (2026-06-16):** `run.bat`/`run.ps1` threw a raw
+  **First tester fixes (2026-06-16):** (1) `run.bat`/`run.ps1` threw a raw
   `CommandNotFoundException` when Node/npm wasn't on PATH; a shared
   `scripts/_windows_prereqs.ps1` now preflights Python + Node/npm (PATH refresh →
   optional `winget` install → actionable message) across both the launcher and
-  `setup.ps1`.
+  `setup.ps1`. (2) A failed `npm install` (TLS/`ERR_SSL_CIPHER_OPERATION_FAILED`,
+  or `EPERM` on a OneDrive-locked folder) used to cascade into "'vite' is not
+  recognized" because the launcher ignored npm's exit code and skipped reinstall on
+  a partial `node_modules`; `Install-FrontendDeps` + `Test-FrontendReady` now retry
+  once (cache clean) and fail with targeted remediation instead.
 
 **Declined / out of scope (recorded so we don't relitigate):**
 - **A frozen single-file installer (PyInstaller / Electron / one `.exe`).** REAL mode's

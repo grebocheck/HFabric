@@ -271,18 +271,13 @@ if ($Real) {
 # --- Install frontend deps ----------------------------------------------------
 
 Write-Section "Installing frontend dependencies"
-if ((Test-Path "frontend\node_modules") -and -not $Force) {
-    Write-Success "node_modules already exists"
+if ((Test-FrontendReady (Join-Path $root "frontend")) -and -not $Force) {
+    Write-Success "node_modules already present"
 } else {
     Write-Host "  Running npm install..." -ForegroundColor Cyan
-    Push-Location frontend
-    & npm install 2>&1 | Out-Null
-    $npmExit = $LASTEXITCODE
-    Pop-Location
-    if ($npmExit -ne 0) {
-        Write-Error-Text "npm install failed (exit $npmExit). Check that Node.js 18+ is installed and on PATH."
-        exit 1
-    }
+    # Shared installer: checks the exit code, retries once after a cache clean,
+    # and prints SSL/EPERM/OneDrive remediation instead of leaving a half-install.
+    Install-FrontendDeps (Join-Path $root "frontend")
     Write-Success "Frontend packages installed (React, Tailwind, Vite, etc.)"
 }
 

@@ -1,4 +1,5 @@
-# Shared Windows prerequisite checks for setup.ps1 and scripts/run.ps1.
+# Shared Windows setup helpers for setup.ps1 and scripts/run.ps1:
+# prerequisite checks (Python / Node) plus a robust frontend `npm install`.
 #
 # Dot-source this file so the functions land in the caller's scope:
 #     . "$PSScriptRoot\_windows_prereqs.ps1"
@@ -79,5 +80,56 @@ function Assert-NodeToolchain {
     Write-Host "           - Download: https://nodejs.org/  (LTS; keep 'Add to PATH' checked)" -ForegroundColor Cyan
     Write-Host "           - Or:       winget install OpenJS.NodeJS.LTS" -ForegroundColor Cyan
     Write-Host "         If you just installed Node.js, open a NEW terminal so PATH refreshes." -ForegroundColor Yellow
+    exit 1
+}
+
+function Test-FrontendReady {
+    # A *complete* install leaves the vite launcher. A half-removed node_modules
+    # (e.g. an EPERM cleanup after a failed download) leaves the folder but not
+    # vite — so checking the folder alone would wrongly skip a needed reinstall
+    # and later blow up with "'vite' is not recognized".
+    param([string]$FrontendDir)
+    $nm = Join-Path $FrontendDir "node_modules"
+    if (-not (Test-Path $nm)) { return $false }
+    return (Test-Path (Join-Path $nm ".bin\vite.cmd")) -or
+           (Test-Path (Join-Path $nm ".bin\vite.ps1")) -or
+           (Test-Path (Join-Path $nm "vite\package.json"))
+}
+
+function Show-NpmFailureHelp {
+    param([int]$ExitCode)
+    Write-Host ""
+    Write-Host "[setup] npm install did not finish (exit $ExitCode); the frontend is not ready." -ForegroundColor Red
+    Write-Host "        Common Windows causes and fixes:" -ForegroundColor Yellow
+    Write-Host "          - TLS errors (ERR_SSL_CIPHER_OPERATION_FAILED): a VPN, corporate proxy," -ForegroundColor Cyan
+    Write-Host "            or antivirus is intercepting HTTPS. Pause it (or configure npm proxy)," -ForegroundColor Cyan
+    Write-Host "            and update npm:  npm install -g npm@latest" -ForegroundColor Cyan
+    Write-Host "          - EPERM removing node_modules: the folder is locked. Move the project OUT" -ForegroundColor Cyan
+    Write-Host "            of a OneDrive-synced folder (Desktop/Documents) to a short local path" -ForegroundColor Cyan
+    Write-Host "            like C:\HFabric, close editors/Explorer on it, and exclude it from AV." -ForegroundColor Cyan
+    Write-Host "          - Then delete frontend\node_modules and run this again." -ForegroundColor Cyan
+}
+
+function Install-FrontendDeps {
+    # npm is a native exe, so a failed install does NOT throw — it just returns a
+    # non-zero code. Callers used to ignore that and march on to `npm run dev`,
+    # turning a network/lock failure into a baffling "'vite' is not recognized".
+    # Here we check the code, retry once after clearing a possibly-corrupt cache,
+    # then fail loudly with actionable help.
+    param([string]$FrontendDir)
+    $code = 0
+    Push-Location $FrontendDir
+    try {
+        npm install
+        if ($LASTEXITCODE -eq 0) { return }
+        Write-Host "[setup] npm install failed (exit $LASTEXITCODE); clearing cache and retrying once..." -ForegroundColor DarkYellow
+        npm cache clean --force
+        npm install
+        if ($LASTEXITCODE -eq 0) { return }
+        $code = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    Show-NpmFailureHelp $code
     exit 1
 }
