@@ -44,6 +44,13 @@ include breaking changes — this is pre-release software.
   targeted help (TLS interception by VPN/proxy/AV; `EPERM` from OneDrive-synced
   folders; update npm) instead of continuing. A completeness sentinel
   (`Test-FrontendReady`) treats a vite-less `node_modules` as "needs reinstall".
+- **`run.bat` now installs the full accelerator stack on first run** (P24.9, tester
+  feedback): previously `run.bat` installed only foundation deps but auto-selected
+  REAL on a CUDA GPU, leaving torch/diffusers/sounddevice/llama uninstalled (the root
+  cause of the voice/image 500s). A shared `Install-AcceleratorStack` now installs
+  PyTorch + backend requirements + the llama.cpp runtime; `run.ps1` invokes it when
+  REAL is selected but the stack is absent, and `setup.ps1` uses the same function so
+  `setup.bat` and `run.bat` install identically — no `real`/`-Real` flag needed.
 - **`/api/voice/engine/status` no longer 500s when `sounddevice` is missing**
   (tester feedback): a REAL-mode run that skipped the GPU install has no
   `sounddevice` (it's an accelerator-stack dep), and audio-device enumeration threw

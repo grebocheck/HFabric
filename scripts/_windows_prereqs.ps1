@@ -110,6 +110,72 @@ function Show-NpmFailureHelp {
     Write-Host "          - Then delete frontend\node_modules and run this again." -ForegroundColor Cyan
 }
 
+function Test-AcceleratorStackReady {
+    # REAL mode needs the heavy stack; torch is the sentinel. Use find_spec (no
+    # actual import) so this stays a fast per-launch check, not a multi-second
+    # torch import. Foundation-only venvs won't have torch.
+    param([string]$VenvPy)
+    if (-not (Test-Path $VenvPy)) { return $false }
+    & $VenvPy -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('torch') else 1)" 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Install-AcceleratorStack {
+    # The full REAL-mode stack for the detected profile: PyTorch (profile-specific
+    # index), the profile's backend requirements (diffusers, sounddevice, etc.), and
+    # the managed llama.cpp runtime. This is what makes "double-click and it works"
+    # true — both run.ps1 (first run) and setup.ps1 install through here so they
+    # behave identically. Optional Nunchaku acceleration stays a setup.ps1 prompt.
+    param(
+        [string]$VenvPy,
+        $Profile
+    )
+    $profileId = [string]$Profile.selected_profile
+    $torchPackages = @($Profile.install.torch.packages)
+    $torchIndex = [string]$Profile.install.torch.index_url
+
+    if ($torchPackages.Count -gt 0) {
+        Write-Host "[setup] installing PyTorch for $profileId (this can be a few GB)..." -ForegroundColor Cyan
+        if ([string]::IsNullOrWhiteSpace($torchIndex)) {
+            & $VenvPy -m pip install @torchPackages
+        } else {
+            Write-Host "[setup] torch index: $torchIndex" -ForegroundColor DarkGray
+            & $VenvPy -m pip install @torchPackages --index-url $torchIndex
+        }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[setup] PyTorch install failed (exit $LASTEXITCODE). Check your network and retry." -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    $verify = [string]$Profile.install.verify
+    if (-not [string]::IsNullOrWhiteSpace($verify)) {
+        $check = & $VenvPy -c $verify 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[setup] PyTorch verification warning for $($profileId): $check" -ForegroundColor Yellow
+        } else {
+            Write-Host "[setup] torch OK: $check" -ForegroundColor DarkGray
+        }
+    }
+
+    foreach ($req in @($Profile.install.requirements)) {
+        if ([string]::IsNullOrWhiteSpace($req)) { continue }
+        Write-Host "[setup] installing backend requirements: $req ..." -ForegroundColor Cyan
+        & $VenvPy -m pip install -r $req
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[setup] '$req' install failed (exit $LASTEXITCODE)." -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    # llama.cpp runtime (LLM/RAG/TTS). Best-effort: installable later from Settings.
+    Write-Host "[setup] installing the matching llama.cpp runtime..." -ForegroundColor Cyan
+    & $VenvPy (Join-Path $PSScriptRoot "fetch_llama.py")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[setup] llama.cpp auto-install failed; install later from Settings -> LLM runtime." -ForegroundColor Yellow
+    }
+}
+
 function Install-FrontendDeps {
     # npm is a native exe, so a failed install does NOT throw — it just returns a
     # non-zero code. Callers used to ignore that and march on to `npm run dev`,

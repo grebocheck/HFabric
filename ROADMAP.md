@@ -143,21 +143,20 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   (→ `registry.scan()`, returns the new count), a **"Rescan models"** button in the
   model picker / System tab, and an **auto-rescan when a download completes** so the
   catalog reflects disk without a restart. Backend + frontend + a test + OpenAPI regen.
-- [ ] **P24.9 — Zero-decision default install: `run.bat` must set up everything the
+- [x] **P24.9 — Zero-decision default install: `run.bat` sets up everything the
   hardware needs.** *(P1 — the root cause behind several tester 500s.)* **Guiding
   principle (user):** the default path must "just work" with no flags and no reading —
   a normal user double-clicks `run.bat` and should NOT have to know about
-  `real`/`-Real` or run a separate installer. Today `run.ps1` auto-selects REAL when a
-  CUDA GPU is detected, but its bootstrap installs only `backend/requirements.txt`
-  (foundation); it merely *hints* about the accelerator stack, and only when creating a
-  fresh venv. So a `run.bat`-only user on a CUDA box gets REAL mode with **no torch /
-  diffusers / sounddevice** → image generation and voice endpoints fail. Fix: on first
-  run, `run.ps1` should install the detected profile's full `install.requirements`
-  (the same stack `setup.ps1` installs by default — `setup.bat` with no args already
-  does this for a GPU) so a supported GPU gets a working REAL mode automatically; only
-  if that can't be done should it **fall back to STUB with a plain message**. Never
-  silently run a half-installed REAL mode. (Until then, endpoints must degrade, not
-  500 — see the voice fix in P24.7.)
+  `real`/`-Real`. **Shipped:** a shared `Install-AcceleratorStack` (in
+  `scripts/_windows_prereqs.ps1`) installs the detected profile's PyTorch (profile
+  index) + backend requirements (diffusers, **sounddevice**, …) + the llama.cpp
+  runtime. `run.ps1` now calls it on launch whenever REAL is selected but the stack is
+  absent (`Test-AcceleratorStackReady` = a fast `find_spec('torch')` check), so a
+  first `run.bat` — or a venv left foundation-only by an earlier run.bat — auto-installs
+  the full stack instead of limping along and 500ing. `setup.ps1` installs through the
+  **same** function, so `setup.bat` (no args) and `run.bat` are identical; optional
+  Nunchaku stays a `setup.ps1` prompt. A failed torch/requirements install now exits
+  with a clear message rather than running half-installed.
 - [ ] **P24.10 — Surface non-arbiter GPU consumers in status + topbar (voice, TTS,
   transcribe).** *(P2 — observability gap from tester feedback.)* `arbiter.status()`
   ([`arbiter.py`](backend/app/core/arbiter.py) ~L262) reports only the resident

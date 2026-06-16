@@ -200,36 +200,11 @@ Write-Success "Foundation packages installed (FastAPI, SQLAlchemy, Pydantic, etc
 if ($Real) {
     Write-Section "Installing accelerated ML stack"
 
-    $torchPackages = @($profile.install.torch.packages)
-    $torchIndex = [string]$profile.install.torch.index_url
-    Write-Host "  Installing PyTorch for $profileId..." -ForegroundColor Cyan
-    if ([string]::IsNullOrWhiteSpace($torchIndex)) {
-        Write-Host "  Index: default PyPI" -ForegroundColor DarkGray
-        & $venvPip install @torchPackages 2>&1 | Out-Null
-    } else {
-        Write-Host "  Index: $torchIndex" -ForegroundColor DarkGray
-        & $venvPip install @torchPackages --index-url $torchIndex 2>&1 | Out-Null
-    }
-    Assert-LastExit "PyTorch install"
-    Write-Success "PyTorch installed"
-
-    Write-Host "  Verifying PyTorch profile..." -ForegroundColor Cyan
-    $verify = [string]$profile.install.verify
-    $torchCheck = & $venvPy -c $verify 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning-Text "PyTorch verification failed for $profileId"
-        Write-Host "    $torchCheck" -ForegroundColor Yellow
-    } else {
-        Write-Host "    $torchCheck" -ForegroundColor DarkGray
-        Write-Success "PyTorch verified"
-    }
-
-    foreach ($req in @($profile.install.requirements)) {
-        Write-Host "  Installing backend requirements from $req..." -ForegroundColor Cyan
-        & $venvPip install -r $req 2>&1 | Out-Null
-        Assert-LastExit "backend requirement install ($req)"
-    }
-    Write-Success "Accelerated backend packages installed"
+    # Shared installer: PyTorch (profile index) + backend requirements + llama
+    # runtime. run.ps1 uses the same function, so setup.bat and run.bat install an
+    # identical stack.
+    Install-AcceleratorStack $venvPy $profile
+    Write-Success "Accelerated backend packages + llama.cpp runtime installed"
     
     # Optional: Nunchaku for FLUX (CUDA-only for now).
     $installNunchaku = $false
@@ -254,17 +229,6 @@ if ($Real) {
         } else {
             Write-Success "Nunchaku installed"
         }
-    }
-}
-
-# --- Install llama.cpp runtime ------------------------------------------------
-
-if ($Real) {
-    Write-Section "Installing llama.cpp runtime"
-    Write-Host "  Downloading the matching prebuilt build (LLM/RAG/TTS)..." -ForegroundColor Cyan
-    & $venvPy "scripts\fetch_llama.py"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning-Text "llama.cpp auto-install failed; you can install it later from Settings -> LLM runtime."
     }
 }
 

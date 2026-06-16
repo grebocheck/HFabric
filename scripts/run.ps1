@@ -249,9 +249,17 @@ if (-not (Test-Path $venvPy)) {
     python -m venv .venv
     & $venvPy -m pip install --upgrade pip
     & $venvPy -m pip install -r backend\requirements.txt
-    if (-not $isStubMode) {
-        Write-AcceleratorInstallHint $selectedProfile
-    }
+}
+
+# --- ensure the accelerator stack for REAL mode (zero-decision default) --------
+# A plain double-click of run.bat should "just work": if a GPU profile selected
+# REAL but the heavy stack (torch/diffusers/sounddevice/llama) isn't installed yet
+# — e.g. a first run, or a venv created by an earlier foundation-only run.bat — we
+# install it now instead of limping along half-installed and 500ing later.
+if (-not $isStubMode -and -not (Test-AcceleratorStackReady $venvPy)) {
+    if (-not $selectedProfile) { $selectedProfile = Resolve-InstallProfile }
+    Write-Host "[setup] REAL mode needs the accelerator stack -> installing it now (one-time, large)..." -ForegroundColor Cyan
+    Install-AcceleratorStack $venvPy $selectedProfile
 }
 
 # --- bootstrap frontend deps --------------------------------------------------
