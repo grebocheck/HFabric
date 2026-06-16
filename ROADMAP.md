@@ -123,6 +123,11 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   P17.6 friendly job errors (the `generating` spinner clears on error, so no stuck
   spinner); a deeper audit of the OOM-guarded / missing-binary paths and any
   Setup-Doctor cross-links can be revisited if testers hit them.
+  **First tester fix (2026-06-16):** `run.bat`/`run.ps1` threw a raw
+  `CommandNotFoundException` when Node/npm wasn't on PATH; a shared
+  `scripts/_windows_prereqs.ps1` now preflights Python + Node/npm (PATH refresh →
+  optional `winget` install → actionable message) across both the launcher and
+  `setup.ps1`.
 
 **Declined / out of scope (recorded so we don't relitigate):**
 - **A frozen single-file installer (PyInstaller / Electron / one `.exe`).** REAL mode's

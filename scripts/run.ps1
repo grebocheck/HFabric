@@ -24,6 +24,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+. "$PSScriptRoot\_windows_prereqs.ps1"
+
 $venvPy = Join-Path $root ".venv\Scripts\python.exe"
 
 function Import-DotEnv([string]$Path) {
@@ -242,6 +244,7 @@ Start-Sleep -Milliseconds 400
 
 # --- bootstrap backend venv ---------------------------------------------------
 if (-not (Test-Path $venvPy)) {
+    Assert-Python
     Write-Host "[setup] creating venv + installing foundation deps..." -ForegroundColor Cyan
     python -m venv .venv
     & $venvPy -m pip install --upgrade pip
@@ -252,6 +255,9 @@ if (-not (Test-Path $venvPy)) {
 }
 
 # --- bootstrap frontend deps --------------------------------------------------
+# run.ps1 always drives npm (install + dev/build), so make sure the toolchain is
+# really there before the first `npm` call turns into a CommandNotFoundException.
+Assert-NodeToolchain
 if (-not (Test-Path (Join-Path $root "frontend\node_modules"))) {
     Write-Host "[setup] installing frontend deps..." -ForegroundColor Cyan
     Push-Location frontend; npm install; Pop-Location

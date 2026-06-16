@@ -28,6 +28,14 @@ include breaking changes — this is pre-release software.
   dismissible STUB-mode banner, a no-image-models nudge in the Result pane that
   deep-links to Model downloads, and a friendlier chat empty state.
 
+### Fixed
+- **Windows launcher fails clearly when Node.js/npm is missing** (tester feedback):
+  `run.bat`/`run.ps1` used to die with a raw `CommandNotFoundException` at
+  `npm install`. A shared `scripts/_windows_prereqs.ps1` now preflights Python and
+  Node/npm in both `run.ps1` and `setup.ps1` — it refreshes PATH from the registry
+  to catch the common "installed but stale PATH" case, offers a one-shot
+  `winget install`, and otherwise prints actionable steps instead of a stack trace.
+
 _Toward the first public `0.1` beta (see [ROADMAP](ROADMAP.md) phase P24): the
 release pipeline, beta framing, feedback loop, and first-run polish are in place;
 the remaining nicety is the visual README hero + repo topics (P24.6)._

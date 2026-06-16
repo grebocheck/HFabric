@@ -27,6 +27,8 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 Set-Location $root
 
+. "$PSScriptRoot\scripts\_windows_prereqs.ps1"
+
 $venvPath = ".venv"
 $venvPy = Join-Path $venvPath "Scripts\python.exe"
 $venvPip = Join-Path $venvPath "Scripts\pip.exe"
@@ -97,23 +99,13 @@ function Resolve-InstallProfile {
 if (-not $SkipPrerequiteCheck) {
     Write-Section "Checking prerequisites"
     
-    # Python 3.12+
-    if (-not (Test-Command "python")) {
-        Write-Error-Text "Python not found or not in PATH"
-        Write-Host "`n  → Install Python 3.12+: https://www.python.org/downloads/" -ForegroundColor Cyan
-        Write-Host "  → Make sure 'Add Python to PATH' is checked during install`n" -ForegroundColor Cyan
-        exit 1
-    }
+    # Python 3.12+ — refreshes PATH + offers winget before failing (shared helper).
+    Assert-Python
     $pyVersion = & python --version 2>&1
     Write-Success "Python found: $pyVersion"
-    
-    # Node.js 18+
-    if (-not (Test-Command "node")) {
-        Write-Error-Text "Node.js not found or not in PATH"
-        Write-Host "`n  → Install Node.js 18+: https://nodejs.org/" -ForegroundColor Cyan
-        Write-Host "  → Make sure 'Add to PATH' is checked during install`n" -ForegroundColor Cyan
-        exit 1
-    }
+
+    # Node.js 18+ / npm — same: handles a stale PATH and can auto-install via winget.
+    Assert-NodeToolchain
     $nodeVersion = & node --version 2>&1
     Write-Success "Node.js found: $nodeVersion"
     
