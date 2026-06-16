@@ -11,12 +11,18 @@ export function ResultPreview({
   onReproduce,
   onUpscale,
   generating = false,
+  hasImageModels = true,
+  modelsLoading = false,
+  onGetModels,
 }: {
   images: ImageItem[];
   onOpenHistory: () => void;
   onReproduce?: (image: ImageItem, opts: { keepSeed: boolean }) => void;
   onUpscale?: (image: ImageItem, scale: 2 | 4) => void;
   generating?: boolean;
+  hasImageModels?: boolean;
+  modelsLoading?: boolean;
+  onGetModels?: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState(false);
@@ -132,6 +138,21 @@ export function ResultPreview({
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8">
             <div className="skeleton h-40 w-40 rounded-lg" />
             <span className="text-xs text-white/40">generating…</span>
+          </div>
+        ) : !hasImageModels && !modelsLoading ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
+            <p className="text-sm text-white/50">No image models installed yet.</p>
+            <p className="max-w-xs text-xs leading-5 text-white/35">
+              Open System → Model downloads to fetch a starter model for your hardware, then come back here to generate.
+            </p>
+            {onGetModels ? (
+              <button
+                onClick={onGetModels}
+                className="mt-1 rounded-md border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent/25"
+              >
+                Open Model downloads
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="flex h-full w-full items-center justify-center p-8 text-sm text-white/30">

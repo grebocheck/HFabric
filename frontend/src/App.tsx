@@ -18,12 +18,15 @@ import { toast, ToastHost } from "./components/Toast";
 import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VoicePanel } from "./components/VoicePanel";
+import { Welcome } from "./components/Welcome";
 import { buildComposerApply } from "./components/imageComposerHelpers";
 import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
 
 const MEM_HISTORY_MAX = 90; // rolling timeline points (~a few minutes at the poll rate)
 const THEME_KEY = "hfabric.theme";
 const SECURITY_WARNING_KEY = "hfabric.securityWarning.dismissed";
+const WELCOME_KEY = "hfabric.welcome.seen";
+const STUB_BANNER_KEY = "hfabric.stubBanner.dismissed";
 const THEMES: AppTheme[] = ["dark", "dim", "light"];
 const THEME_META: Record<AppTheme, string> = {
   dark: "#0b0d12",
@@ -61,6 +64,8 @@ export default function App() {
   const [theme, setTheme] = useState<AppTheme>(() => readTheme());
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [securityWarningDismissed, setSecurityWarningDismissed] = useState(() => localStorage.getItem(SECURITY_WARNING_KEY) === "1");
+  const [welcomeSeen, setWelcomeSeen] = useState(() => localStorage.getItem(WELCOME_KEY) === "1");
+  const [stubBannerDismissed, setStubBannerDismissed] = useState(() => localStorage.getItem(STUB_BANNER_KEY) === "1");
   const [authLocked, setAuthLocked] = useState(false);
   const [authTokenDraft, setAuthTokenDraft] = useState(() => apiAuth.getToken());
   const [authRevision, setAuthRevision] = useState(0);
@@ -244,6 +249,14 @@ export default function App() {
     localStorage.setItem(SECURITY_WARNING_KEY, "1");
     setSecurityWarningDismissed(true);
   }, []);
+  const dismissWelcome = useCallback(() => {
+    localStorage.setItem(WELCOME_KEY, "1");
+    setWelcomeSeen(true);
+  }, []);
+  const dismissStubBanner = useCallback(() => {
+    localStorage.setItem(STUB_BANNER_KEY, "1");
+    setStubBannerDismissed(true);
+  }, []);
 
   const onFree = useCallback(() => api.freeGpu().catch(() => {}), []);
   const cycleTheme = useCallback(() => {
@@ -304,6 +317,7 @@ export default function App() {
   }, []);
 
   const imageJobs = jobs.filter((j) => j.type === "image" || j.type === "upscale");
+  const hasImageModels = models.some((m) => m.job_type === "image");
   const busy = jobs.some((j) => j.status === "running");
   // Changes whenever the pending queue changes, so the System tab can refetch
   // the swap-plan preview without polling.
@@ -340,6 +354,9 @@ export default function App() {
             onReproduce={onReproduce}
             onUpscale={onUpscale}
             generating={imageJobs.some((j) => j.status === "running")}
+            hasImageModels={hasImageModels}
+            modelsLoading={modelsLoading}
+            onGetModels={() => setView("system")}
           />
           <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />
         </main>
@@ -490,6 +507,20 @@ export default function App() {
         </div>
       ) : null}
 
+      {health?.stub_mode && !stubBannerDismissed ? (
+        <div className="flex items-center gap-3 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2 text-sm text-amber-100/90">
+          <span className="min-w-0 flex-1">
+            STUB mode — results are mock placeholders. Install the GPU dependencies and restart for real generation.
+          </span>
+          <button
+            onClick={dismissStubBanner}
+            className="rounded border border-amber-200/25 px-2 py-1 text-xs text-amber-100 hover:bg-amber-400/15"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       {active.render()}
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
@@ -501,6 +532,9 @@ export default function App() {
           onClear={clearToken}
           unauthorized={authLocked}
         />
+      ) : null}
+      {!lockVisible && !welcomeSeen && health ? (
+        <Welcome stubMode={health.stub_mode} onClose={dismissWelcome} />
       ) : null}
       <ToastHost />
     </div>

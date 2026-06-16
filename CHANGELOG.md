@@ -24,10 +24,13 @@ include breaking changes — this is pre-release software.
   health/capability/settings + version/platform stamps into a zip
   (`GET /api/diagnostics/export`) with secrets scrubbed — produced locally, never
   uploaded — so a bug report can be one attachment.
+- **First-run experience** (P24.7): a one-time Welcome naming the core surfaces, a
+  dismissible STUB-mode banner, a no-image-models nudge in the Result pane that
+  deep-links to Model downloads, and a friendlier chat empty state.
 
 _Toward the first public `0.1` beta (see [ROADMAP](ROADMAP.md) phase P24): the
-release pipeline, beta framing, and feedback loop are in place; remaining is the
-first-impression polish (P24.6 screenshots/topics, P24.7 first-run UX)._
+release pipeline, beta framing, feedback loop, and first-run polish are in place;
+the remaining nicety is the visual README hero + repo topics (P24.6)._
 
 ## [0.1.0] — pre-release
 

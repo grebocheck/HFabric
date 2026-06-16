@@ -113,13 +113,16 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   no OOM"); a concise above-the-fold feature list; a tight GitHub repo description +
   topics. The current README is honest but long and text-only — a stranger needs to
   *see* it work before they'll `git clone`.
-- [ ] **P24.7 — First-run experience & resilience.** *(P2 — the newcomer's first ten
-  minutes.)* Guiding empty states (no image models → point to System → Model
-  downloads; no GPU detected → explain CPU-safe / STUB; empty gallery/chat → a "try
-  this" nudge); graceful, legible failure when a model load is OOM-guarded or a
-  managed binary is missing (a clear message + next step, never a stuck spinner); a
-  one-time welcome that names the three core surfaces. Lean on the existing Setup
-  Doctor and arbiter notes rather than adding a new system.
+- [~] **P24.7 — First-run experience & resilience.** *(P2 — the newcomer's first ten
+  minutes.)* **Done:** a one-time `Welcome` modal (localStorage-gated) naming the
+  three core surfaces (Images / LLM / System) with a privacy + beta line; a
+  dismissible **STUB-mode banner** ("results are mock — install GPU deps for real
+  generation"); a **no-image-models nudge** in the Result pane that deep-links to
+  System → Model downloads; and a chat empty-state hint (attach / `/image`).
+  **Remaining/relies-on:** legible model-load failure messages already land via
+  P17.6 friendly job errors (the `generating` spinner clears on error, so no stuck
+  spinner); a deeper audit of the OOM-guarded / missing-binary paths and any
+  Setup-Doctor cross-links can be revisited if testers hit them.
 
 **Declined / out of scope (recorded so we don't relitigate):**
 - **A frozen single-file installer (PyInstaller / Electron / one `.exe`).** REAL mode's

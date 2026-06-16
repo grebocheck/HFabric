@@ -35,8 +35,11 @@ export function MessageList({
   return (
     <div ref={scrollRef} onScroll={onScroll} className="flex-1 space-y-4 overflow-y-auto p-4">
       {messages.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-center text-sm text-white/30">
-          Start a conversation with the local model.
+        <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+          <p className="text-sm text-white/40">Start a conversation with the local model.</p>
+          <p className="max-w-sm text-xs leading-5 text-white/25">
+            Ask anything, attach an image or document, or type <span className="text-white/40">/image</span> to generate a picture.
+          </p>
         </div>
       ) : (
         messages.map((message) => (
