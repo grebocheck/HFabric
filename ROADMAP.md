@@ -61,30 +61,35 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 > the hardware-aware setup script is the right shape for a GPU app whose torch /
 > llama.cpp stack is platform- and accelerator-specific (see Declined).
 
-- [ ] **P24.1 — Release CI workflow (tag → GitHub pre-release).** *(P1 — the
-  load-bearing item.)* Add `.github/workflows/release.yml` triggered on `v*` tags:
-  reuse the existing `ci.yml` gates (ruff + pytest coverage floor + eslint + `tsc` +
-  vitest + frontend build) as a required precondition, then assemble the release
-  bundle, generate the release body from the matching `CHANGELOG.md` section, attach
-  a SHA-256 checksum, and publish with the **pre-release flag set** (GitHub's "beta"
-  marker). No hand-uploading — the tag is the trigger and the single source of truth.
-- [ ] **P24.2 — Version & tag discipline.** *(P1.)* **Decided:** plain `v0.1.0` tag,
+- [~] **P24.1 — Release CI workflow (tag → GitHub pre-release).** *(P1 — the
+  load-bearing item.)* Added `.github/workflows/release.yml` triggered on `v*` tags:
+  it reuses the existing `ci.yml` gates via `workflow_call` (ruff + pytest coverage
+  floor + eslint + `tsc` + vitest + frontend build) as a required precondition, then
+  assembles a `git archive` source bundle, generates the release body from the
+  matching `CHANGELOG.md` section (`scripts/release.py notes`) + `docs/release-footer.md`,
+  attaches a SHA-256 checksum, and publishes with `--prerelease` set (GitHub's "beta"
+  marker) using the built-in `GITHUB_TOKEN`. No hand-uploading — the tag is the
+  trigger and the single source of truth. **Authored & statically verified** (YAML
+  parse + reusable-workflow wiring + helper commands); the one remaining check is the
+  first real `v0.1.0` tag push, which is the actual launch moment.
+- [x] **P24.2 — Version & tag discipline.** *(P1.)* **Decided:** plain `v0.1.0` tag,
   no `-beta` suffix — "beta" is carried solely by the GitHub pre-release flag (P24.1).
   Rationale: a single-author project shouldn't fork effort maintaining parallel
-  `-beta`/stable version lines; one clean `0.1.0` line is enough. Add a small
-  `scripts/release.py` (or documented steps) that bumps `app.__version__`, promotes
-  the `CHANGELOG.md` `[Unreleased]` block to the new dated `0.1.0` version, and
-  creates the annotated `v0.1.0` tag. CI guard: a release fails fast if the tag does
-  not match `app.__version__` (the existing `/api/health` version stamp stays the
-  runtime source of truth).
-- [ ] **P24.3 — Distribution shape — decide & document (closes P21.5).** *(P1.)*
-  For the beta, **clone-and-run stays the supported path** (REAL mode resolves
-  platform-specific torch/llama.cpp wheels via the installer; a frozen artifact is
-  premature — see Declined). The release attaches a source zip + the lockfiles
-  (`requirements-gpu.lock`) and the release body carries a one-page
-  **"download → run"** that does not require reading the full README: `setup` → start
-  in STUB to see the UI → switch to REAL → Model downloads. This is the page a new
-  user actually follows.
+  `-beta`/stable version lines; one clean `0.1.0` line is enough. **Shipped:**
+  `scripts/release.py` (stdlib-only: `current` / `check-tag` / `notes` /
+  `prepare --dry-run`) bumps `app.__version__` and rolls the `CHANGELOG.md`
+  `[Unreleased]` block into a dated version section; `backend/tests/test_release_script.py`
+  covers it. The workflow's tag↔version guard calls `release.py check-tag` and fails
+  fast on a mismatch (the `/api/health` version stamp stays the runtime source of
+  truth). Tagging itself stays a deliberate manual `git tag` step.
+- [x] **P24.3 — Distribution shape — decide & document (closes P21.5).** *(P1.)*
+  **Decided:** for the beta, **clone-and-run is the supported path** (REAL mode
+  resolves platform-specific torch/llama.cpp wheels via the installer; a frozen
+  artifact is premature — see Declined). The release attaches a `git archive` source
+  zip (lockfiles incl. `requirements-gpu.lock` ride inside it) + a SHA-256 checksum,
+  and the release body carries a one-page **"download → run"** (`docs/release-footer.md`)
+  that does not require reading the full README: `setup` → start in STUB to see the
+  UI → switch to REAL → Model downloads. Resolves the open P21.5.
 - [ ] **P24.4 — Beta framing & honest expectations.** *(P1, cheap, high-trust.)*
   Lead the README and the release notes with a plain **"this is a beta"** notice: a
   short *what works / what's rough* summary, the NVIDIA-validated vs.
@@ -280,11 +285,10 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   testers; run `scripts/install_smoke.py` + the GPU smoke checklist on each and
   fill the validation log in `docs/gpu-smoke.md`. Promote a profile from
   experimental to supported only after a clean real run.
-- [ ] **P21.5 — Packaged release.** *(Folded into P24.3 — the distribution-shape
-  decision and the one-page "download → run" path now live in the release pipeline
-  phase.)* Decide the distribution shape (tagged release zip vs. clone-and-run) and
-  produce a one-page "download → run" path that does not require reading the full
-  README. Gates on P21.2.
+- [x] **P21.5 — Packaged release.** *(Resolved by P24.3.)* Distribution shape
+  decided (clone-and-run; tag-triggered GitHub pre-release with a `git archive`
+  source zip + checksum) and the one-page "download → run" path shipped as
+  `docs/release-footer.md`, appended to every release body.
 
 ### P17 — Code health round 2 (carries the hard splits)
 

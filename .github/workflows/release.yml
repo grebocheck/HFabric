@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  gates:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Verify tag matches app version
+        run: python scripts/release.py check-tag "${GITHUB_REF_NAME}"
+      - name: Build source bundle + checksum
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          git archive --format=zip --prefix="HFabric-${VERSION}/" -o "HFabric-${VERSION}.zip" HEAD
+          sha256sum "HFabric-${VERSION}.zip" > "HFabric-${VERSION}.zip.sha256"
+      - name: Compose release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python scripts/release.py notes "${VERSION}" > RELEASE_BODY.md
+          printf '\n\n---\n\n' >> RELEASE_BODY.md
+          cat docs/release-footer.md >> RELEASE_BODY.md
+      - name: Publish GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            "HFabric-${VERSION}.zip" "HFabric-${VERSION}.zip.sha256" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "HFabric ${GITHUB_REF_NAME}" \
+            --notes-file RELEASE_BODY.md \
+            --prerelease

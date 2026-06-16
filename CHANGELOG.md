@@ -11,10 +11,15 @@ include breaking changes — this is pre-release software.
 - **Prompt library** (P19.4): save, search, tag, and reuse image-prompt snippets
   from the composer; export/import as JSON. New `/api/prompts` + `prompt_snippets`
   table.
+- **Release pipeline** (P24): a tag-triggered GitHub Actions workflow
+  (`.github/workflows/release.yml`) that reuses the CI gates and publishes a
+  **pre-release** with a `git archive` source bundle + SHA-256 checksum and notes
+  drawn from this changelog. New `scripts/release.py` handles version/tag/changelog
+  discipline (`check-tag` guards that a tag matches `app.__version__`).
 
-_Also in progress toward the first external test build (see [ROADMAP](ROADMAP.md)
-phase P21): version stamp, changelog, contributing guide, and experimental-path
-labelling in the UI._
+_Toward the first public `0.1` beta (see [ROADMAP](ROADMAP.md) phase P24): the
+release pipeline above is in place; remaining are the beta framing, a feedback/
+bug-report loop, and first-impression polish._
 
 ## [0.1.0] — pre-release
 
