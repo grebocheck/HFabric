@@ -143,16 +143,32 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   (→ `registry.scan()`, returns the new count), a **"Rescan models"** button in the
   model picker / System tab, and an **auto-rescan when a download completes** so the
   catalog reflects disk without a restart. Backend + frontend + a test + OpenAPI regen.
-- [ ] **P24.9 — `run.bat` REAL mode must ensure the accelerator stack (or fall back).**
-  *(P1 — the root cause behind several tester 500s.)* `run.ps1` auto-selects REAL when
-  a CUDA GPU is detected, but its bootstrap installs only `backend/requirements.txt`
-  (foundation); it merely *hints* about the accelerator stack, and only when creating
-  a fresh venv. So a user who double-clicks `run.bat` on a CUDA box gets REAL mode with
-  **no torch / diffusers / sounddevice** → image generation and voice endpoints fail.
-  `run.ps1` should detect a missing accelerator stack (e.g. `import torch` fails) and
-  either install the profile's `install.requirements` or **fall back to STUB with a
-  clear "run setup.bat real for GPU" message** — never silently run a half-installed
-  REAL mode. (Until then, endpoints must degrade, not 500 — see the voice fix below.)
+- [ ] **P24.9 — Zero-decision default install: `run.bat` must set up everything the
+  hardware needs.** *(P1 — the root cause behind several tester 500s.)* **Guiding
+  principle (user):** the default path must "just work" with no flags and no reading —
+  a normal user double-clicks `run.bat` and should NOT have to know about
+  `real`/`-Real` or run a separate installer. Today `run.ps1` auto-selects REAL when a
+  CUDA GPU is detected, but its bootstrap installs only `backend/requirements.txt`
+  (foundation); it merely *hints* about the accelerator stack, and only when creating a
+  fresh venv. So a `run.bat`-only user on a CUDA box gets REAL mode with **no torch /
+  diffusers / sounddevice** → image generation and voice endpoints fail. Fix: on first
+  run, `run.ps1` should install the detected profile's full `install.requirements`
+  (the same stack `setup.ps1` installs by default — `setup.bat` with no args already
+  does this for a GPU) so a supported GPU gets a working REAL mode automatically; only
+  if that can't be done should it **fall back to STUB with a plain message**. Never
+  silently run a half-installed REAL mode. (Until then, endpoints must degrade, not
+  500 — see the voice fix in P24.7.)
+- [ ] **P24.10 — Surface non-arbiter GPU consumers in status + topbar (voice, TTS,
+  transcribe).** *(P2 — observability gap from tester feedback.)* `arbiter.status()`
+  ([`arbiter.py`](backend/app/core/arbiter.py) ~L262) reports only the resident
+  LLM/image backend (`_current`) + warm backends, and the header (`ModelStatus`)
+  renders exactly that — so during a **realtime voice-changer session** (RVC/ContentVec
+  on CUDA) the topbar still shows "Active model: idle" and a flat VRAM bar, even though
+  the GPU is busy. Voice already *parks the job lane*, so the invariant holds; this is
+  purely about **visibility**. Register these GPU "lanes" (voice now; TTS/Transcribe if
+  they touch the GPU) so `status()` / the `gpu.status` + `mem.status` events report an
+  active label (e.g. "voice session") and the real VRAM, and the topbar reflects it.
+  Don't introduce a second resident heavy model — just report what's actually running.
 
 **Declined / out of scope (recorded so we don't relitigate):**
 - **A frozen single-file installer (PyInstaller / Electron / one `.exe`).** REAL mode's
