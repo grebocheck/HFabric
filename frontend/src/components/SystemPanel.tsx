@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { SetupDoctor } from "./SetupDoctor";
 import { ModelDownloads } from "./ModelDownloads";
 import { StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
+import { toast } from "./Toast";
 import type {
   ArbiterNote,
   GpuStatus,
@@ -91,6 +92,8 @@ export function SystemPanel({
       <LearnedProfiles profiles={profiles} onRefresh={refreshProfiles} />
 
       <MemoryTimeline history={history} />
+
+      <Diagnostics />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
         <Card title="VRAM" subtitle={vram ? `${vram.total_gb.toFixed(1)} GB total` : "no GPU telemetry"}>
@@ -243,6 +246,50 @@ function ArbiterStatus({ note }: { note?: ArbiterNote | null }) {
         {when && <span className="text-[11px] opacity-60">{note?.reason} · {when}</span>}
       </div>
       <p className="mt-1 text-sm">{note ? note.message : "No recent arbiter activity — the GPU is idle or steadily serving one model."}</p>
+    </section>
+  );
+}
+
+function Diagnostics() {
+  const [busy, setBusy] = useState(false);
+
+  const exportBundle = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const blob = await api.exportDiagnostics();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hfabric-diagnostics-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Diagnostics exported");
+    } catch {
+      toast.error("Could not export diagnostics");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-surface p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white/75">Diagnostics</h3>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-white/35">
+            Bundle the logs, the hardware/capability report, and version stamps into a zip to attach to a
+            bug report. Secrets (the API token) are scrubbed; the file is produced locally and never uploaded.
+          </p>
+        </div>
+        <button
+          onClick={exportBundle}
+          disabled={busy}
+          className="shrink-0 rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/80 hover:bg-white/10 disabled:opacity-30"
+        >
+          {busy ? "Exporting…" : "Export diagnostics"}
+        </button>
+      </div>
     </section>
   );
 }

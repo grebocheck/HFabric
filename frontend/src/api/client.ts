@@ -223,6 +223,11 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     return res.blob();
   },
+  exportDiagnostics: async () => {
+    const res = await fetch("/api/diagnostics/export");
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.blob();
+  },
   deleteImage: (id: string) => fetch(`/api/images/${id}`, { method: "DELETE" }).then(j<{ deleted: string }>),
   revealImage: (id: string) => fetch(`/api/images/${id}/reveal`, { method: "POST" }).then(j),
   listPresets: () => fetch("/api/presets").then(j<Preset[]>),

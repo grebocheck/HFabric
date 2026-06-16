@@ -98,14 +98,15 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   [`SECURITY.md`](SECURITY.md) (security-model summary + private vulnerability
   reporting via GitHub advisories), both in the README Documentation table. The
   release body already carries the same framing via `docs/release-footer.md`.
-- [~] **P24.5 — Feedback & bug-report loop.** *(P1.)* **Done:** GitHub issue
-  templates under `.github/ISSUE_TEMPLATE/` (bug · feature · hardware-validation
-  report — the ROCm/MPS testers from P21.4 file through this) with a `config.yml`
-  that disables blank issues and routes security reports to private advisories.
-  **Remaining:** the in-app **"Export diagnostics"** action (System tab) that bundles
-  the rotating `hfabric.log`, the `hardware_probe.py` report, the capability profile,
-  and version stamps into one secret-scrubbed zip — a backend+frontend feature, still
-  to do. Builds on the bug-report template in `CONTRIBUTING.md`.
+- [x] **P24.5 — Feedback & bug-report loop.** *(P1.)* GitHub issue templates under
+  `.github/ISSUE_TEMPLATE/` (bug · feature · hardware-validation report — the
+  ROCm/MPS testers from P21.4 file through this) with a `config.yml` that disables
+  blank issues and routes security reports to private advisories. Plus the in-app
+  **"Export diagnostics"** action (System tab → Diagnostics, `GET /api/diagnostics/export`)
+  that bundles `hfabric.log` + rotations, `health`/`capability`/`settings`, and
+  version/platform stamps into one zip with secrets (`api_token`, secret-ish keys)
+  **scrubbed** — produced locally, never uploaded. Builds on the bug-report template
+  in `CONTRIBUTING.md`.
 - [ ] **P24.6 — Invite-readiness / first impression.** *(P1/P2 — what makes someone
   actually try it.)* README hero with screenshots or a short demo GIF (chat + image
   gen + the live VRAM bar — the differentiator is "two heavy models, one 16 GB GPU,

@@ -3369,6 +3369,25 @@
         ]
       }
     },
+    "/api/diagnostics/export": {
+      "get": {
+        "operationId": "export_diagnostics_api_diagnostics_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Diagnostics",
+        "tags": [
+          "diagnostics"
+        ]
+      }
+    },
     "/api/downloads": {
       "get": {
         "operationId": "get_downloads_api_downloads_get",

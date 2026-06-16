@@ -22,6 +22,7 @@ from . import __version__
 from .api import (
     chat,
     code,
+    diagnostics,
     downloads,
     gallery,
     jobs,
@@ -178,6 +179,7 @@ async def api_token_middleware(request, call_next):
 
 app.include_router(models.router)
 app.include_router(jobs.router)
+app.include_router(diagnostics.router)
 app.include_router(llama.router)
 app.include_router(downloads.router)
 app.include_router(llm.router)

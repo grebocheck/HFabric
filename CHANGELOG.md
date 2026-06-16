@@ -20,10 +20,14 @@ include breaking changes — this is pre-release software.
   `KNOWN_ISSUES.md`, `SECURITY.md` (private vulnerability reporting), and GitHub
   issue templates (bug · feature · hardware-validation) with security reports routed
   to private advisories.
+- **Export diagnostics** (P24.5): System tab → Diagnostics bundles logs +
+  health/capability/settings + version/platform stamps into a zip
+  (`GET /api/diagnostics/export`) with secrets scrubbed — produced locally, never
+  uploaded — so a bug report can be one attachment.
 
 _Toward the first public `0.1` beta (see [ROADMAP](ROADMAP.md) phase P24): the
-release pipeline, beta framing, and feedback loop are in place; remaining are the
-in-app diagnostics export and first-impression polish (P24.5 tail, P24.6–.7)._
+release pipeline, beta framing, and feedback loop are in place; remaining is the
+first-impression polish (P24.6 screenshots/topics, P24.7 first-run UX)._
 
 ## [0.1.0] — pre-release
 
