@@ -44,6 +44,12 @@ include breaking changes — this is pre-release software.
   targeted help (TLS interception by VPN/proxy/AV; `EPERM` from OneDrive-synced
   folders; update npm) instead of continuing. A completeness sentinel
   (`Test-FrontendReady`) treats a vite-less `node_modules` as "needs reinstall".
+- **`/api/voice/engine/status` no longer 500s when `sounddevice` is missing**
+  (tester feedback): a REAL-mode run that skipped the GPU install has no
+  `sounddevice` (it's an accelerator-stack dep), and audio-device enumeration threw
+  `ModuleNotFoundError`, breaking the whole voice-status endpoint. `audio_devices()`
+  now degrades to an empty device list (warned once in the log) so the endpoint stays
+  healthy and the Voice tab simply shows no devices.
 
 _Toward the first public `0.1` beta (see [ROADMAP](ROADMAP.md) phase P24): the
 release pipeline, beta framing, feedback loop, and first-run polish are in place;

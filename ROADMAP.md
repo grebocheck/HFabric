@@ -131,7 +131,28 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   or `EPERM` on a OneDrive-locked folder) used to cascade into "'vite' is not
   recognized" because the launcher ignored npm's exit code and skipped reinstall on
   a partial `node_modules`; `Install-FrontendDeps` + `Test-FrontendReady` now retry
-  once (cache clean) and fail with targeted remediation instead.
+  once (cache clean) and fail with targeted remediation instead. (3) A REAL-mode run
+  without the accelerator stack has no `sounddevice`, and `/api/voice/engine/status`
+  500'd on device enumeration; `audio_devices()` now degrades to an empty list (warns
+  once) instead of crashing the endpoint. The root cause is tracked as P24.9.
+- [ ] **P24.8 — Hot model rescan (no restart).** *(P2 — first-run friction.)* The
+  registry scans model dirs **once at startup** (`registry.scan()` in `main.py`);
+  `GET /api/models` serves the cached descriptors and there is **no rescan path**, so
+  a model dropped into `models/…` — or even one pulled via the in-app Model downloads
+  manager — only appears after a backend restart. Add `POST /api/models/rescan`
+  (→ `registry.scan()`, returns the new count), a **"Rescan models"** button in the
+  model picker / System tab, and an **auto-rescan when a download completes** so the
+  catalog reflects disk without a restart. Backend + frontend + a test + OpenAPI regen.
+- [ ] **P24.9 — `run.bat` REAL mode must ensure the accelerator stack (or fall back).**
+  *(P1 — the root cause behind several tester 500s.)* `run.ps1` auto-selects REAL when
+  a CUDA GPU is detected, but its bootstrap installs only `backend/requirements.txt`
+  (foundation); it merely *hints* about the accelerator stack, and only when creating
+  a fresh venv. So a user who double-clicks `run.bat` on a CUDA box gets REAL mode with
+  **no torch / diffusers / sounddevice** → image generation and voice endpoints fail.
+  `run.ps1` should detect a missing accelerator stack (e.g. `import torch` fails) and
+  either install the profile's `install.requirements` or **fall back to STUB with a
+  clear "run setup.bat real for GPU" message** — never silently run a half-installed
+  REAL mode. (Until then, endpoints must degrade, not 500 — see the voice fix below.)
 
 **Declined / out of scope (recorded so we don't relitigate):**
 - **A frozen single-file installer (PyInstaller / Electron / one `.exe`).** REAL mode's

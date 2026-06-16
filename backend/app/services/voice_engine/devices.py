@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ...config import settings
+
+logger = logging.getLogger("hfabric")
+
+# sounddevice ships with the accelerator requirements, not the foundation set, so
+# a REAL-mode run that skipped the GPU install (or any host without PortAudio)
+# won't have it. Enumerating devices must degrade to "no audio I/O" rather than
+# 500 the whole voice-status endpoint. Warn once so the cause is in the log.
+_audio_unavailable_warned = False
 
 
 def _stub_devices() -> dict[str, list[dict[str, Any]]]:
@@ -83,10 +92,22 @@ def audio_devices() -> dict[str, list[dict[str, Any]]]:
     if settings.stub_mode:
         return _stub_devices()
 
-    import sounddevice as sd  # noqa: PLC0415
+    try:
+        import sounddevice as sd  # noqa: PLC0415
 
-    raw_devices = sd.query_devices()
-    raw_host_apis = sd.query_hostapis()
+        raw_devices = sd.query_devices()
+        raw_host_apis = sd.query_hostapis()
+    except Exception as exc:  # noqa: BLE001 - missing sounddevice/PortAudio must not 500 the status endpoint
+        global _audio_unavailable_warned
+        if not _audio_unavailable_warned:
+            _audio_unavailable_warned = True
+            logger.warning(
+                "event=voice.audio_devices.unavailable error=%r — voice I/O disabled. "
+                "Install the accelerator stack (sounddevice) via setup, e.g. setup.bat real.",
+                exc,
+            )
+        return {"inputs": [], "outputs": []}
+
     devices = [
         _device(index, dict(raw), [dict(api) for api in raw_host_apis])
         for index, raw in enumerate(raw_devices)
