@@ -5,6 +5,7 @@ import {
   formatVram,
   imageFamilyDefaults,
   imageModelRank,
+  inferTouched,
   isKnownGuidanceDefault,
   isKnownSizeDefault,
   isKnownStepDefault,
@@ -95,6 +96,39 @@ describe("model ranking & selection", () => {
     expect(isKnownStepDefault(9)).toBe(true);
     expect(isKnownGuidanceDefault(0)).toBe(true);
     expect(isKnownSizeDefault(1328)).toBe(true);
+  });
+});
+
+describe("inferTouched", () => {
+  it("honors an explicit touched map when present", () => {
+    expect(inferTouched({ touched: { steps: true } })).toEqual({ steps: true });
+  });
+
+  it("treats non-default saved values as touched (migration)", () => {
+    // 35 steps / 2.0 guidance / 1536 px are not known defaults → user-customized.
+    expect(inferTouched({ steps: 35, guidance: 2, width: 1536, height: 1536 })).toEqual({
+      steps: true,
+      guidance: true,
+      width: true,
+      height: true,
+    });
+  });
+
+  it("treats known-default and absent saved values as untouched", () => {
+    // 50 collides with QWEN_IMAGE_STEPS, so a pre-touch snapshot can't prove it
+    // was customized; leave it untouched rather than guess wrong.
+    expect(inferTouched({ steps: 50 })).toEqual({
+      steps: false,
+      guidance: false,
+      width: false,
+      height: false,
+    });
+    expect(inferTouched({})).toEqual({
+      steps: false,
+      guidance: false,
+      width: false,
+      height: false,
+    });
   });
 });
 

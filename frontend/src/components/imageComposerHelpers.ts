@@ -46,6 +46,15 @@ export const isKnownGuidanceDefault = (value: number): boolean => knownGuidanceD
 export const isKnownSizeDefault = (value: number): boolean => knownSizeDefaults.includes(value);
 
 export type LoraSelection = { id: string; weight: number };
+
+// Which of the auto-managed numeric fields the user has explicitly edited.
+// Untouched fields follow the selected family / server defaults; touched fields
+// are preserved across remounts (tab switches), family changes, and default
+// changes. This replaces the old "value equals a known default number" guess,
+// which mis-fired whenever a user-chosen value collided with another family's
+// default (e.g. 50 steps on SDXL == QWEN_IMAGE_STEPS) and got reset on remount.
+export type TouchedFields = { steps?: boolean; guidance?: boolean; width?: boolean; height?: boolean };
+
 export type SavedComposer = {
   imgModel?: string;
   negative?: string;
@@ -58,7 +67,22 @@ export type SavedComposer = {
   count?: number;
   selectedLoras?: LoraSelection[];
   presetId?: string;
+  touched?: TouchedFields;
 };
+
+// Migration for state saved before touch-tracking existed: if a saved value is
+// not one of the known defaults it must have been customized, so treat it as
+// touched. Magic-number customizations can't be recovered (one-time snap to the
+// default), which matches the previous behavior anyway.
+export function inferTouched(saved: SavedComposer): TouchedFields {
+  if (saved.touched) return saved.touched;
+  return {
+    steps: saved.steps !== undefined && !isKnownStepDefault(saved.steps),
+    guidance: saved.guidance !== undefined && !isKnownGuidanceDefault(saved.guidance),
+    width: saved.width !== undefined && !isKnownSizeDefault(saved.width),
+    height: saved.height !== undefined && !isKnownSizeDefault(saved.height),
+  };
+}
 
 export function readSaved(): SavedComposer {
   try {

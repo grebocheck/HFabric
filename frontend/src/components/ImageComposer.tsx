@@ -12,9 +12,7 @@ import {
   DEFAULT_STEPS,
   imageFamilyDefaults,
   imageModelRank,
-  isKnownGuidanceDefault,
-  isKnownSizeDefault,
-  isKnownStepDefault,
+  inferTouched,
   isLoraCompatible,
   isModelAvailable,
   isNunchaku,
@@ -27,6 +25,7 @@ import {
   STORE_KEY,
   type LoraSelection,
   type SavedComposer,
+  type TouchedFields,
 } from "./imageComposerHelpers";
 
 const field =
@@ -88,7 +87,10 @@ export function ImageComposer({
   const [promptHistoryOpen, setPromptHistoryOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const promptHistoryRef = useRef<HTMLDivElement>(null);
-  const writableDefaultsRef = useRef({
+  // Which numeric fields the user has explicitly edited. Untouched fields track
+  // family/server defaults; touched ones survive tab switches and family changes.
+  const [touched, setTouched] = useState<TouchedFields>(() => inferTouched(saved));
+  const [serverDefaults, setServerDefaults] = useState({
     default_steps: DEFAULT_STEPS,
     default_guidance: DEFAULT_GUIDANCE,
     default_width: DEFAULT_SIZE,
@@ -115,25 +117,18 @@ export function ImageComposer({
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const applyWritableDefaults = useCallback(() => {
+  const fetchServerDefaults = useCallback(() => {
     api.settingsOverrides()
-      .then(({ values }) => {
-        const previous = writableDefaultsRef.current;
-        setSteps((value) => isKnownStepDefault(value) || value === previous.default_steps ? values.default_steps : value);
-        setGuidance((value) => isKnownGuidanceDefault(value) || value === previous.default_guidance ? values.default_guidance : value);
-        setWidth((value) => isKnownSizeDefault(value) || value === previous.default_width ? values.default_width : value);
-        setHeight((value) => isKnownSizeDefault(value) || value === previous.default_height ? values.default_height : value);
-        writableDefaultsRef.current = values;
-      })
+      .then(({ values }) => setServerDefaults(values))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    applyWritableDefaults();
-    const onDefaultsChanged = () => applyWritableDefaults();
+    fetchServerDefaults();
+    const onDefaultsChanged = () => fetchServerDefaults();
     window.addEventListener("hfabric:settings-overrides", onDefaultsChanged);
     return () => window.removeEventListener("hfabric:settings-overrides", onDefaultsChanged);
-  }, [applyWritableDefaults]);
+  }, [fetchServerDefaults]);
 
   useEffect(() => {
     if (!imgModel || !isModelAvailable(selectedImgModel)) {
@@ -143,13 +138,13 @@ export function ImageComposer({
   }, [imgModels, imgModel, selectedImgModel]);
 
   useEffect(() => {
-    const data: SavedComposer = { imgModel, negative, steps, guidance, width, height, seed, batch, count, selectedLoras, presetId };
+    const data: SavedComposer = { imgModel, negative, steps, guidance, width, height, seed, batch, count, selectedLoras, presetId, touched };
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(data));
     } catch {
       // Private-mode or quota errors should not break generation.
     }
-  }, [imgModel, negative, steps, guidance, width, height, seed, batch, count, selectedLoras, presetId]);
+  }, [imgModel, negative, steps, guidance, width, height, seed, batch, count, selectedLoras, presetId, touched]);
 
   useEffect(() => {
     setSelectedLoras((current) =>
@@ -160,14 +155,30 @@ export function ImageComposer({
     );
   }, [loras, selectedImgModel]);
 
+  // Untouched numeric fields follow the best default for the current selection:
+  // the family-specific default (flux2/qwen/z-image) when there is one, else the
+  // server-configured writable default. Touched fields are left alone so a user's
+  // choice survives remounts (tab switches), family switches, and default changes.
   useEffect(() => {
-    const defaults = imageFamilyDefaults(selectedFamily);
-    if (!defaults) return;
-    setSteps((value) => isKnownStepDefault(value) ? defaults.steps : value);
-    setGuidance((value) => isKnownGuidanceDefault(value) ? defaults.guidance : value);
-    setWidth((value) => isKnownSizeDefault(value) ? defaults.width : value);
-    setHeight((value) => isKnownSizeDefault(value) ? defaults.height : value);
-  }, [selectedFamily]);
+    const fam = imageFamilyDefaults(selectedFamily);
+    const effective = fam ?? {
+      steps: serverDefaults.default_steps,
+      guidance: serverDefaults.default_guidance,
+      width: serverDefaults.default_width,
+      height: serverDefaults.default_height,
+    };
+    if (!touched.steps) setSteps(effective.steps);
+    if (!touched.guidance) setGuidance(effective.guidance);
+    if (!touched.width) setWidth(effective.width);
+    if (!touched.height) setHeight(effective.height);
+  }, [selectedFamily, serverDefaults, touched]);
+
+  // Field editors that record the user's intent. Editing a field marks it
+  // touched so it stops tracking defaults and survives the next remount.
+  const editSteps = useCallback((v: number) => { setSteps(v); setTouched((t) => ({ ...t, steps: true })); }, []);
+  const editGuidance = useCallback((v: number) => { setGuidance(v); setTouched((t) => ({ ...t, guidance: true })); }, []);
+  const editWidth = useCallback((v: number) => { setWidth(v); setTouched((t) => ({ ...t, width: true })); }, []);
+  const editHeight = useCallback((v: number) => { setHeight(v); setTouched((t) => ({ ...t, height: true })); }, []);
 
   const useImg2img = img2imgSupported && initImage !== null;
   const useControlNet = controlSupported && !useImg2img && controlEnabled && controlImage !== null;
@@ -223,8 +234,8 @@ export function ImageComposer({
       setMaskDraft(null);
       // snap the canvas to the source aspect (rounded to 64) for a faithful result
       const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
-      setWidth(round64(res.width));
-      setHeight(round64(res.height));
+      editWidth(round64(res.width));
+      editHeight(round64(res.height));
     } catch {
       setUploadError("upload failed");
     } finally {
@@ -241,8 +252,8 @@ export function ImageComposer({
       setControlImage({ token: res.init_image, url: res.url });
       setControlEnabled(true);
       const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
-      setWidth(round64(res.width));
-      setHeight(round64(res.height));
+      editWidth(round64(res.width));
+      editHeight(round64(res.height));
     } catch {
       setControlError("control upload failed");
     } finally {
@@ -251,14 +262,14 @@ export function ImageComposer({
   };
 
   const applyRatio = (rw: number, rh: number) => {
-    const base = imageFamilyDefaults(selectedFamily)?.width ?? DEFAULT_SIZE;
+    const base = imageFamilyDefaults(selectedFamily)?.width ?? serverDefaults.default_width;
     const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
     if (rw >= rh) {
-      setWidth(round64(base));
-      setHeight(round64((base * rh) / rw));
+      editWidth(round64(base));
+      editHeight(round64((base * rh) / rw));
     } else {
-      setHeight(round64(base));
-      setWidth(round64((base * rw) / rh));
+      editHeight(round64(base));
+      editWidth(round64((base * rw) / rh));
     }
   };
 
@@ -296,10 +307,12 @@ export function ImageComposer({
     const targetId = modelId ?? (typeof params.model_id === "string" ? params.model_id : undefined);
     const model = targetId ? imgModels.find((m) => m.id === targetId) : undefined;
     if (model && isModelAvailable(model)) setImgModel(model.id);
-    setSteps(numberParam(params.steps, steps));
-    setGuidance(numberParam(params.guidance, guidance));
-    setWidth(numberParam(params.width, width));
-    setHeight(numberParam(params.height, height));
+    // A loaded snapshot is an explicit choice: mark the fields touched so the
+    // defaults effect doesn't snap them back on the next family resolve/remount.
+    editSteps(numberParam(params.steps, steps));
+    editGuidance(numberParam(params.guidance, guidance));
+    editWidth(numberParam(params.width, width));
+    editHeight(numberParam(params.height, height));
     setSeed(numberParam(params.seed, seed));
     setBatch(numberParam(params.batch_size, batch));
     setSelectedLoras(parseLoraSelections(params.loras, loras, model ?? selectedImgModel));
@@ -546,11 +559,11 @@ export function ImageComposer({
           sectionClass={section}
           seed={seed}
           setBatch={setBatch}
-          setGuidance={setGuidance}
-          setHeight={setHeight}
+          setGuidance={editGuidance}
+          setHeight={editHeight}
           setSeed={setSeed}
-          setSteps={setSteps}
-          setWidth={setWidth}
+          setSteps={editSteps}
+          setWidth={editWidth}
           steps={steps}
           width={width}
         />
