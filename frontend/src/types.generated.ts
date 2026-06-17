@@ -1797,6 +1797,10 @@ export interface components {
         GpuStatusOut: {
             /** Family */
             family?: string | null;
+            /** Lanes */
+            lanes?: {
+                [key: string]: string;
+            }[];
             /** Model */
             model?: string | null;
             /** Model Id */

@@ -109,6 +109,17 @@ export function ModelStatus({
               on GPU
             </span>
           </span>
+        ) : gpu.lanes?.length ? (
+          // A non-arbiter GPU consumer (voice / TTS / transcribe) is running; no
+          // resident heavy model, but the GPU is busy — say so instead of "idle".
+          <span className="flex min-w-0 items-center gap-2" title="GPU busy (non-model workload)">
+            <span className="max-w-52 truncate rounded bg-sky-500/20 px-1.5 py-0.5 text-xs font-medium text-sky-200">
+              {gpu.lanes.map((l) => l.label).join(", ")}
+            </span>
+            <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+              on GPU
+            </span>
+          </span>
         ) : (
           <span className="text-white/40">idle</span>
         )}

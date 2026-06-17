@@ -961,6 +961,16 @@
             ],
             "title": "Family"
           },
+          "lanes": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
           "model": {
             "anyOf": [
               {

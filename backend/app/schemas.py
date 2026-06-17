@@ -56,6 +56,8 @@ class GpuStatusOut(BaseModel):
     model: str | None = None
     family: str | None = None
     warm: list[dict[str, str]] = Field(default_factory=list)
+    # Active non-arbiter GPU consumers (voice / TTS / transcribe): [{id, label}].
+    lanes: list[dict[str, str]] = Field(default_factory=list)
 
 
 class LoraOut(BaseModel):

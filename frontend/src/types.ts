@@ -23,12 +23,18 @@ export interface WarmModel {
 
 export type Lora = Api["LoraOut"];
 
+export interface GpuLane {
+  id: string;
+  label: string;
+}
+
 export interface GpuStatus {
   resident: string | null;
   model_id: string | null;
   model: string | null;
   family: string | null;
   warm?: WarmModel[];
+  lanes?: GpuLane[];
 }
 
 export interface RamStats {

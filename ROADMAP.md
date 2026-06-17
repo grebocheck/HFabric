@@ -47,8 +47,6 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
    the only thing left is the deliberate tag push that *is* the launch.
 2. **P24.6 — invite-readiness.** Screenshots/GIF + a tight repo description so a
    stranger sees it work before deciding to clone. *(Needs the user for assets.)*
-3. **P24.10 — topbar GPU visibility** for voice/TTS/transcribe lanes. Self-contained
-   and the next thing implementable solo.
 
 Then the long-pole items that need other people/hardware: **P21.4** (ROCm + Apple
 testers) and the **P24.7** resilience audit.
@@ -75,15 +73,6 @@ testers) and the **P24.7** resilience audit.
   nudge, chat empty-state hint; friendly model-load failure messages (P17.6) clear the
   spinner on error. **Remaining:** a deeper audit of the OOM-guarded / missing-binary
   paths and any Setup-Doctor cross-links, revisited if testers hit them.
-- [ ] **P24.10 — Surface non-arbiter GPU consumers in status + topbar (voice, TTS,
-  transcribe).** *(P2 — observability gap from tester feedback.)* `arbiter.status()`
-  ([`arbiter.py`](backend/app/core/arbiter.py) ~L262) reports only the resident LLM/
-  image backend; during a realtime voice-changer session (RVC/ContentVec on CUDA) the
-  topbar shows "idle" and a flat VRAM bar even though the GPU is busy. Voice already
-  parks the job lane, so the invariant holds — this is purely **visibility**. Register
-  these GPU "lanes" so `status()` / `gpu.status` + `mem.status` report an active label
-  (e.g. "voice session") and the real VRAM, and the topbar reflects it. Don't introduce
-  a second resident heavy model — just report what's actually running.
 
 ### P22 — Voice realtime quality (optional residual)
 

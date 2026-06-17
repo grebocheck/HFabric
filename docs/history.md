@@ -148,3 +148,10 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
   installs the detected profile's PyTorch + backend requirements + llama.cpp runtime;
   `run.ps1` auto-installs the full stack on a first REAL launch so a double-clicked
   `run.bat` "just works" without flags. `setup.ps1` uses the same function.
+- **P24.10 — Non-arbiter GPU lanes in status + topbar.** The arbiter tracks
+  observability-only "lanes" (`activate_lane`/`deactivate_lane`/`gpu_lane`) so a live
+  voice session, GPU TTS, or GPU transcribe reports an active label (e.g. "voice
+  session") in `status()`/`gpu.status` and the topbar — instead of "idle" — while the
+  real VRAM shows via `mem.status`. No second resident heavy model; lanes are gated on
+  actual GPU use (voice always; TTS when `tts_gpu_layers > 0`; transcribe when the
+  device isn't CPU).

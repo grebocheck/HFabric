@@ -31,6 +31,11 @@ include breaking changes — this is pre-release software.
   without a restart, a "Rescan models" button in System tab → Model downloads, and
   an automatic rescan when an in-app download completes — so a model dropped on disk
   or just downloaded is usable immediately.
+- **GPU activity visibility for voice/TTS/transcribe** (P24.10): the topbar now shows
+  an active label (e.g. "voice session") instead of "Active model: idle" while a live
+  voice session, GPU TTS, or GPU transcribe is using the card. These run outside the
+  one-resident-model arbiter, so they register an observability-only "lane" — no
+  second heavy model is loaded; the VRAM bar already reflects the real usage.
 
 ### Fixed
 - **Image composer no longer resets steps/guidance/size on tab switch**: the

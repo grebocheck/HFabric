@@ -161,6 +161,7 @@ export default function App() {
             model: (e.model as string) ?? null,
             family: (e.family as string) ?? null,
             warm: Array.isArray(e.warm) ? (e.warm as GpuStatus["warm"]) : [],
+            lanes: Array.isArray(e.lanes) ? (e.lanes as GpuStatus["lanes"]) : [],
           });
           break;
         case "job.progress":

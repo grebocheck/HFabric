@@ -367,6 +367,9 @@ async def voice_engine_session_start(
         raise HTTPException(409, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - surface device/model failures clearly
         raise HTTPException(500, f"could not start the voice session: {exc}") from exc
+    # The session pins the GPU outside the arbiter; register a lane so the topbar
+    # reports "voice session" + real VRAM instead of "idle" while it runs (P24.10).
+    await arbiter.activate_lane("voice", "voice session")
     bus.emit(
         EventType.VOICE_SESSION_STARTED,
         engine="native-rvc",
@@ -377,11 +380,13 @@ async def voice_engine_session_start(
 
 @router.post("/session/stop")
 async def voice_engine_session_stop(
+    arbiter: GpuArbiter = Depends(get_arbiter),
     worker: Worker = Depends(get_worker),
     bus: EventBus = Depends(get_bus),
 ) -> dict[str, Any]:
     stopped = await asyncio.to_thread(realtime.stop_session)
     if stopped:
+        await arbiter.deactivate_lane("voice")
         bus.emit(EventType.VOICE_SESSION_STOPPED, engine="native-rvc")
         worker.notify()
     return _status_payload()

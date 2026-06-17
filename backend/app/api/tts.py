@@ -8,6 +8,7 @@ side effects.
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -15,11 +16,13 @@ import re
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..config import settings
+from ..core.arbiter import GpuArbiter
+from .deps import get_arbiter
 
 router = APIRouter(prefix="/api/tts", tags=["tts"])
 
@@ -77,7 +80,10 @@ async def tts_status() -> dict:
 
 
 @router.post("/generate")
-async def generate_tts(body: TtsGenerateIn) -> dict:
+async def generate_tts(
+    body: TtsGenerateIn,
+    arbiter: GpuArbiter = Depends(get_arbiter),
+) -> dict:
     if not settings.llama_tts_bin.exists():
         raise HTTPException(503, "llama-tts binary not found")
 
@@ -114,16 +120,24 @@ async def generate_tts(body: TtsGenerateIn) -> dict:
     if body.use_guide_tokens:
         command.append("--tts-use-guide-tokens")
 
+    # Report a GPU lane only when actually offloading layers (P24.10); a CPU run
+    # (-ngl 0) doesn't touch VRAM, so it shouldn't claim the GPU is busy.
+    lane = (
+        arbiter.gpu_lane("tts", "TTS synthesis")
+        if settings.tts_gpu_layers > 0
+        else nullcontext()
+    )
     started = time.monotonic()
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=settings.tts_timeout_seconds
-        )
+        async with lane:
+            proc = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=settings.tts_timeout_seconds
+            )
     except TimeoutError as exc:
         if "proc" in locals():
             proc.kill()

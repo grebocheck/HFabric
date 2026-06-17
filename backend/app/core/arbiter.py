@@ -10,6 +10,7 @@ happening.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 
 from ..backends.base import GpuBackend
 from .enums import EventType
@@ -22,6 +23,11 @@ class GpuArbiter:
         self._lock = asyncio.Lock()
         self._current: GpuBackend | None = None
         self._warm_backends: list[GpuBackend] = []
+        # Non-arbiter GPU consumers (voice session, TTS, transcribe) keyed by a
+        # stable lane id -> human label. These don't hold a resident heavy model;
+        # they're tracked purely so status()/the topbar report that the GPU is busy
+        # instead of "idle" while one runs (P24.10). Insertion-ordered.
+        self._lanes: dict[str, str] = {}
 
     @property
     def current(self) -> GpuBackend | None:
@@ -82,6 +88,31 @@ class GpuArbiter:
 
     async def record_profile(self, backend: GpuBackend) -> None:
         await self._record_profile(backend)
+
+    async def activate_lane(self, lane_id: str, label: str) -> None:
+        """Register a non-arbiter GPU consumer so the status/topbar reflect it.
+
+        This does not load a model or touch the VRAM invariant — the caller (a
+        voice session, TTS, or transcribe) already owns its own GPU use. We only
+        publish that the GPU is busy so the UI stops claiming it is idle."""
+        if self._lanes.get(lane_id) == label:
+            return
+        self._lanes[lane_id] = label
+        await self._publish_status()
+
+    async def deactivate_lane(self, lane_id: str) -> None:
+        if self._lanes.pop(lane_id, None) is not None:
+            await self._publish_status()
+
+    @asynccontextmanager
+    async def gpu_lane(self, lane_id: str, label: str):
+        """Scope a short-lived GPU lane (TTS/transcribe) so it is always released,
+        even if the work raises."""
+        await self.activate_lane(lane_id, label)
+        try:
+            yield
+        finally:
+            await self.deactivate_lane(lane_id)
 
     async def _unload_current(
         self, *, allow_keep_warm: bool = False, incoming: GpuBackend | None = None
@@ -274,6 +305,10 @@ class GpuArbiter:
                     "family": b.descriptor.family.value,
                 }
                 for b in self._warm_backends
+            ],
+            "lanes": [
+                {"id": lane_id, "label": label}
+                for lane_id, label in self._lanes.items()
             ],
         }
 

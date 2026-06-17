@@ -7,6 +7,7 @@ under models/transcribe and never asks Whisper libraries to download weights.
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from datetime import UTC, datetime
 import importlib
 import importlib.util
@@ -17,10 +18,12 @@ import time
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from ..config import settings
+from ..core.arbiter import GpuArbiter
 from ..util import uploads as uploads_util
+from .deps import get_arbiter
 
 router = APIRouter(prefix="/api/transcription", tags=["transcription"])
 
@@ -137,6 +140,7 @@ async def transcribe_audio(
     language: str | None = Form(None),
     task: str = Form("transcribe"),
     initial_prompt: str | None = Form(None),
+    arbiter: GpuArbiter = Depends(get_arbiter),
 ) -> dict:
     if task not in {"transcribe", "translate"}:
         raise HTTPException(422, "task must be transcribe or translate")
@@ -162,20 +166,28 @@ async def transcribe_audio(
     audio_path = _day_dir() / f"transcription-{transcription_id}{_safe_ext(file.filename)}"
     audio_path.write_bytes(payload)
 
+    # Report a GPU lane only when the model runs on an accelerator (P24.10); a CPU
+    # transcribe doesn't touch VRAM, so it shouldn't claim the GPU is busy.
+    lane = (
+        arbiter.gpu_lane("transcribe", "transcription")
+        if settings.transcription_device.lower() != "cpu"
+        else nullcontext()
+    )
     started = time.monotonic()
     try:
-        result = await asyncio.wait_for(
-            asyncio.to_thread(
-                _run_transcription,
-                engine,
-                model,
-                audio_path,
-                (language or "").strip() or None,
-                task,
-                (initial_prompt or "").strip() or None,
-            ),
-            timeout=settings.transcription_timeout_seconds,
-        )
+        async with lane:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _run_transcription,
+                    engine,
+                    model,
+                    audio_path,
+                    (language or "").strip() or None,
+                    task,
+                    (initial_prompt or "").strip() or None,
+                ),
+                timeout=settings.transcription_timeout_seconds,
+            )
     except TimeoutError as exc:
         raise HTTPException(504, "transcription timed out") from exc
     except Exception as exc:  # noqa: BLE001 - surface local model/runtime failures.
