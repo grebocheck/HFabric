@@ -12,6 +12,23 @@ chat-native vision through multimodal attachments, text-to-speech, transcription
 and a native real-time voice changer — all gated through the same GPU arbiter so
 they never collide.
 
+![HFabric — generate images locally with a composer, live result, queue, and history](docs/images/1.png)
+
+<p align="center"><em>One 16 GB GPU, two heavy models (chat + diffusion), no OOM — the VRAM arbiter swaps them for you, and the header shows what's resident and the live VRAM.</em></p>
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/images/3.png" alt="Local chat LLM with streaming and a model picker"></td>
+    <td width="33%"><img src="docs/images/2.png" alt="History gallery with filters, favorites, and bulk export"></td>
+    <td width="33%"><img src="docs/images/4.png" alt="Native real-time RVC voice changer"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Chat LLM — streaming, attachments, <code>/image</code></sub></td>
+    <td align="center"><sub>History — filter, favorite, reproduce, export</sub></td>
+    <td align="center"><sub>Voice — native real-time RVC changer</sub></td>
+  </tr>
+</table>
+
 > **Project status: public beta (v0.1, B+ / 8.0).** This is a `0.1` beta — solid for
 > the author's own daily use and now open to other testers, but it has **not** had
 > wide testing and still has rough edges.
@@ -190,10 +207,13 @@ are user-supplied with their own provider terms (see
 [MODEL_NOTICE.md](MODEL_NOTICE.md)). They live under `models/` and are read in
 place; nothing is copied into the venv.
 
-**Easiest:** once the app is running, open the **System** tab → **Model
-downloads**. It lists curated starter models that fit your hardware (Recommended
-preselected), shows each model's size, license, and target folder, guards against
-filling the disk, and downloads with a progress bar — no terminal needed.
+**Easiest:** once the app is running, open the **Models** tab. It lists curated
+starter models that fit your hardware (Recommended preselected) with each model's
+size, license, and target folder; lets you **browse any HuggingFace repo** and pick
+specific files or the whole repo (or paste a direct URL); guards against filling the
+disk; and downloads with a progress bar — no terminal needed. The same tab shows
+everything installed (grouped by type, with sizes) and lets you **delete** models to
+reclaim disk.
 
 From the command line, the equivalent is the hardware-aware starter downloader
 (also run by `setup … all`):

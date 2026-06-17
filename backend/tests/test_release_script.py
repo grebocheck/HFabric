@@ -89,7 +89,7 @@ def test_notes_main_reads_real_changelog(capsys):
 
     assert release.main(["notes", current]) == 0
     captured = capsys.readouterr()
-    assert "First version prepared for testing" in captured.out
+    assert "First public beta" in captured.out
 
 
 def _load_release_module():

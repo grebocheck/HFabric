@@ -141,6 +141,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Notes carry UTF-8 (em dashes, ·, →); force UTF-8 stdout so writing release
+    # notes never dies on a non-UTF-8 console locale (Windows cp1252).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
+
     try:
         args = parse_args(argv)
     except SystemExit as exc:
