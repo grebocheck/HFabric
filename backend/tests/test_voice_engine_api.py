@@ -65,6 +65,29 @@ async def test_status_reports_stub_ready_and_fake_devices(client):
     assert len(body["audio_devices"]["outputs"]) == 2
 
 
+async def test_status_includes_asset_download(client):
+    body = (await client.get("/api/voice/engine/status")).json()
+    assert "asset_download" in body
+
+
+async def test_assets_fetch_guarded_when_a_download_is_running(client, monkeypatch):
+    # Guard only — never spawn a real network download in tests.
+    from app.services import model_download_service as downloads
+
+    monkeypatch.setattr(downloads, "is_downloading", lambda: True)
+    res = await client.post("/api/voice/engine/assets/fetch")
+    assert res.status_code == 409
+
+
+async def test_assets_fetch_noop_when_already_present(client):
+    # With both required assets on disk there's nothing to fetch, so the endpoint
+    # returns the status without starting a download.
+    _add_fake_pretrain()
+    res = await client.post("/api/voice/engine/assets/fetch")
+    assert res.status_code == 200
+    assert res.json()["asset_download"]["state"] != "running"
+
+
 async def test_settings_clamps_and_rejects_bad_f0(client):
     response = await client.post(
         "/api/voice/engine/settings",

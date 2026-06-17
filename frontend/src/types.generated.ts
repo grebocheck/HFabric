@@ -1338,6 +1338,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/voice/engine/assets/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Voice Engine Fetch Assets
+         * @description Download the missing shared RVC pretrain assets (ContentVec + RMVPE) into
+         *     models/voice/pretrain so a voice model the user dropped in actually runs — no
+         *     manual hunting for files. Reuses the background download machinery; the Voice
+         *     tab shows progress via the ``asset_download`` field of the status payload.
+         */
+        post: operations["voice_engine_fetch_assets_api_voice_engine_assets_fetch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/voice/engine/convert": {
         parameters: {
             query?: never;
@@ -5077,6 +5100,26 @@ export interface operations {
         };
     };
     tts_status_api_tts_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    voice_engine_fetch_assets_api_voice_engine_assets_fetch_post: {
         parameters: {
             query?: never;
             header?: never;

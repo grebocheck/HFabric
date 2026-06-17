@@ -162,6 +162,16 @@ A live session frees the current arbiter resident and parks queued image/LLM job
 until it stops. See [voice-routing.md](voice-routing.md) for output routing
 (VB-CABLE / VoiceMeeter) on Windows.
 
+The voice changer needs two **shared** pretrain assets that all voice models use —
+a ContentVec encoder (`content_vec_500.onnx`, required) and RMVPE (`rmvpe.pt`, the
+quality pitch path) — under `models/voice/pretrain/`. They are not bundled, so the
+Voice tab shows a one-click **"Download voice assets"** button when they're missing;
+from a terminal the equivalent is:
+
+```powershell
+python scripts/fetch_voice_assets.py
+```
+
 Optional neural microphone denoise uses breizhn/DTLN ONNX weights under
 `models/voice/pretrain/denoise`. HFabric never downloads them implicitly:
 

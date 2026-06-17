@@ -49,6 +49,28 @@ def test_optional_dtln_asset_missing_does_not_break_ready(monkeypatch, tmp_path)
     assert by_name["denoise_dtln"]["path"] is None
 
 
+def test_fetch_specs_targets_missing_required_into_pretrain(monkeypatch, tmp_path):
+    # Only content_vec present -> rmvpe is the one missing required asset to fetch.
+    local = tmp_path / "local-pretrain"
+    local.mkdir()
+    (local / "content_vec_500.onnx").write_bytes(b"onnx")
+    monkeypatch.setattr(settings, "voice_pretrain_dir", local)
+
+    assert assets.missing_required_names() == ["rmvpe"]
+    specs = assets.fetch_specs()
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec["filename"] == "rmvpe.pt"
+    assert spec["source"] == "url" and spec["kind"] == "voice" and spec["subdir"] == "pretrain"
+    assert spec["url"].startswith("https://")
+
+
+def test_fetch_specs_explicit_names_cover_both_assets():
+    specs = assets.fetch_specs(["content_vec", "rmvpe"])
+    assert [s["filename"] for s in specs] == ["content_vec_500.onnx", "rmvpe.pt"]
+    assert all(s["kind"] == "voice" and s["subdir"] == "pretrain" for s in specs)
+
+
 def test_slot_discovery_params_bare_and_zip_ignored(monkeypatch, tmp_path):
     local = tmp_path / "voice"
     local.mkdir()

@@ -751,6 +751,7 @@ export interface VoiceEngineStatus {
   stub: boolean;
   ready: boolean;
   assets: VoiceEngineAsset[];
+  asset_download?: ModelDownloadStatus | null;
   models: VoiceModel[];
   audio_devices: {
     inputs: VoiceAudioDevice[];

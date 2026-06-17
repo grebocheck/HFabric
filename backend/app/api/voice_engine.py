@@ -17,6 +17,7 @@ from ..core.arbiter import GpuArbiter
 from ..core.enums import EventType
 from ..core.events import EventBus
 from ..core.scheduler import Worker
+from ..services import model_download_service as downloads
 from ..services.voice_engine import assets as asset_discovery
 from ..services.voice_engine import devices, presets, realtime, storage
 from ..services.voice_engine.engine import get_engine
@@ -134,6 +135,7 @@ def _status_payload() -> dict[str, Any]:
         "stub": settings.stub_mode,
         "ready": ready,
         "assets": asset_info["assets"],
+        "asset_download": downloads.get_status(),
         "models": models,
         "audio_devices": audio_devices,
         "device": engine.device,
@@ -218,6 +220,27 @@ async def _write_upload_to_temp(file: UploadFile, ext: str) -> Path:
 
 @router.get("/status")
 async def voice_engine_status() -> dict[str, Any]:
+    return _status_payload()
+
+
+@router.post("/assets/fetch")
+async def voice_engine_fetch_assets() -> dict[str, Any]:
+    """Download the missing shared RVC pretrain assets (ContentVec + RMVPE) into
+    models/voice/pretrain so a voice model the user dropped in actually runs — no
+    manual hunting for files. Reuses the background download machinery; the Voice
+    tab shows progress via the ``asset_download`` field of the status payload."""
+    if downloads.is_downloading():
+        raise HTTPException(409, "a model download is already running; wait for it to finish")
+    specs = asset_discovery.fetch_specs()
+    if not specs:
+        return _status_payload()  # nothing missing (or no known source)
+    try:
+        downloads.start_custom(specs)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if downloads.is_downloading():
+        asyncio.create_task(asyncio.to_thread(downloads.run_blocking_custom, specs))
+        await asyncio.sleep(0)  # let the task start before we report
     return _status_payload()
 
 

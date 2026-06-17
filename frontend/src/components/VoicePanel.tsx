@@ -134,6 +134,18 @@ export function VoicePanel() {
     }
   }, []);
 
+  const fetchAssets = useCallback(async () => {
+    setBusy("assets");
+    try {
+      setStatus(await api.voiceEngineFetchAssets());
+      setError("");
+    } catch (err) {
+      setError(parseApiError(err) || "could not start the voice-asset download");
+    } finally {
+      setBusy("");
+    }
+  }, []);
+
   const refreshPresets = useCallback(async () => {
     try {
       const next = await api.voiceEnginePresets();
@@ -228,6 +240,17 @@ export function VoicePanel() {
     }, 750);
     return () => window.clearInterval(id);
   }, [live, refresh]);
+
+  // While a voice-asset download runs in the background, poll so the banner shows
+  // progress and the assets flip to "found" the moment they land.
+  const assetDownloading = status?.asset_download?.state === "running";
+  useEffect(() => {
+    if (!assetDownloading) return;
+    const id = window.setInterval(() => {
+      void refresh();
+    }, 1200);
+    return () => window.clearInterval(id);
+  }, [assetDownloading, refresh]);
 
   useEffect(() => {
     if (!status) return;
@@ -739,6 +762,43 @@ export function VoicePanel() {
             ))}
             {!status?.assets?.length ? <div className="text-sm text-white/40">Loading native assets...</div> : null}
           </div>
+
+          {(() => {
+            const dl = status?.asset_download ?? null;
+            const missingRequired = (status?.assets ?? []).filter((a) => !a.found && !a.optional);
+            if (missingRequired.length === 0 && dl?.state !== "running") return null;
+            return (
+              <div className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/10 p-3">
+                <div className="text-sm font-medium text-amber-100">Shared voice assets needed</div>
+                <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                  Every voice model uses a shared ContentVec encoder (and RMVPE for the quality pitch path) —
+                  these aren't bundled with your voice files. Fetch them once into{" "}
+                  <code className="rounded bg-black/30 px-1">models/voice/pretrain</code> and any voice model works.
+                </p>
+                {dl?.state === "running" ? (
+                  <div className="mt-2 text-xs text-amber-100/80">
+                    Downloading {dl.current?.label ?? "voice assets"}… {dl.progress.total ? `${dl.progress.done}/${dl.progress.total}` : ""}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void fetchAssets()}
+                    disabled={busy === "assets"}
+                    className="mt-2 rounded-md bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-black transition hover:bg-amber-400 disabled:opacity-40"
+                  >
+                    {busy === "assets" ? "Starting…" : "Download voice assets (~370 MB)"}
+                  </button>
+                )}
+                {dl?.state === "error" ? (
+                  <div className="mt-2 text-xs text-red-200">
+                    {dl.message} — you can also place them manually in{" "}
+                    <code className="rounded bg-black/30 px-1">models/voice/pretrain</code> (standard RVC assets:
+                    {" "}content_vec_500.onnx, rmvpe.pt).
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
         </Panel>
 
         <Panel

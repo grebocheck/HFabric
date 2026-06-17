@@ -323,6 +323,8 @@ export const api = {
       .then(j<RagSearchResponse>),
 
   voiceEngineStatus: () => fetch("/api/voice/engine/status").then(j<VoiceEngineStatus>),
+  voiceEngineFetchAssets: () =>
+    fetch("/api/voice/engine/assets/fetch", { method: "POST" }).then(j<VoiceEngineStatus>),
   voiceEngineSettings: (body: VoiceEngineSettingsUpdate) =>
     fetch("/api/voice/engine/settings", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) })
       .then(j<VoiceEngineStatus>),

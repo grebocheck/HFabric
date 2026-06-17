@@ -32,6 +32,52 @@ OPTIONAL_ASSETS = (
     ),
 )
 
+# Canonical upstream sources for the shared RVC pretrain assets so the in-app
+# "Download voice assets" action, scripts/fetch_voice_assets.py, and the docs all
+# agree on one place. These weights keep their upstream licenses (RVC-Project, MIT).
+# content_vec is required by every conversion; rmvpe is the quality F0 path (FCPE,
+# the default detector, bundles its own weights, so rmvpe matters for the RMVPE
+# presets). Each lands in models/voice/pretrain/ via the custom-download path
+# (kind=voice, subdir=pretrain).
+ASSET_SOURCES: dict[str, dict[str, str]] = {
+    "content_vec": {
+        "filename": "content_vec_500.onnx",
+        "url": "https://huggingface.co/NaruseMioShirakana/MoeSS-SUBModel/resolve/main/contentvec/content_vec_500.onnx",
+        "approx_mb": "190",
+    },
+    "rmvpe": {
+        "filename": "rmvpe.pt",
+        "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt",
+        "approx_mb": "181",
+    },
+}
+
+
+def missing_required_names() -> list[str]:
+    """Names of required assets not present on disk (what to fetch)."""
+    return [a["name"] for a in discover_assets()["assets"] if not a["found"] and not a.get("optional")]
+
+
+def fetch_specs(names: list[str] | None = None) -> list[dict[str, str]]:
+    """Custom-download specs (for ``model_download_service.start_custom``) that place
+    the shared RVC assets into ``models/voice/pretrain``. Defaults to the missing
+    required ones; assets without a known source are skipped."""
+    wanted = names if names is not None else missing_required_names()
+    specs: list[dict[str, str]] = []
+    for name in wanted:
+        src = ASSET_SOURCES.get(name)
+        if not src:
+            continue
+        specs.append({
+            "source": "url",
+            "kind": "voice",
+            "subdir": "pretrain",
+            "url": src["url"],
+            "filename": src["filename"],
+            "label": f"voice asset · {src['filename']}",
+        })
+    return specs
+
 
 def _candidate_dirs() -> tuple[tuple[str, Path], ...]:
     return (

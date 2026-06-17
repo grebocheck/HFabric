@@ -6530,6 +6530,29 @@
         ]
       }
     },
+    "/api/voice/engine/assets/fetch": {
+      "post": {
+        "description": "Download the missing shared RVC pretrain assets (ContentVec + RMVPE) into\nmodels/voice/pretrain so a voice model the user dropped in actually runs — no\nmanual hunting for files. Reuses the background download machinery; the Voice\ntab shows progress via the ``asset_download`` field of the status payload.",
+        "operationId": "voice_engine_fetch_assets_api_voice_engine_assets_fetch_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Voice Engine Fetch Assets Api Voice Engine Assets Fetch Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Voice Engine Fetch Assets",
+        "tags": [
+          "voice-engine"
+        ]
+      }
+    },
     "/api/voice/engine/convert": {
       "post": {
         "operationId": "voice_engine_convert_api_voice_engine_convert_post",

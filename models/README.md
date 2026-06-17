@@ -101,6 +101,27 @@ huggingface-cli download Tongyi-MAI/Z-Image-Turbo --local-dir models/image/z-ima
 Or run `python scripts/fetch_qwen_z_image.py` from the repository root to fetch
 both public repos.
 
+### Voice changer pretrain assets
+
+Voice models you drop into `models/voice/` (RVC `.pth` files) all share a
+**ContentVec** encoder and, for the quality pitch path, **RMVPE** — these are not
+bundled with the voice files, so without them no voice model can run. Fetch them
+once into `models/voice/pretrain/`:
+
+```powershell
+python scripts/fetch_voice_assets.py
+```
+
+```text
+models/voice/pretrain/
+|- content_vec_500.onnx   (required, ~190 MB)
+`- rmvpe.pt               (RMVPE pitch path, ~181 MB)
+```
+
+The in-app **Voice** tab also has a one-click **"Download voice assets"** button
+when they're missing. The weights come from the RVC-Project ecosystem and keep
+their upstream (MIT) license.
+
 Optional DTLN neural input denoise weights are stored as:
 
 ```text
