@@ -27,8 +27,20 @@ include breaking changes — this is pre-release software.
 - **First-run experience** (P24.7): a one-time Welcome naming the core surfaces, a
   dismissible STUB-mode banner, a no-image-models nudge in the Result pane that
   deep-links to Model downloads, and a friendlier chat empty state.
+- **Hot model rescan** (P24.8): `POST /api/models/rescan` re-reads the model dirs
+  without a restart, a "Rescan models" button in System tab → Model downloads, and
+  an automatic rescan when an in-app download completes — so a model dropped on disk
+  or just downloaded is usable immediately.
 
 ### Fixed
+- **Image composer no longer resets steps/guidance/size on tab switch**: the
+  composer tracked "is this field still a default?" by comparing the value to a small
+  set of magic numbers shared across model families, so a user-chosen value that
+  happened to collide (e.g. 50 steps on SDXL, which equals the Qwen-Image default)
+  was treated as untouched and reset to the default every time the Images tab
+  remounted. It now records an explicit per-field "touched" flag (persisted with the
+  rest of the composer state), so a customized value survives tab switches, family
+  changes, and default changes.
 - **Windows launcher fails clearly when Node.js/npm is missing** (tester feedback):
   `run.bat`/`run.ps1` used to die with a raw `CommandNotFoundException` at
   `npm install`. A shared `scripts/_windows_prereqs.ps1` now preflights Python and

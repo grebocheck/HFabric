@@ -89,6 +89,9 @@ async function j<T>(res: Response): Promise<T> {
 export const api = {
   health: () => globalThis.fetch("/api/health").then(j<HealthStatus>),
   listModels: () => fetch("/api/models").then(j<Model[]>),
+  rescanModels: () =>
+    fetch("/api/models/rescan", { method: "POST" })
+      .then(j<{ models: number; image_models: number; llm_models: number; loras: number }>),
   listLoras: () => fetch("/api/loras").then(j<Lora[]>),
   listModelProfiles: () => fetch("/api/models/profiles").then(j<ModelProfile[]>),
   resetModelProfile: (id: string) => fetch(`/api/models/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<{ deleted: number }>),

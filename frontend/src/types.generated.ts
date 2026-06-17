@@ -864,6 +864,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/models/rescan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rescan Models
+         * @description Re-read the model directories so files added after startup (dropped in by
+         *     hand or pulled by the in-app download manager) appear without a restart (P24.8).
+         *
+         *     Scanning only reads safetensors headers, so it is fast; run it inline (no
+         *     ``await`` inside ``scan``) so the descriptor dict is never rebuilt mid-iteration
+         *     by a concurrently-running request. Cached backends are keyed by the stable
+         *     filename slug and are left intact, so the resident model is undisturbed.
+         */
+        post: operations["rescan_models_api_models_rescan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notes": {
         parameters: {
             query?: never;
@@ -3957,6 +3983,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rescan_models_api_models_rescan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
                 };
             };
         };

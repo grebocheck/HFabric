@@ -25,6 +25,7 @@ export function SystemPanel({
   queueKey = "",
   imageSignal = 0,
   version,
+  onModelsChanged,
 }: {
   gpu: GpuStatus;
   mem: MemSnapshot | null;
@@ -33,6 +34,7 @@ export function SystemPanel({
   queueKey?: string;
   imageSignal?: number;
   version?: string;
+  onModelsChanged?: () => void;
 }) {
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [plan, setPlan] = useState<QueuePlan | null>(null);
@@ -83,7 +85,7 @@ export function SystemPanel({
 
       <SetupDoctor />
 
-      <ModelDownloads />
+      <ModelDownloads onModelsChanged={onModelsChanged} />
 
       <ArbiterStatus note={note} />
 

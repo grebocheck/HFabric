@@ -21,13 +21,16 @@ function errMsg(err: unknown, fallback: string): string {
 // Model download manager (P18.4): curated, hardware-aware starter models with
 // size/license, recommended preselected, impossible ones behind Advanced, and a
 // disk-budget guard. Files land in the models/ folders the registry scans.
-export function ModelDownloads() {
+export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => void }) {
   const [data, setData] = useState<ModelDownloadState | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rescanning, setRescanning] = useState(false);
   const prevState = useRef("idle");
   const initialized = useRef(false);
+  const onModelsChangedRef = useRef(onModelsChanged);
+  onModelsChangedRef.current = onModelsChanged;
 
   const refresh = useCallback(async () => {
     try {
@@ -61,11 +64,30 @@ export function ModelDownloads() {
     if (!status) return;
     if (prevState.current === "running" && status.state === "done") {
       toast.success(status.message || "Downloads complete");
+      // The backend rescans on completion (P24.8); pull the fresh catalog + the
+      // app-wide model list so a just-downloaded model is usable without a restart.
+      void refresh();
+      onModelsChangedRef.current?.();
     } else if (prevState.current === "running" && status.state === "error") {
       toast.error(status.message || "Some downloads failed", { duration: 10000 });
     }
     prevState.current = status.state;
-  }, [data?.status]);
+  }, [data?.status, refresh]);
+
+  const rescan = async () => {
+    if (rescanning || downloading) return;
+    setRescanning(true);
+    try {
+      const counts = await api.rescanModels();
+      await refresh();
+      onModelsChangedRef.current?.();
+      toast.success(`Rescanned: ${counts.models} models, ${counts.loras} LoRAs`);
+    } catch (err) {
+      toast.error(errMsg(err, "Rescan failed"));
+    } finally {
+      setRescanning(false);
+    }
+  };
 
   const toggle = (key: string) =>
     setSelected((prev) => {
@@ -151,9 +173,14 @@ export function ModelDownloads() {
               <span>
                 {freeMb != null ? `${fmtMb(freeMb)} free on ${data.disk.models_root}/` : "disk space unknown"}
               </span>
-              <button onClick={() => void refresh()} className={subtleButton} disabled={downloading}>
-                Refresh
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => void rescan()} className={subtleButton} disabled={downloading || rescanning} title="Re-read the model folders so files added by hand appear without a restart">
+                  {rescanning ? "Rescanning…" : "Rescan models"}
+                </button>
+                <button onClick={() => void refresh()} className={subtleButton} disabled={downloading}>
+                  Refresh
+                </button>
+              </div>
             </div>
 
             <ul className="space-y-1.5">

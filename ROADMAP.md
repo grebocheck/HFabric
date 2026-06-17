@@ -135,14 +135,19 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
   without the accelerator stack has no `sounddevice`, and `/api/voice/engine/status`
   500'd on device enumeration; `audio_devices()` now degrades to an empty list (warns
   once) instead of crashing the endpoint. The root cause is tracked as P24.9.
-- [ ] **P24.8 — Hot model rescan (no restart).** *(P2 — first-run friction.)* The
-  registry scans model dirs **once at startup** (`registry.scan()` in `main.py`);
-  `GET /api/models` serves the cached descriptors and there is **no rescan path**, so
-  a model dropped into `models/…` — or even one pulled via the in-app Model downloads
-  manager — only appears after a backend restart. Add `POST /api/models/rescan`
-  (→ `registry.scan()`, returns the new count), a **"Rescan models"** button in the
-  model picker / System tab, and an **auto-rescan when a download completes** so the
-  catalog reflects disk without a restart. Backend + frontend + a test + OpenAPI regen.
+- [x] **P24.8 — Hot model rescan (no restart).** *(P2 — first-run friction.)* The
+  registry scanned model dirs **once at startup** and `GET /api/models` served the
+  cached descriptors, so a model dropped into `models/…` — or pulled by the in-app
+  download manager — only appeared after a restart. **Shipped:** `POST /api/models/rescan`
+  ([`models.py`](backend/app/api/models.py)) re-reads the dirs inline (no `await`
+  inside `scan`, so the descriptor dict is never rebuilt mid-iteration; cached
+  backends key off the stable filename slug, so the resident model is undisturbed)
+  and returns the fresh counts; a **"Rescan models"** button sits beside Refresh in
+  the System tab → Model downloads ([`ModelDownloads.tsx`](frontend/src/components/ModelDownloads.tsx));
+  and the download manager **auto-rescans on completion** (`_run_then_rescan` in
+  [`downloads.py`](backend/app/api/downloads.py)), with the UI pulling the fresh
+  catalog + app-wide model list. Backend test ([`test_models_rescan.py`](backend/tests/test_models_rescan.py))
+  + OpenAPI/types regen included.
 - [x] **P24.9 — Zero-decision default install: `run.bat` sets up everything the
   hardware needs.** *(P1 — the root cause behind several tester 500s.)* **Guiding
   principle (user):** the default path must "just work" with no flags and no reading —

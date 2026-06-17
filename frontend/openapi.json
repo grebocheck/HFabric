@@ -5089,6 +5089,32 @@
         ]
       }
     },
+    "/api/models/rescan": {
+      "post": {
+        "description": "Re-read the model directories so files added after startup (dropped in by\nhand or pulled by the in-app download manager) appear without a restart (P24.8).\n\nScanning only reads safetensors headers, so it is fast; run it inline (no\n``await`` inside ``scan``) so the descriptor dict is never rebuilt mid-iteration\nby a concurrently-running request. Cached backends are keyed by the stable\nfilename slug and are left intact, so the resident model is undisturbed.",
+        "operationId": "rescan_models_api_models_rescan_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Rescan Models Api Models Rescan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Rescan Models",
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/api/notes": {
       "get": {
         "operationId": "list_notes_api_notes_get",

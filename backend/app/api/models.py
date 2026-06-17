@@ -59,6 +59,25 @@ async def list_models(
     return out
 
 
+@router.post("/models/rescan")
+async def rescan_models(registry: ModelRegistry = Depends(get_registry)) -> dict[str, int]:
+    """Re-read the model directories so files added after startup (dropped in by
+    hand or pulled by the in-app download manager) appear without a restart (P24.8).
+
+    Scanning only reads safetensors headers, so it is fast; run it inline (no
+    ``await`` inside ``scan``) so the descriptor dict is never rebuilt mid-iteration
+    by a concurrently-running request. Cached backends are keyed by the stable
+    filename slug and are left intact, so the resident model is undisturbed."""
+    registry.scan()
+    descriptors = registry.descriptors()
+    return {
+        "models": len(descriptors),
+        "image_models": sum(1 for d in descriptors if d.job_type.value == "image"),
+        "llm_models": sum(1 for d in descriptors if d.job_type.value == "llm"),
+        "loras": len(registry.loras()),
+    }
+
+
 @router.get("/loras", response_model=list[LoraOut])
 async def list_loras(
     family: ModelFamily | None = None,
