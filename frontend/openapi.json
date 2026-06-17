@@ -3442,6 +3442,56 @@
         ]
       }
     },
+    "/api/downloads/custom": {
+      "post": {
+        "description": "Download user-supplied models from any source (HuggingFace repo+file or a\ndirect URL) into the right kind folder, then rescan (P25.3).",
+        "operationId": "start_custom_downloads_api_downloads_custom_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Start Custom Downloads Api Downloads Custom Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Custom Downloads",
+        "tags": [
+          "downloads"
+        ]
+      }
+    },
     "/api/downloads/start": {
       "post": {
         "description": "Begin a background download of the selected catalog keys.",
@@ -4990,6 +5040,84 @@
           }
         },
         "summary": "List Models",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/models/installed": {
+      "delete": {
+        "description": "Delete one installed model unit to reclaim disk, then rescan (P25.2).",
+        "operationId": "delete_installed_model_api_models_installed_delete",
+        "parameters": [
+          {
+            "description": "model kind (image, llm, lora, tts, …)",
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "description": "model kind (image, llm, lora, tts, …)",
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "path of the file or repo folder within the kind folder",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "path of the file or repo folder within the kind folder",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Delete Installed Model Api Models Installed Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Installed Model",
+        "tags": [
+          "models"
+        ]
+      },
+      "get": {
+        "description": "Everything installed on disk across all model kinds, with sizes + in-use flags,\nfor the Model Manager (P25.2).",
+        "operationId": "list_installed_models_api_models_installed_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Installed Models Api Models Installed Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Installed Models",
         "tags": [
           "models"
         ]

@@ -7,6 +7,7 @@ import { CodePanel } from "./components/CodePanel";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ImageComposer } from "./components/ImageComposer";
 import { Gallery } from "./components/Gallery";
+import { ModelManager } from "./components/ModelManager";
 import { ModelStatus, type View } from "./components/ModelStatus";
 import { NotesPanel } from "./components/NotesPanel";
 import { QueuePanel } from "./components/QueuePanel";
@@ -357,7 +358,7 @@ export default function App() {
             generating={imageJobs.some((j) => j.status === "running")}
             hasImageModels={hasImageModels}
             modelsLoading={modelsLoading}
-            onGetModels={() => setView("system")}
+            onGetModels={() => setView("models")}
           />
           <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />
         </main>
@@ -450,11 +451,20 @@ export default function App() {
       ),
     },
     {
+      id: "models",
+      label: "Models",
+      render: () => (
+        <main className="flex-1 overflow-hidden p-4">
+          <ModelManager onModelsChanged={() => { void refreshModels(); void refreshLoras(); }} />
+        </main>
+      ),
+    },
+    {
       id: "system",
       label: "System",
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
-          <SystemPanel gpu={gpu} mem={mem} history={memHistory} note={arbiterNote} queueKey={queueKey} imageSignal={imageEpoch} version={health?.version} onModelsChanged={() => { void refreshModels(); void refreshLoras(); }} />
+          <SystemPanel gpu={gpu} mem={mem} history={memHistory} note={arbiterNote} queueKey={queueKey} imageSignal={imageEpoch} version={health?.version} />
         </main>
       ),
     },

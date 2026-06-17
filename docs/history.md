@@ -155,3 +155,19 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
   real VRAM shows via `mem.status`. No second resident heavy model; lanes are gated on
   actual GPU use (voice always; TTS when `tts_gpu_layers > 0`; transcribe when the
   device isn't CPU).
+
+## Unified Model Manager (P25)
+
+- **P25.1 — "Models" workspace tab.** A dedicated top-level tab (`ModelManager.tsx`),
+  the one home for getting and managing models, with a live installed-count / disk-used
+  / disk-free header. Model downloads moved here out of the System tab.
+- **P25.2 — Installed-models manager + delete.** `services/model_storage.py` walks
+  every kind folder (image/LLM/LoRA/TTS/transcribe/embed/vision/voice) and lists the
+  deletable units (file or repo folder) with sizes; `GET /api/models/installed` +
+  `DELETE /api/models/installed?kind=&path=` reclaim disk and rescan. Path-validated to
+  stay inside the kind folder; refuses a resident/warm model (`arbiter.busy_paths()`)
+  so a load can't be deleted out from under it.
+- **P25.3 — Download from any source.** Alongside the curated catalog, an "Add from
+  source" form pulls a HuggingFace `repo + file` or a **direct URL** into the chosen
+  `models/<kind>/` folder via `POST /api/downloads/custom`, reusing the background
+  progress + auto-rescan machinery (`run_blocking_custom`, httpx streaming for URLs).

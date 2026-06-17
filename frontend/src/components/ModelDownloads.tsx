@@ -1,13 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { Select } from "./Select";
 import { Panel, SectionTitle, SkeletonRows } from "./WorkspaceChrome";
 import { toast } from "./Toast";
-import type { ModelDownloadState } from "../types";
+import type { CustomDownloadItem, ModelDownloadState } from "../types";
 
 const subtleButton =
   "rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
 const primaryButton =
   "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition hover:bg-accent-hover disabled:opacity-35";
+const field =
+  "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-white/25 focus:border-accent";
+
+// The model kinds the custom downloader can target (mirrors the backend folders).
+const KIND_OPTIONS = [
+  { value: "llm", label: "LLM (chat)" },
+  { value: "image", label: "Image" },
+  { value: "lora", label: "LoRA" },
+  { value: "vision", label: "Vision (multimodal)" },
+  { value: "embed", label: "Embeddings (RAG)" },
+  { value: "tts", label: "Text-to-speech" },
+  { value: "transcribe", label: "Transcription" },
+  { value: "voice", label: "Voice changer" },
+];
 
 function fmtMb(mb: number): string {
   if (!mb) return "—";
@@ -86,6 +101,42 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
       toast.error(errMsg(err, "Rescan failed"));
     } finally {
       setRescanning(false);
+    }
+  };
+
+  // --- custom (any-source) download ---
+  const [customOpen, setCustomOpen] = useState(false);
+  const [source, setSource] = useState<"hf" | "url">("hf");
+  const [kind, setKind] = useState("llm");
+  const [repo, setRepo] = useState("");
+  const [filename, setFilename] = useState("");
+  const [url, setUrl] = useState("");
+
+  const addCustom = async () => {
+    const item: CustomDownloadItem =
+      source === "hf"
+        ? { source, kind, repo: repo.trim(), filename: filename.trim() }
+        : { source, kind, url: url.trim(), filename: filename.trim() || undefined };
+    if (source === "hf" && (!item.repo || !item.filename)) {
+      toast.error("Enter a HuggingFace repo and file name");
+      return;
+    }
+    if (source === "url" && !item.url) {
+      toast.error("Enter a direct download URL");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.downloadsCustom([item]);
+      toast.info("Downloading… this can take a while.");
+      setRepo("");
+      setFilename("");
+      setUrl("");
+      await refresh();
+    } catch (err) {
+      toast.error(errMsg(err, "Could not start download"));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -234,6 +285,55 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                 {showAdvanced ? "Hide" : `Show ${advancedHidden} advanced`} model{advancedHidden === 1 ? "" : "s"}
               </button>
             ) : null}
+
+            <div className="rounded-md border border-white/10 bg-black/15">
+              <button
+                onClick={() => setCustomOpen((v) => !v)}
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] text-white/70 hover:text-white"
+              >
+                <span>Add from a source (HuggingFace or direct URL)</span>
+                <span className="text-white/35">{customOpen ? "–" : "+"}</span>
+              </button>
+              {customOpen ? (
+                <div className="space-y-2 border-t border-white/10 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex rounded-md border border-white/10 p-0.5">
+                      {(["hf", "url"] as const).map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => setSource(s)}
+                          className={`rounded px-2.5 py-1 text-xs transition ${source === s ? "bg-white/15 text-white" : "text-white/50 hover:text-white/80"}`}
+                        >
+                          {s === "hf" ? "HuggingFace" : "Direct URL"}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Select value={kind} onChange={setKind} options={KIND_OPTIONS} />
+                    </div>
+                  </div>
+                  {source === "hf" ? (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input className={field} placeholder="repo id, e.g. owner/model-GGUF" value={repo} onChange={(e) => setRepo(e.target.value)} />
+                      <input className={field} placeholder="file, e.g. model-Q4_K_M.gguf" value={filename} onChange={(e) => setFilename(e.target.value)} />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input className={field} placeholder="https://… direct file URL" value={url} onChange={(e) => setUrl(e.target.value)} />
+                      <input className={field} placeholder="save as (optional)" value={filename} onChange={(e) => setFilename(e.target.value)} />
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-white/30">
+                      Lands in <span className="font-mono">models/{kind}/</span>. Review the model's license first.
+                    </span>
+                    <button onClick={() => void addCustom()} className={primaryButton} disabled={busy || downloading}>
+                      {downloading ? "Downloading…" : "Download"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
 
             <p className="text-[11px] text-white/30">
               Sizes are approximate. Model files are user-supplied and keep their own provider licenses —

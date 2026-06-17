@@ -36,6 +36,13 @@ include breaking changes — this is pre-release software.
   voice session, GPU TTS, or GPU transcribe is using the card. These run outside the
   one-resident-model arbiter, so they register an observability-only "lane" — no
   second heavy model is loaded; the VRAM bar already reflects the real usage.
+- **Unified Model Manager tab** (P25): a dedicated **Models** tab to get models for
+  every workspace and manage what's installed. Download from the curated catalog or
+  **add from any source** (a HuggingFace repo+file or a direct URL) into the right
+  folder; see everything installed across all model types with sizes; and **delete**
+  models to reclaim disk (guarded against deleting a model that's loaded on the GPU).
+  New `GET/DELETE /api/models/installed` and `POST /api/downloads/custom`. Model
+  downloads moved here out of the System tab.
 
 ### Fixed
 - **Image composer no longer resets steps/guidance/size on tab switch**: the

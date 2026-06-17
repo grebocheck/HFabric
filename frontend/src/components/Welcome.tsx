@@ -10,7 +10,8 @@ type WelcomeProps = {
 const SURFACES: { name: string; blurb: string }[] = [
   { name: "Images", blurb: "Generate with SDXL / FLUX and friends — one heavy model resident at a time." },
   { name: "LLM", blurb: "Chat with a local model; attach images/docs, or type /image to generate." },
-  { name: "System", blurb: "Live RAM/VRAM, Setup Doctor, and Model downloads to fetch your first model." },
+  { name: "Models", blurb: "Download models for every workspace and manage installed ones to free disk." },
+  { name: "System", blurb: "Live RAM/VRAM, Setup Doctor, and runtime telemetry." },
 ];
 
 export function Welcome({ stubMode, onClose }: WelcomeProps) {

@@ -28,6 +28,32 @@ export interface GpuLane {
   label: string;
 }
 
+export interface InstalledModel {
+  kind: string;
+  kind_label: string;
+  name: string;
+  path: string;
+  size_bytes: number;
+  is_dir: boolean;
+  in_use: boolean;
+}
+
+export interface InstalledModelsState {
+  items: InstalledModel[];
+  kinds: Record<string, string>;
+  total_used_bytes: number;
+  disk: { free_mb: number | null; models_root: string };
+}
+
+export interface CustomDownloadItem {
+  source: "hf" | "url";
+  kind: string;
+  repo?: string;
+  filename?: string;
+  url?: string;
+  label?: string;
+}
+
 export interface GpuStatus {
   resident: string | null;
   model_id: string | null;

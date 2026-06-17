@@ -143,7 +143,7 @@ export function ResultPreview({
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
             <p className="text-sm text-white/50">No image models installed yet.</p>
             <p className="max-w-xs text-xs leading-5 text-white/35">
-              Open System → Model downloads to fetch a starter model for your hardware, then come back here to generate.
+              Open the Models tab to fetch a starter model for your hardware, then come back here to generate.
             </p>
             {onGetModels ? (
               <button

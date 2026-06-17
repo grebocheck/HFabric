@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from ..backends.base import GpuBackend
 from .enums import EventType
@@ -32,6 +33,23 @@ class GpuArbiter:
     @property
     def current(self) -> GpuBackend | None:
         return self._current
+
+    def busy_paths(self) -> set[Path]:
+        """Resolved on-disk paths of the resident + warm models — i.e. weights that
+        must not be deleted out from under a load (P25.2)."""
+        backends = list(self._warm_backends)
+        if self._current is not None:
+            backends.append(self._current)
+        paths: set[Path] = set()
+        for backend in backends:
+            raw = getattr(backend.descriptor, "path", None)
+            if raw is None:
+                continue
+            try:
+                paths.add(Path(raw).resolve())
+            except OSError:
+                continue
+        return paths
 
     async def ensure(self, backend: GpuBackend) -> None:
         """Guarantee ``backend`` is the sole GPU resident and loaded."""

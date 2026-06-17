@@ -35,6 +35,16 @@ async def _run_then_rescan(keys: list[str], registry: ModelRegistry) -> None:
             logger.warning("event=downloads.rescan.failed", exc_info=True)
 
 
+async def _run_custom_then_rescan(items: list[dict[str, Any]], registry: ModelRegistry) -> None:
+    try:
+        await asyncio.to_thread(downloads.run_blocking_custom, items)
+    finally:
+        try:
+            registry.scan()
+        except Exception:  # noqa: BLE001 - a rescan hiccup must not crash the task
+            logger.warning("event=downloads.rescan.failed", exc_info=True)
+
+
 @router.get("")
 async def get_downloads(refresh: bool = False) -> dict[str, Any]:
     return await asyncio.to_thread(downloads.state, refresh=refresh)
@@ -60,4 +70,26 @@ async def start_downloads(
         # When it finishes we rescan so the catalog reflects disk without a restart.
         asyncio.create_task(_run_then_rescan(keys, registry))
         await asyncio.sleep(0)  # let the task start before we report
+    return downloads.get_status()
+
+
+@router.post("/custom")
+async def start_custom_downloads(
+    body: dict[str, Any] | None = None,
+    registry: ModelRegistry = Depends(get_registry),
+) -> dict[str, Any]:
+    """Download user-supplied models from any source (HuggingFace repo+file or a
+    direct URL) into the right kind folder, then rescan (P25.3)."""
+    if downloads.is_downloading():
+        raise HTTPException(409, "a model download is already running")
+    items = list((body or {}).get("items") or [])
+    if not items:
+        raise HTTPException(422, "items is required")
+    try:
+        downloads.start_custom(items)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if downloads.is_downloading():
+        asyncio.create_task(_run_custom_then_rescan(items, registry))
+        await asyncio.sleep(0)
     return downloads.get_status()

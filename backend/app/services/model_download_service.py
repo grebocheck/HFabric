@@ -20,8 +20,12 @@ import threading
 import time
 from typing import Any
 
-from ..config import ROOT
+from ..config import ROOT, settings
 from . import capability_profile
+
+# Custom downloads (P25.3): a user-supplied model from any source, dropped into the
+# right kind folder. Kept deliberately small — HuggingFace repo+file and direct URL.
+_CUSTOM_KINDS = ("image", "llm", "lora", "tts", "transcribe", "embed", "vision", "voice")
 
 _MB = 1024 * 1024
 # Refuse a batch unless this fraction of headroom over the estimate stays free.
@@ -210,6 +214,133 @@ def run_blocking(keys: list[str]) -> dict[str, Any]:
         message = f"Downloaded {done}/{total}; failed: {names}"
         _set_status(state="error", message=message, current=None,
                     progress={"done": total, "total": total}, failed=failed)
+    else:
+        _set_status(state="done", message=f"Downloaded {done} model file(s).", current=None,
+                    progress={"done": total, "total": total}, failed=[])
+    return get_status()
+
+
+# --------------------------------------------------------------------------- #
+# Custom downloads (any source)
+# --------------------------------------------------------------------------- #
+def _kind_dir(kind: str) -> Path | None:
+    mapping = {
+        "image": settings.image_models_dir,
+        "llm": settings.llm_models_dir,
+        "lora": settings.lora_models_dir,
+        "tts": settings.tts_models_dir,
+        "transcribe": settings.transcription_models_dir,
+        "embed": settings.embed_models_dir,
+        "vision": settings.vision_models_dir,
+        "voice": settings.voice_models_dir,
+    }
+    return mapping.get(kind)
+
+
+def validate_custom(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
+    """Normalize user-supplied download specs. Returns (clean_specs, error)."""
+    if not items:
+        return [], "No models to download were provided."
+    clean: list[dict[str, Any]] = []
+    for raw in items:
+        kind = str(raw.get("kind") or "").strip().lower()
+        if kind not in _CUSTOM_KINDS:
+            return [], f"Unknown model type: {kind or '(none)'}."
+        source = str(raw.get("source") or "").strip().lower()
+        if source == "hf":
+            repo = str(raw.get("repo") or "").strip()
+            filename = str(raw.get("filename") or "").strip()
+            if not repo or not filename:
+                return [], "A HuggingFace download needs both a repo id and a file name."
+            if ".." in filename.replace("\\", "/").split("/"):
+                return [], "Invalid file name."
+            clean.append({
+                "source": "hf", "kind": kind, "repo": repo, "filename": filename,
+                "label": str(raw.get("label") or f"{repo}/{filename}"),
+            })
+        elif source == "url":
+            url = str(raw.get("url") or "").strip()
+            if not (url.startswith("http://") or url.startswith("https://")):
+                return [], "A direct download needs an http(s) URL."
+            given = str(raw.get("filename") or "").strip()
+            filename = Path(given).name if given else Path(url.split("?")[0]).name
+            if not filename:
+                return [], "Could not determine a file name from the URL; provide one."
+            clean.append({
+                "source": "url", "kind": kind, "url": url, "filename": filename,
+                "label": str(raw.get("label") or filename),
+            })
+        else:
+            return [], f"Unknown source: {source or '(none)'}."
+    return clean, None
+
+
+def start_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Validate + flip status to running for a custom (any-source) download batch."""
+    with _status_lock:
+        if _status["state"] == "running":
+            return dict(_status)
+    clean, error = validate_custom(items)
+    if error:
+        raise ValueError(error)
+    if any(spec["source"] == "hf" for spec in clean) and not _hub_available():
+        raise ValueError(
+            "huggingface_hub is not installed in this environment. Run the "
+            "accelerator setup (setup … real) or `pip install huggingface_hub`."
+        )
+    _set_status(state="running", message="Starting download…", current=None,
+                progress={"done": 0, "total": len(clean)}, failed=[])
+    return get_status()
+
+
+def _download_url(url: str, dest_path: Path) -> None:
+    """Stream a direct URL to disk via a ``.part`` file, then atomically rename."""
+    import httpx  # noqa: PLC0415
+
+    tmp = dest_path.with_name(dest_path.name + ".part")
+    with httpx.stream("GET", url, follow_redirects=True, timeout=None) as response:
+        response.raise_for_status()
+        with tmp.open("wb") as handle:
+            for chunk in response.iter_bytes(chunk_size=_MB):
+                handle.write(chunk)
+    tmp.replace(dest_path)
+
+
+def run_blocking_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Download user-supplied models. Runs in a worker thread; updates status."""
+    clean, error = validate_custom(items)
+    if error:
+        _set_status(state="error", message=error, current=None,
+                    progress={"done": 0, "total": 0}, failed=[])
+        return get_status()
+
+    total = len(clean)
+    failed: list[dict[str, str]] = []
+    for index, spec in enumerate(clean):
+        _set_status(
+            current={"label": spec["label"], "filename": spec["filename"]},
+            message=f"Downloading {spec['label']}…",
+            progress={"done": index, "total": total},
+        )
+        try:
+            dest = _kind_dir(spec["kind"])
+            if dest is None:
+                raise ValueError(f"unknown kind {spec['kind']}")
+            dest.mkdir(parents=True, exist_ok=True)
+            if spec["source"] == "hf":
+                from huggingface_hub import hf_hub_download  # noqa: PLC0415
+
+                hf_hub_download(repo_id=spec["repo"], filename=spec["filename"], local_dir=str(dest))
+            else:
+                _download_url(spec["url"], dest / spec["filename"])
+        except Exception as exc:  # noqa: BLE001 - report each failure to the UI
+            failed.append({"label": spec["label"], "error": f"{type(exc).__name__}: {exc}"})
+
+    done = total - len(failed)
+    if failed:
+        names = ", ".join(item["label"] for item in failed)
+        _set_status(state="error", message=f"Downloaded {done}/{total}; failed: {names}",
+                    current=None, progress={"done": total, "total": total}, failed=failed)
     else:
         _set_status(state="done", message=f"Downloaded {done} model file(s).", current=None,
                     progress={"done": total, "total": total}, failed=[])

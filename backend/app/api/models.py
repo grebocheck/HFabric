@@ -12,7 +12,13 @@ from ..config import settings
 from ..core.arbiter import GpuArbiter
 from ..core.enums import ModelFamily
 from ..schemas import GpuStatusOut, LoraOut, ModelOut, ModelProfileOut
-from ..services import capability_profile, model_compatibility, settings_overrides
+from ..services import (
+    capability_profile,
+    model_compatibility,
+    model_download_service,
+    model_storage,
+    settings_overrides,
+)
 from ..services import model_profile_service as mps
 from ..util import sysmon
 from .deps import get_arbiter, get_registry, get_session
@@ -76,6 +82,42 @@ async def rescan_models(registry: ModelRegistry = Depends(get_registry)) -> dict
         "llm_models": sum(1 for d in descriptors if d.job_type.value == "llm"),
         "loras": len(registry.loras()),
     }
+
+
+@router.get("/models/installed")
+async def list_installed_models(arbiter: GpuArbiter = Depends(get_arbiter)) -> dict[str, Any]:
+    """Everything installed on disk across all model kinds, with sizes + in-use flags,
+    for the Model Manager (P25.2)."""
+    items = model_storage.installed(in_use=arbiter.busy_paths())
+    return {
+        "items": items,
+        "kinds": model_storage.KIND_LABELS,
+        "total_used_bytes": sum(item["size_bytes"] for item in items),
+        "disk": model_download_service.disk_status(),
+    }
+
+
+@router.delete("/models/installed")
+async def delete_installed_model(
+    kind: str = Query(..., description="model kind (image, llm, lora, tts, …)"),
+    path: str = Query(..., description="path of the file or repo folder within the kind folder"),
+    registry: ModelRegistry = Depends(get_registry),
+    arbiter: GpuArbiter = Depends(get_arbiter),
+) -> dict[str, Any]:
+    """Delete one installed model unit to reclaim disk, then rescan (P25.2)."""
+    try:
+        result = model_storage.delete(kind, path, in_use=arbiter.busy_paths())
+    except model_storage.ModelInUseError as exc:
+        raise HTTPException(
+            409,
+            "That model is loaded on the GPU. Free the GPU (or stop the session) first, then delete.",
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "model not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    registry.scan()
+    return {**result, "disk": model_download_service.disk_status()}
 
 
 @router.get("/loras", response_model=list[LoraOut])

@@ -236,6 +236,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/downloads/custom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Custom Downloads
+         * @description Download user-supplied models from any source (HuggingFace repo+file or a
+         *     direct URL) into the right kind folder, then rescan (P25.3).
+         */
+        post: operations["start_custom_downloads_api_downloads_custom_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/downloads/start": {
         parameters: {
             query?: never;
@@ -824,6 +845,31 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/models/installed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Installed Models
+         * @description Everything installed on disk across all model kinds, with sizes + in-use flags,
+         *     for the Model Manager (P25.2).
+         */
+        get: operations["list_installed_models_api_models_installed_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Installed Model
+         * @description Delete one installed model unit to reclaim disk, then rescan (P25.2).
+         */
+        delete: operations["delete_installed_model_api_models_installed_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2875,6 +2921,39 @@ export interface operations {
             };
         };
     };
+    start_custom_downloads_api_downloads_custom_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never> | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_downloads_api_downloads_start_post: {
         parameters: {
             query?: never;
@@ -3910,6 +3989,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelOut"][];
+                };
+            };
+        };
+    };
+    list_installed_models_api_models_installed_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    delete_installed_model_api_models_installed_delete: {
+        parameters: {
+            query: {
+                /** @description model kind (image, llm, lora, tts, …) */
+                kind: string;
+                /** @description path of the file or repo folder within the kind folder */
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

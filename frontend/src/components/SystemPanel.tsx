@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { SetupDoctor } from "./SetupDoctor";
-import { ModelDownloads } from "./ModelDownloads";
 import { StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import { toast } from "./Toast";
 import type {
@@ -25,7 +24,6 @@ export function SystemPanel({
   queueKey = "",
   imageSignal = 0,
   version,
-  onModelsChanged,
 }: {
   gpu: GpuStatus;
   mem: MemSnapshot | null;
@@ -34,7 +32,6 @@ export function SystemPanel({
   queueKey?: string;
   imageSignal?: number;
   version?: string;
-  onModelsChanged?: () => void;
 }) {
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [plan, setPlan] = useState<QueuePlan | null>(null);
@@ -84,8 +81,6 @@ export function SystemPanel({
       </WorkspaceHeader>
 
       <SetupDoctor />
-
-      <ModelDownloads onModelsChanged={onModelsChanged} />
 
       <ArbiterStatus note={note} />
 
