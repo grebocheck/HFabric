@@ -330,7 +330,8 @@ python scripts/install_profiles.py --pretty
 | [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Beta limitations, by-design behavior, rough edges |
 | [SECURITY.md](SECURITY.md) | Security model + how to report a vulnerability privately |
 | [CHANGELOG.md](CHANGELOG.md) | What changed between versions |
-| [ROADMAP.md](ROADMAP.md) | Shipped milestones + active backlog |
+| [ROADMAP.md](ROADMAP.md) | Forward plan + active backlog |
+| [docs/history.md](docs/history.md) | The shipped-phases record (M0–P24) |
 
 ## License and models
 
