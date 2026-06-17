@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { HfBrowser } from "./HfBrowser";
 import { Select } from "./Select";
 import { Panel, SectionTitle, SkeletonRows } from "./WorkspaceChrome";
 import { toast } from "./Toast";
@@ -104,32 +105,24 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
     }
   };
 
-  // --- custom (any-source) download ---
+  // --- custom (any-source) download: HuggingFace browse (HfBrowser) or direct URL ---
   const [customOpen, setCustomOpen] = useState(false);
   const [source, setSource] = useState<"hf" | "url">("hf");
   const [kind, setKind] = useState("llm");
-  const [repo, setRepo] = useState("");
   const [filename, setFilename] = useState("");
   const [url, setUrl] = useState("");
 
   const addCustom = async () => {
-    const item: CustomDownloadItem =
-      source === "hf"
-        ? { source, kind, repo: repo.trim(), filename: filename.trim() }
-        : { source, kind, url: url.trim(), filename: filename.trim() || undefined };
-    if (source === "hf" && (!item.repo || !item.filename)) {
-      toast.error("Enter a HuggingFace repo and file name");
-      return;
-    }
-    if (source === "url" && !item.url) {
+    const trimmed = url.trim();
+    if (!trimmed) {
       toast.error("Enter a direct download URL");
       return;
     }
+    const item: CustomDownloadItem = { source: "url", kind, url: trimmed, filename: filename.trim() || undefined };
     setBusy(true);
     try {
       await api.downloadsCustom([item]);
       toast.info("Downloading… this can take a while.");
-      setRepo("");
       setFilename("");
       setUrl("");
       await refresh();
@@ -296,41 +289,45 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
               </button>
               {customOpen ? (
                 <div className="space-y-2 border-t border-white/10 p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex rounded-md border border-white/10 p-0.5">
-                      {(["hf", "url"] as const).map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setSource(s)}
-                          className={`rounded px-2.5 py-1 text-xs transition ${source === s ? "bg-white/15 text-white" : "text-white/50 hover:text-white/80"}`}
-                        >
-                          {s === "hf" ? "HuggingFace" : "Direct URL"}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <Select value={kind} onChange={setKind} options={KIND_OPTIONS} />
-                    </div>
+                  <div className="flex rounded-md border border-white/10 p-0.5 text-xs">
+                    {(["hf", "url"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setSource(s)}
+                        className={`rounded px-2.5 py-1 transition ${source === s ? "bg-white/15 text-white" : "text-white/50 hover:text-white/80"}`}
+                      >
+                        {s === "hf" ? "Browse HuggingFace" : "Direct URL"}
+                      </button>
+                    ))}
                   </div>
                   {source === "hf" ? (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <input className={field} placeholder="repo id, e.g. owner/model-GGUF" value={repo} onChange={(e) => setRepo(e.target.value)} />
-                      <input className={field} placeholder="file, e.g. model-Q4_K_M.gguf" value={filename} onChange={(e) => setFilename(e.target.value)} />
-                    </div>
+                    <HfBrowser
+                      kind={kind}
+                      setKind={setKind}
+                      kindOptions={KIND_OPTIONS}
+                      disabled={downloading}
+                      onStarted={() => void refresh()}
+                    />
                   ) : (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <input className={field} placeholder="https://… direct file URL" value={url} onChange={(e) => setUrl(e.target.value)} />
-                      <input className={field} placeholder="save as (optional)" value={filename} onChange={(e) => setFilename(e.target.value)} />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-white/40">Save to</span>
+                        <div className="w-44"><Select value={kind} onChange={setKind} options={KIND_OPTIONS} /></div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <input className={field} placeholder="https://… direct file URL" value={url} onChange={(e) => setUrl(e.target.value)} />
+                        <input className={field} placeholder="save as (optional)" value={filename} onChange={(e) => setFilename(e.target.value)} />
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-white/30">
+                          Lands in <span className="font-mono">models/{kind}/</span>. Review the license first.
+                        </span>
+                        <button onClick={() => void addCustom()} className={primaryButton} disabled={busy || downloading}>
+                          {downloading ? "Downloading…" : "Download"}
+                        </button>
+                      </div>
                     </div>
                   )}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-white/30">
-                      Lands in <span className="font-mono">models/{kind}/</span>. Review the model's license first.
-                    </span>
-                    <button onClick={() => void addCustom()} className={primaryButton} disabled={busy || downloading}>
-                      {downloading ? "Downloading…" : "Download"}
-                    </button>
-                  </div>
                 </div>
               ) : null}
             </div>

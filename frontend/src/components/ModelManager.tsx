@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { ModelDownloads } from "./ModelDownloads";
-import { Panel, SectionTitle, SkeletonRows, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
+import { Panel, SkeletonRows } from "./WorkspaceChrome";
 import { toast } from "./Toast";
+import { fmtBytes } from "./format";
 import type { InstalledModel, InstalledModelsState } from "../types";
 
-// Unified Model Manager (P25): one place to get models for every type from any
-// source (curated catalog + HuggingFace/URL via ModelDownloads) and to see/delete
-// what's installed to reclaim disk.
+type Pane = "download" | "all" | string;
+
+// Stable taxonomy order for the sidebar (kinds not present are skipped).
+const KIND_ORDER = ["image", "llm", "lora", "vision", "embed", "tts", "transcribe", "voice"];
+
+// Unified Model Manager (P25): a sidebar of kinds (count + total size) on the left,
+// the download surface or a filtered installed list on the right.
 export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void }) {
   const [data, setData] = useState<InstalledModelsState | null>(null);
+  const [pane, setPane] = useState<Pane>("all");
   const [deleting, setDeleting] = useState<string>("");
 
   const refresh = useCallback(async () => {
@@ -24,27 +30,36 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
     void refresh();
   }, [refresh]);
 
-  const onModelsChanged_ = useCallback(() => {
+  const onDownloadsChanged = useCallback(() => {
     void refresh();
     onModelsChanged?.();
   }, [refresh, onModelsChanged]);
 
-  const grouped = useMemo(() => {
-    const by = new Map<string, InstalledModel[]>();
-    for (const item of data?.items ?? []) {
-      const list = by.get(item.kind) ?? [];
-      list.push(item);
-      by.set(item.kind, list);
+  const items = useMemo(() => data?.items ?? [], [data]);
+
+  // Per-kind aggregates for the sidebar, in a stable taxonomy order.
+  const kindStats = useMemo(() => {
+    const map = new Map<string, { count: number; bytes: number }>();
+    for (const item of items) {
+      const s = map.get(item.kind) ?? { count: 0, bytes: 0 };
+      s.count += 1;
+      s.bytes += item.size_bytes;
+      map.set(item.kind, s);
     }
-    return [...by.entries()];
-  }, [data]);
+    return KIND_ORDER
+      .filter((k) => map.has(k))
+      .map((k) => ({ kind: k, label: data?.kinds[k] ?? k, ...map.get(k)! }));
+  }, [items, data]);
+
+  const visibleItems = useMemo(
+    () => (pane === "all" ? items : items.filter((i) => i.kind === pane)),
+    [items, pane],
+  );
 
   const del = async (item: InstalledModel) => {
-    const key = `${item.kind}/${item.path}`;
     if (item.in_use) return;
-    if (!window.confirm(`Delete "${item.name}" (${fmtBytes(item.size_bytes)})? This removes the files from disk.`)) {
-      return;
-    }
+    if (!window.confirm(`Delete "${item.name}" (${fmtBytes(item.size_bytes)})? This removes the files from disk.`)) return;
+    const key = `${item.kind}/${item.path}`;
     setDeleting(key);
     try {
       const res = await api.deleteInstalledModel(item.kind, item.path);
@@ -59,68 +74,93 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
   };
 
   const freeMb = data?.disk.free_mb ?? null;
+  const navItem = (active: boolean) =>
+    `flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition ${
+      active ? "bg-white/15 text-white" : "text-white/55 hover:bg-white/5 hover:text-white/80"
+    }`;
 
   return (
-    <div className="flex h-full w-full flex-col gap-4 overflow-y-auto">
-      <WorkspaceHeader
-        title="Models"
-        subtitle="Download models for every workspace from the curated catalog or any source, and manage what's installed to reclaim disk."
-      >
-        <StatusPill label={`${data?.items.length ?? 0} installed`} tone="info" />
-        <StatusPill label={`${fmtBytes(data?.total_used_bytes ?? 0)} on disk`} tone="neutral" />
-        <StatusPill
-          label={freeMb != null ? `${fmtMb(freeMb)} free` : "disk unknown"}
-          tone={freeMb != null && freeMb < 5120 ? "warn" : "good"}
-        />
-      </WorkspaceHeader>
+    <div className="flex h-full w-full gap-4 overflow-hidden">
+      <aside className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-white/10 bg-surface p-2.5">
+        <button onClick={() => setPane("download")} className={`${navItem(pane === "download")} font-medium`}>
+          <span className="flex items-center gap-2"><span className="text-accent">＋</span> Get models</span>
+        </button>
 
-      <ModelDownloads onModelsChanged={onModelsChanged_} />
+        <div className="mt-1 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-white/30">Installed</div>
+        <button onClick={() => setPane("all")} className={navItem(pane === "all")}>
+          <span>All</span>
+          <span className="shrink-0 text-[11px] text-white/40">{items.length} · {fmtBytes(data?.total_used_bytes ?? 0)}</span>
+        </button>
+        {kindStats.map((k) => (
+          <button key={k.kind} onClick={() => setPane(k.kind)} className={navItem(pane === k.kind)}>
+            <span className="min-w-0 truncate">{k.label}</span>
+            <span className="shrink-0 text-[11px] text-white/40">{k.count} · {fmtBytes(k.bytes)}</span>
+          </button>
+        ))}
+        {data && kindStats.length === 0 ? (
+          <div className="px-2.5 py-1 text-[11px] text-white/30">Nothing installed yet.</div>
+        ) : null}
 
-      <Panel>
-        <SectionTitle
-          title="Installed models"
-          subtitle="Everything on disk across all model types — delete to free space"
-          actions={
-            <button onClick={() => void refresh()} className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 hover:bg-white/10 hover:text-white">
-              Refresh
-            </button>
-          }
-        />
-        <div className="space-y-4 p-3">
-          {!data ? (
-            <SkeletonRows rows={4} />
-          ) : grouped.length === 0 ? (
-            <div className="rounded-md border border-dashed border-white/10 px-3 py-6 text-center text-sm text-white/35">
-              No models installed yet. Use the catalog or "Add from a source" above to get started.
-            </div>
-          ) : (
-            grouped.map(([kind, items]) => (
-              <div key={kind}>
-                <div className="mb-1.5 flex items-baseline justify-between">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-white/45">
-                    {data.kinds[kind] ?? kind}
-                  </h4>
-                  <span className="text-[11px] text-white/30">
-                    {items.length} · {fmtBytes(items.reduce((s, i) => s + i.size_bytes, 0))}
-                  </span>
+        <div className="mt-auto border-t border-white/10 px-2.5 pt-2 text-[11px] text-white/35">
+          <div className="flex items-center justify-between">
+            <span>On disk</span>
+            <span className="text-white/55">{fmtBytes(data?.total_used_bytes ?? 0)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Free</span>
+            <span className={freeMb != null && freeMb < 5120 ? "text-amber-300" : "text-white/55"}>
+              {freeMb != null ? (freeMb >= 1024 ? `${(freeMb / 1024).toFixed(1)} GB` : `${freeMb} MB`) : "—"}
+            </span>
+          </div>
+        </div>
+      </aside>
+
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        {pane === "download" ? (
+          <ModelDownloads onModelsChanged={onDownloadsChanged} />
+        ) : (
+          <Panel className="flex h-full flex-col">
+            <div className="flex min-h-11 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-white/75">
+                  {pane === "all" ? "All installed models" : data?.kinds[pane] ?? pane}
                 </div>
+                <div className="mt-0.5 text-xs text-white/35">
+                  {visibleItems.length} item{visibleItems.length === 1 ? "" : "s"} ·{" "}
+                  {fmtBytes(visibleItems.reduce((s, i) => s + i.size_bytes, 0))}
+                </div>
+              </div>
+              <button onClick={() => void refresh()} className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 hover:bg-white/10 hover:text-white">
+                Refresh
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {!data ? (
+                <SkeletonRows rows={5} />
+              ) : visibleItems.length === 0 ? (
+                <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 text-center">
+                  <p className="text-sm text-white/45">No models here yet.</p>
+                  <button
+                    onClick={() => setPane("download")}
+                    className="rounded-md border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent/25"
+                  >
+                    Get models
+                  </button>
+                </div>
+              ) : (
                 <ul className="space-y-1.5">
-                  {items.map((item) => {
+                  {visibleItems.map((item) => {
                     const key = `${item.kind}/${item.path}`;
                     return (
-                      <li
-                        key={key}
-                        className="flex items-center gap-2.5 rounded-md border border-white/10 bg-black/20 px-3 py-2"
-                      >
+                      <li key={key} className="flex items-center gap-2.5 rounded-md border border-white/10 bg-black/20 px-3 py-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="truncate text-[13px] text-white/85" title={item.name}>{item.name}</span>
-                            {item.is_dir ? (
-                              <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">folder</span>
+                            {pane === "all" ? (
+                              <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">{data.kinds[item.kind] ?? item.kind}</span>
                             ) : null}
-                            {item.in_use ? (
-                              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">on GPU</span>
-                            ) : null}
+                            {item.is_dir ? <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">folder</span> : null}
+                            {item.in_use ? <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">on GPU</span> : null}
                           </div>
                           <div className="mt-0.5 font-mono text-[11px] text-white/30">{fmtBytes(item.size_bytes)}</div>
                         </div>
@@ -136,23 +176,11 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
                     );
                   })}
                 </ul>
-              </div>
-            ))
-          )}
-        </div>
-      </Panel>
+              )}
+            </div>
+          </Panel>
+        )}
+      </div>
     </div>
   );
-}
-
-function fmtMb(mb: number): string {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
-}
-
-function fmtBytes(bytes: number): string {
-  if (!bytes) return "0 B";
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${bytes} B`;
 }

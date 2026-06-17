@@ -3492,6 +3492,50 @@
         ]
       }
     },
+    "/api/downloads/hf/files": {
+      "get": {
+        "description": "List a HuggingFace repo's files + sizes so the UI can browse and pick (P25).",
+        "operationId": "list_hf_repo_files_api_downloads_hf_files_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "title": "Repo",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Hf Repo Files Api Downloads Hf Files Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Hf Repo Files",
+        "tags": [
+          "downloads"
+        ]
+      }
+    },
     "/api/downloads/start": {
       "post": {
         "description": "Begin a background download of the selected catalog keys.",

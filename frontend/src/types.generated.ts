@@ -257,6 +257,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/downloads/hf/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Hf Repo Files
+         * @description List a HuggingFace repo's files + sizes so the UI can browse and pick (P25).
+         */
+        get: operations["list_hf_repo_files_api_downloads_hf_files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/downloads/start": {
         parameters: {
             query?: never;
@@ -2933,6 +2953,37 @@ export interface operations {
                 "application/json": Record<string, never> | null;
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_hf_repo_files_api_downloads_hf_files_get: {
+        parameters: {
+            query: {
+                repo: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

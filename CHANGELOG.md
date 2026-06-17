@@ -37,12 +37,15 @@ include breaking changes — this is pre-release software.
   one-resident-model arbiter, so they register an observability-only "lane" — no
   second heavy model is loaded; the VRAM bar already reflects the real usage.
 - **Unified Model Manager tab** (P25): a dedicated **Models** tab to get models for
-  every workspace and manage what's installed. Download from the curated catalog or
-  **add from any source** (a HuggingFace repo+file or a direct URL) into the right
-  folder; see everything installed across all model types with sizes; and **delete**
-  models to reclaim disk (guarded against deleting a model that's loaded on the GPU).
-  New `GET/DELETE /api/models/installed` and `POST /api/downloads/custom`. Model
-  downloads moved here out of the System tab.
+  every workspace and manage what's installed. A left **sidebar** lists each model
+  type with its count and total size and filters the installed view; "All" and a disk
+  free/used footer round it out. Download from the curated catalog, **browse a
+  HuggingFace repo** (list its files with sizes and pick specific file(s) or the whole
+  repo), or paste a **direct URL** — each lands in the right `models/<kind>/` folder.
+  See everything installed across all model types with sizes and **delete** to reclaim
+  disk (guarded against deleting a model that's loaded on the GPU). New
+  `GET/DELETE /api/models/installed`, `POST /api/downloads/custom`, and
+  `GET /api/downloads/hf/files`. Model downloads moved here out of the System tab.
 
 ### Fixed
 - **Image composer no longer resets steps/guidance/size on tab switch**: the

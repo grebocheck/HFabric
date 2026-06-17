@@ -50,6 +50,16 @@ async def get_downloads(refresh: bool = False) -> dict[str, Any]:
     return await asyncio.to_thread(downloads.state, refresh=refresh)
 
 
+@router.get("/hf/files")
+async def list_hf_repo_files(repo: str) -> dict[str, Any]:
+    """List a HuggingFace repo's files + sizes so the UI can browse and pick (P25)."""
+    try:
+        files = await asyncio.to_thread(downloads.hf_list_files, repo)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"repo": repo.strip(), "files": files}
+
+
 @router.post("/start")
 async def start_downloads(
     body: dict[str, Any] | None = None,

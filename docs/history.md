@@ -158,9 +158,15 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
 
 ## Unified Model Manager (P25)
 
-- **P25.1 — "Models" workspace tab.** A dedicated top-level tab (`ModelManager.tsx`),
-  the one home for getting and managing models, with a live installed-count / disk-used
-  / disk-free header. Model downloads moved here out of the System tab.
+- **P25.1 — "Models" workspace tab.** A dedicated top-level tab (`ModelManager.tsx`)
+  with a left **sidebar** listing each kind (count + total size) that filters the
+  installed view, an "All" entry, a "Get models" entry for the download surface, and a
+  disk free/used footer. Model downloads moved here out of the System tab.
+- **P25.4 — HuggingFace repo browser.** `GET /api/downloads/hf/files?repo=` lists a
+  repo's files with sizes (`HfApi().model_info(files_metadata=True)`); the `HfBrowser`
+  UI lets you pick specific file(s) or the **whole repo**. Single weight files land
+  flat in `models/<kind>/`; multi-file repos go in a `<repo-name>/` subfolder
+  (`snapshot_download`), so partial diffusers repos still assemble.
 - **P25.2 — Installed-models manager + delete.** `services/model_storage.py` walks
   every kind folder (image/LLM/LoRA/TTS/transcribe/embed/vision/voice) and lists the
   deletable units (file or repo folder) with sizes; `GET /api/models/installed` +

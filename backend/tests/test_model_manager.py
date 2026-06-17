@@ -74,6 +74,25 @@ def test_validate_custom_normalizes_hf_and_url_and_rejects_bad_input():
     assert clean[0]["label"] == "owner/model/m.gguf"
     assert clean[1]["filename"] == "x.safetensors"  # derived from the URL, query stripped
 
+
+def test_validate_custom_handles_subdir_and_whole_repo():
+    # A file with a repo subpath is placed under a (sanitized) subdir.
+    clean, error = downloads.validate_custom([
+        {"source": "hf", "kind": "image", "repo": "owner/diff", "filename": "transformer/m.safetensors",
+         "subdir": "../weird//diff"},
+    ])
+    assert error is None
+    assert clean[0]["subdir"] == "weird/diff"  # traversal + empty segments stripped
+
+    # Whole-repo defaults the subdir to the repo's last path segment.
+    clean, error = downloads.validate_custom([{"source": "hf-repo", "kind": "image", "repo": "owner/My-Repo"}])
+    assert error is None
+    assert clean[0]["source"] == "hf-repo"
+    assert clean[0]["subdir"] == "My-Repo"
+
+    _, missing = downloads.validate_custom([{"source": "hf-repo", "kind": "image"}])
+    assert missing is not None
+
     _, bad_kind = downloads.validate_custom([{"source": "hf", "kind": "nope", "repo": "a/b", "filename": "x"}])
     assert bad_kind is not None
     _, bad_url = downloads.validate_custom([{"source": "url", "kind": "llm", "url": "ftp://x/y"}])

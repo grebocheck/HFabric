@@ -237,6 +237,43 @@ def _kind_dir(kind: str) -> Path | None:
     return mapping.get(kind)
 
 
+def _safe_subdir(raw: Any) -> str:
+    """A traversal-safe relative subfolder (or '') from user input."""
+    parts = [p for p in str(raw or "").replace("\\", "/").split("/") if p and p not in (".", "..")]
+    return "/".join(parts)
+
+
+def hf_list_files(repo: str) -> list[dict[str, Any]]:
+    """List a HuggingFace model repo's files with sizes so the UI can let the user
+    pick specific files or the whole repo (P25). Raises ValueError on failure."""
+    repo = (repo or "").strip()
+    if not repo:
+        raise ValueError("Enter a HuggingFace repo id, e.g. owner/model.")
+    if not _hub_available():
+        raise ValueError(
+            "huggingface_hub is not installed in this environment. Run the "
+            "accelerator setup (setup … real) or `pip install huggingface_hub`."
+        )
+    from huggingface_hub import HfApi  # noqa: PLC0415
+    from huggingface_hub.utils import HfHubHTTPError  # noqa: PLC0415
+
+    try:
+        info = HfApi().model_info(repo, files_metadata=True)
+    except HfHubHTTPError as exc:
+        raise ValueError(f"Could not read '{repo}': {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - any hub failure becomes a clean message
+        raise ValueError(f"Could not read '{repo}': {type(exc).__name__}: {exc}") from exc
+
+    files: list[dict[str, Any]] = []
+    for sibling in getattr(info, "siblings", None) or []:
+        name = getattr(sibling, "rfilename", None)
+        if not name:
+            continue
+        files.append({"path": name, "size_bytes": int(getattr(sibling, "size", None) or 0)})
+    files.sort(key=lambda f: f["path"].lower())
+    return files
+
+
 def validate_custom(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
     """Normalize user-supplied download specs. Returns (clean_specs, error)."""
     if not items:
@@ -256,7 +293,17 @@ def validate_custom(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
                 return [], "Invalid file name."
             clean.append({
                 "source": "hf", "kind": kind, "repo": repo, "filename": filename,
+                "subdir": _safe_subdir(raw.get("subdir")),
                 "label": str(raw.get("label") or f"{repo}/{filename}"),
+            })
+        elif source == "hf-repo":
+            repo = str(raw.get("repo") or "").strip()
+            if not repo:
+                return [], "A whole-repo download needs a repo id."
+            subdir = _safe_subdir(raw.get("subdir")) or repo.split("/")[-1]
+            clean.append({
+                "source": "hf-repo", "kind": kind, "repo": repo, "subdir": subdir,
+                "filename": f"{subdir}/", "label": str(raw.get("label") or repo),
             })
         elif source == "url":
             url = str(raw.get("url") or "").strip()
@@ -283,7 +330,7 @@ def start_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
     clean, error = validate_custom(items)
     if error:
         raise ValueError(error)
-    if any(spec["source"] == "hf" for spec in clean) and not _hub_available():
+    if any(spec["source"] in ("hf", "hf-repo") for spec in clean) and not _hub_available():
         raise ValueError(
             "huggingface_hub is not installed in this environment. Run the "
             "accelerator setup (setup … real) or `pip install huggingface_hub`."
@@ -323,16 +370,24 @@ def run_blocking_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
             progress={"done": index, "total": total},
         )
         try:
-            dest = _kind_dir(spec["kind"])
-            if dest is None:
+            kind_dir = _kind_dir(spec["kind"])
+            if kind_dir is None:
                 raise ValueError(f"unknown kind {spec['kind']}")
-            dest.mkdir(parents=True, exist_ok=True)
-            if spec["source"] == "hf":
+            if spec["source"] == "hf-repo":
+                from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+                dest = kind_dir / spec["subdir"]
+                dest.mkdir(parents=True, exist_ok=True)
+                snapshot_download(repo_id=spec["repo"], local_dir=str(dest))
+            elif spec["source"] == "hf":
                 from huggingface_hub import hf_hub_download  # noqa: PLC0415
 
+                dest = kind_dir / spec["subdir"] if spec.get("subdir") else kind_dir
+                dest.mkdir(parents=True, exist_ok=True)
                 hf_hub_download(repo_id=spec["repo"], filename=spec["filename"], local_dir=str(dest))
             else:
-                _download_url(spec["url"], dest / spec["filename"])
+                kind_dir.mkdir(parents=True, exist_ok=True)
+                _download_url(spec["url"], kind_dir / spec["filename"])
         except Exception as exc:  # noqa: BLE001 - report each failure to the UI
             failed.append({"label": spec["label"], "error": f"{type(exc).__name__}: {exc}"})
 

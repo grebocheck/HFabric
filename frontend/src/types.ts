@@ -46,12 +46,23 @@ export interface InstalledModelsState {
 }
 
 export interface CustomDownloadItem {
-  source: "hf" | "url";
+  source: "hf" | "hf-repo" | "url";
   kind: string;
   repo?: string;
   filename?: string;
+  subdir?: string;
   url?: string;
   label?: string;
+}
+
+export interface HfRepoFile {
+  path: string;
+  size_bytes: number;
+}
+
+export interface HfRepoFiles {
+  repo: string;
+  files: HfRepoFile[];
 }
 
 export interface GpuStatus {
