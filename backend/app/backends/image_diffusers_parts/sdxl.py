@@ -20,6 +20,7 @@ class SdxlLoaderMixin:
         if self.descriptor.family is not ModelFamily.SDXL or not settings.sdxl_turbo_lora:
             return
 
+        self._require_peft_for_lora()
         source = settings.sdxl_turbo_lora
         path = Path(source)
         if path.suffix.lower() == ".safetensors":

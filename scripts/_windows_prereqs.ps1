@@ -340,7 +340,7 @@ function Test-AcceleratorStackReady {
     if (-not (Test-Path $VenvPy)) { return $false }
     $code = @"
 import importlib.util, sys
-mods = ['torch', 'diffusers', 'transformers', 'accelerate', 'sounddevice', 'soundfile', 'onnxruntime', 'torchfcpe', 'torchcrepe', 'faiss']
+mods = ['torch', 'diffusers', 'transformers', 'accelerate', 'peft', 'sounddevice', 'soundfile', 'onnxruntime', 'torchfcpe', 'torchcrepe', 'faiss']
 missing = [m for m in mods if importlib.util.find_spec(m) is None]
 sys.exit(1 if missing else 0)
 "@

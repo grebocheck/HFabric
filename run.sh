@@ -107,6 +107,7 @@ mods = [
     "diffusers",
     "transformers",
     "accelerate",
+    "peft",
     "sounddevice",
     "soundfile",
     "onnxruntime",

@@ -15,6 +15,7 @@ diffusers==0.38.0
 transformers>=4.49,<5          # IMPORTANT: transformers 5.x removed CLIPTextModel.text_model
                                # which diffusers 0.38 single-file loaders rely on.
 accelerate>=1.13
+peft>=0.14,<0.18              # Diffusers LoRA adapter backend (load_lora_weights/set_adapters)
 safetensors>=0.4.5
 sentencepiece>=0.2.0           # T5 tokenizer for FLUX
 protobuf>=5.0

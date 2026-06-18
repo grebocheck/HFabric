@@ -16,6 +16,10 @@ include breaking changes — this is pre-release software.
 ### Removed
 
 ### Fixed
+- **LoRA generation no longer fails with "PEFT backend is required"** after a
+  real-mode setup: `peft` is now installed with every accelerator profile, the
+  launchers detect older half-upgraded environments, and runtime LoRA errors point
+  users back to setup/update instead of surfacing a raw Diffusers exception.
 
 ### Security
 

@@ -13,6 +13,7 @@ arbiter swap, progress events and gallery can all be exercised today.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from pathlib import Path
 import random
 from typing import Any
@@ -55,6 +56,15 @@ class DiffusersImageBackend(
         self._accelerator: accelerator_runtime.AcceleratorRuntime | None = None
         self._accelerator_allocated_baseline_gb: float | None = None
         self._stop = False
+
+    def _require_peft_for_lora(self) -> None:
+        if importlib.util.find_spec("peft") is not None:
+            return
+        raise RuntimeError(
+            "LoRA support in Diffusers requires the optional Python package 'peft'. "
+            "Run setup/update again, or install the accelerator requirements for your "
+            "profile, then restart HFabric."
+        )
 
     def request_stop(self) -> None:
         """Ask the denoise loop to abort at the next step (see step callbacks)."""
@@ -483,6 +493,8 @@ class DiffusersImageBackend(
         requests = self._lora_requests(params)
         if requests and not hasattr(self._pipe, "load_lora_weights"):
             raise RuntimeError(f"Pipeline for {self.descriptor.name} does not support LoRA loading")
+        if requests:
+            self._require_peft_for_lora()
         for request in requests:
             adapter = self._load_lora_adapter(request["id"], Path(request["path"]))
             adapters.append(adapter)

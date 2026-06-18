@@ -30,6 +30,19 @@ def test_public_params_strips_private_keys():
     assert out == {"prompt": "x", "steps": 4}
 
 
+def test_lora_support_reports_missing_peft(monkeypatch):
+    b = _backend(ModelFamily.SDXL)
+    monkeypatch.setattr("app.backends.image_diffusers.importlib.util.find_spec", lambda name: None)
+
+    try:
+        b._require_peft_for_lora()
+    except RuntimeError as exc:
+        assert "peft" in str(exc).lower()
+        assert "setup/update" in str(exc).lower()
+    else:
+        raise AssertionError("expected missing-peft RuntimeError")
+
+
 def test_dimension_uses_param_then_default_for_sdxl():
     b = _backend(ModelFamily.SDXL)
     assert b._dimension({"width": 512}, "width", settings.default_width, settings.flux2_default_width) == 512
