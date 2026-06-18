@@ -52,6 +52,7 @@ def fake_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     image, common = _fake_jobs(models)
     module = types.SimpleNamespace(
         STARTER_IMAGE_JOBS=image,
+        ADVANCED_IMAGE_JOBS=[],
         COMMON_JOBS=common,
         plan_for_profile=lambda resolved, **k: (
             [image[0], common[0]]
@@ -140,7 +141,7 @@ def test_run_blocking_downloads_and_reports(fake_catalog: Path, monkeypatch: pyt
         return str(path)
 
     monkeypatch.setitem(sys.modules, "huggingface_hub",
-                        types.SimpleNamespace(hf_hub_download=fake_download))
+                        types.SimpleNamespace(hf_hub_download=fake_download, snapshot_download=lambda **_: "snapshot"))
 
     status = dl.run_blocking(["vendor/gguf/chat.gguf"])
 
@@ -155,9 +156,51 @@ def test_run_blocking_records_failures(fake_catalog: Path, monkeypatch: pytest.M
         raise RuntimeError("404 not found")
 
     monkeypatch.setitem(sys.modules, "huggingface_hub",
-                        types.SimpleNamespace(hf_hub_download=boom))
+                        types.SimpleNamespace(hf_hub_download=boom, snapshot_download=lambda **_: "snapshot"))
 
     status = dl.run_blocking(["vendor/gguf/chat.gguf"])
 
     assert status["state"] == "error"
     assert status["failed"] and status["failed"][0]["label"] == "Chat GGUF"
+
+
+def test_run_blocking_downloads_snapshot_jobs(fake_catalog: Path, monkeypatch: pytest.MonkeyPatch):
+    repo_job = fetch_models.FetchJob(
+        "vendor/full-repo",
+        "",
+        fake_catalog / "image",
+        "Full repo",
+        "advanced whole repo",
+        approx_size_mb=40,
+        license="see model card",
+        source="hf-repo",
+        local_subdir="full-repo",
+        exclude_patterns=("assets/*",),
+    )
+    module = types.SimpleNamespace(
+        STARTER_IMAGE_JOBS=[],
+        ADVANCED_IMAGE_JOBS=[repo_job],
+        COMMON_JOBS=[],
+        plan_for_profile=lambda resolved, **k: [],
+    )
+    calls: list[dict] = []
+    monkeypatch.setattr(dl.capability_profile, "fetch_models_module", lambda: module)
+    monkeypatch.setattr(dl, "_hub_available", lambda: True)
+
+    def fake_snapshot(**kwargs):
+        calls.append(kwargs)
+        target = Path(kwargs["local_dir"])
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "model_index.json").write_text("{}", encoding="utf-8")
+        return str(target)
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub",
+                        types.SimpleNamespace(hf_hub_download=lambda **_: "file", snapshot_download=fake_snapshot))
+
+    key = "vendor/full-repo/full-repo/"
+    status = dl.run_blocking([key])
+
+    assert status["state"] == "done"
+    assert calls and calls[0]["repo_id"] == "vendor/full-repo"
+    assert calls[0]["ignore_patterns"] == ["assets/*"]
+    assert (fake_catalog / "image" / "full-repo" / "model_index.json").exists()

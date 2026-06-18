@@ -67,8 +67,15 @@ def test_fetch_specs_targets_missing_required_into_pretrain(monkeypatch, tmp_pat
 
 def test_fetch_specs_explicit_names_cover_both_assets():
     specs = assets.fetch_specs(["content_vec", "rmvpe"])
-    assert [s["filename"] for s in specs] == ["content_vec_500.onnx", "rmvpe.pt"]
+    assert [s["filename"] for s in specs] == ["vec-768-layer-12.onnx", "rmvpe.pt"]
     assert all(s["kind"] == "voice" and s["subdir"] == "pretrain" for s in specs)
+
+
+def test_fetch_optional_specs_cover_dtln_pair():
+    specs = assets.fetch_optional_specs(["denoise_dtln"])
+    assert [s["filename"] for s in specs] == ["dtln_model_1.onnx", "dtln_model_2.onnx"]
+    assert all(s["kind"] == "voice" and s["subdir"] == "pretrain/denoise" for s in specs)
+    assert all(s["url"].startswith("https://") for s in specs)
 
 
 def test_slot_discovery_params_bare_and_zip_ignored(monkeypatch, tmp_path):

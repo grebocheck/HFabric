@@ -147,6 +147,7 @@ export interface ModelDownloadItem {
   label: string;
   reason: string;
   feature?: string | null;
+  source?: "hf-file" | "hf-repo" | string;
   approx_size_mb: number;
   license: string;
   repo_url: string;

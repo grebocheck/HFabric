@@ -5,9 +5,10 @@
     .\setup.ps1 -Stub        # STUB mode only (no GPU/ML stack)
     .\setup.ps1 -Real        # Force accelerator profile when available
     .\setup.ps1 -DownloadAll # Accelerator profile + starter models
+    .\setup.ps1 -Nunchaku    # Also install optional CUDA FLUX acceleration
 
   This script:
-  1. Checks prerequisites (Python 3.12+, Node.js 18+)
+  1. Uses local managed Python/Node on Windows (downloads them into .tools if needed)
   2. Creates Python venv + installs pip dependencies
   3. Installs npm dependencies
   4. Auto-selects CPU/CUDA/ROCm profile and installs matching packages
@@ -17,7 +18,11 @@ param(
     [switch]$Stub,                  # STUB mode only
     [switch]$Real,                  # REAL mode + accelerator stack
     [switch]$DownloadAll,           # REAL mode + accelerator stack + starter models
+    [Alias("SkipPrerequisiteCheck")]
     [switch]$SkipPrerequiteCheck,   # Skip Python/Node.js/NVIDIA checks
+    [switch]$NoOptionalPrompts,     # Compatibility flag: setup is non-interactive by default
+    [switch]$PromptOptional,        # Ask about optional packages such as Nunchaku
+    [switch]$Nunchaku,              # Explicitly install optional Nunchaku acceleration when supported
     [switch]$Force                  # Force reinstall even if venv exists
 )
 
@@ -99,12 +104,12 @@ function Resolve-InstallProfile {
 if (-not $SkipPrerequiteCheck) {
     Write-Section "Checking prerequisites"
     
-    # Python 3.12+ — refreshes PATH + offers winget before failing (shared helper).
+    # Python 3.12+ - prefers the project-managed runtime under .tools.
     Assert-Python
     $pyVersion = & python --version 2>&1
     Write-Success "Python found: $pyVersion"
 
-    # Node.js 18+ / npm — same: handles a stale PATH and can auto-install via winget.
+    # Node.js 18+ / npm - prefers the project-managed runtime under .tools.
     Assert-NodeToolchain
     $nodeVersion = & node --version 2>&1
     Write-Success "Node.js found: $nodeVersion"
@@ -191,8 +196,7 @@ Write-Success "pip upgraded"
 
 Write-Section "Installing foundation dependencies"
 Write-Host "  Installing from backend/requirements.txt..." -ForegroundColor Cyan
-& $venvPip install -r backend\requirements.txt 2>&1 | Out-Null
-Assert-LastExit "foundation dependency install"
+Install-FoundationDeps $venvPy
 Write-Success "Foundation packages installed (FastAPI, SQLAlchemy, Pydantic, etc.)"
 
 # --- Install GPU deps if needed -----------------------------------------------
@@ -210,9 +214,9 @@ if ($Real) {
     $installNunchaku = $false
     $canInstallNunchaku = @($profile.optional_features) -contains "nunchaku_cuda"
     if ($canInstallNunchaku) {
-        if ($DownloadAll) {
+        if ($DownloadAll -or $Nunchaku) {
             $installNunchaku = $true
-        } else {
+        } elseif ($PromptOptional -and -not $NoOptionalPrompts) {
             Write-Host ""
             $nChoice = Read-Host "Install Nunchaku acceleration for FLUX? (y/n, default: n)"
             if ($nChoice -eq "y") { $installNunchaku = $true }
@@ -229,6 +233,15 @@ if ($Real) {
         } else {
             Write-Success "Nunchaku installed"
         }
+    }
+
+    Write-Section "Installing voice changer assets"
+    if (Test-VoiceAssetsReady $venvPy) {
+        Write-Success "Shared voice assets already present"
+    } elseif (Install-VoiceAssets $venvPy) {
+        Write-Success "Shared voice assets downloaded"
+    } else {
+        Write-Warning-Text "Some voice asset downloads failed; the Voice tab can retry them later."
     }
 }
 
@@ -257,9 +270,25 @@ if ($DownloadAll) {
 
     & $venvPy "scripts\fetch_models.py" --profile $profileId
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning-Text "Some starter model downloads failed; the app will still run, and you can re-run .\setup.ps1 -DownloadAll."
+        Write-Warning-Text "Some starter model downloads failed; the app will still run, and you can re-run setup.bat all."
     } else {
         Write-Success "Profile starter models downloaded"
+    }
+
+    Write-Host "  Downloading shared voice assets..." -ForegroundColor Cyan
+    & $venvPy "scripts\fetch_voice_assets.py"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning-Text "Some voice asset downloads failed; the Voice tab can retry them later."
+    } else {
+        Write-Success "Shared voice assets downloaded"
+    }
+
+    Write-Host "  Downloading optional DTLN denoise assets..." -ForegroundColor Cyan
+    & $venvPy "scripts\fetch_dtln.py"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning-Text "DTLN denoise asset download failed; DTLN can be installed later from the Voice tab."
+    } else {
+        Write-Success "Optional DTLN denoise assets downloaded"
     }
 }
 
@@ -279,12 +308,8 @@ Write-Host "`n  Next step: start the app`n" -ForegroundColor White
 
 if ($Stub) {
     Write-Host "    run.bat stub" -ForegroundColor Cyan
-    Write-Host "      or" -ForegroundColor DarkGray
-    Write-Host "    .\scripts\run.ps1 -Stub" -ForegroundColor Cyan
 } else {
     Write-Host "    run.bat" -ForegroundColor Cyan
-    Write-Host "      or" -ForegroundColor DarkGray
-    Write-Host "    .\scripts\run.ps1" -ForegroundColor Cyan
 }
 
 Write-Host "`n  This will start:" -ForegroundColor White
@@ -293,7 +318,7 @@ Write-Host "    - Frontend at http://localhost:5173" -ForegroundColor DarkGray
 
 if ($Real -and -not $DownloadAll) {
     Write-Host "`n  ⓘ GPU mode requires models in models/" -ForegroundColor Yellow
-    Write-Host "    Download them manually or re-run: .\setup.ps1 -DownloadAll" -ForegroundColor Yellow
+    Write-Host "    Use the Models tab after launch, or re-run: setup.bat all" -ForegroundColor Yellow
 }
 
 Write-Host "`n" -ForegroundColor White

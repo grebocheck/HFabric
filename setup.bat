@@ -7,9 +7,9 @@ REM    setup.bat stub        -> STUB mode setup (no GPU)
 REM    setup.bat real        -> Force accelerator setup when available
 REM    setup.bat all         -> Accelerator setup + profile starter models
 REM
-REM  Sets up everything: venv, dependencies (foundation + accelerator), npm, and
-REM  optionally downloads model files. After setup completes, run.bat starts
-REM  the app.
+REM  Sets up everything: local Python/Node when needed, venv, dependencies
+REM  (foundation + accelerator), npm packages, and optionally model files.
+REM  After setup completes, run.bat starts the app.
 REM ===========================================================================
 setlocal
 set "SETUPFLAG="

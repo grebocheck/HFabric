@@ -21,6 +21,7 @@ class ContentVec:
         self._input_name: str | None = None
         self._output_name: str | None = None
         self._input_type = ""
+        self._input_rank = 2
         self._requested_providers: list[str] = []
         self._actual_providers: list[str] = []
         self._provider_error: str | None = None
@@ -90,6 +91,8 @@ class ContentVec:
         self._input_name = input_meta.name
         self._output_name = output_meta.name
         self._input_type = str(getattr(input_meta, "type", ""))
+        shape = getattr(input_meta, "shape", None)
+        self._input_rank = len(shape) if isinstance(shape, (list, tuple)) and shape else 2
 
     def extract(self, audio_16k: np.ndarray) -> np.ndarray:
         self._load()
@@ -102,6 +105,8 @@ class ContentVec:
         if audio.ndim != 1:
             audio = audio.reshape(-1)
         payload = audio[None, :]
+        if self._input_rank >= 3:
+            payload = payload[:, None, :]
         if "float16" in self._input_type or self.model_path.name.endswith(".fp16.onnx"):
             payload = payload.astype(np.float16)
         out = self._session.run([self._output_name], {self._input_name: payload})[0]

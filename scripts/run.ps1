@@ -8,13 +8,15 @@
   Before starting it frees the backend/frontend ports, killing stale instances
   left over from earlier runs. Those leftovers are the cause of the
   "WinError 10013 / socket forbidden" failure: a previous backend was still
-  holding port 8260, so a new one could not bind. Bootstraps venv + npm on the
-  first run, then runs the FastAPI backend and the Vite dev server in THIS
-  console. Ctrl+C stops both.
+  holding port 8260, so a new one could not bind. Bootstraps local Python/Node
+  under .tools when needed, creates/repairs venv + npm deps on first run, then
+  runs the FastAPI backend and the Vite dev server in THIS console. Ctrl+C
+  stops both.
 #>
 param(
     [switch]$Stub,
     [switch]$Prod,
+    [switch]$NoOpen,
     [int]$Port = 0,
     [int]$FrontendPort = 0,
     [string]$BindHost = ""
@@ -98,28 +100,6 @@ function Write-ProfileSummary($Profile) {
     }
 }
 
-function Write-AcceleratorInstallHint($Profile) {
-    Write-Host "[setup] REAL mode also needs the accelerator stack." -ForegroundColor Yellow
-    if (-not $Profile) {
-        Write-Host "        Run setup.bat real or .\setup.ps1 -Real to install it." -ForegroundColor Yellow
-        return
-    }
-
-    $torchPackages = @($Profile.install.torch.packages)
-    $indexUrl = [string]$Profile.install.torch.index_url
-    if ($torchPackages.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($indexUrl)) {
-        Write-Host "        & '$venvPy' -m pip install $($torchPackages -join ' ') --index-url $indexUrl" -ForegroundColor Yellow
-    } elseif ($torchPackages.Count -gt 0) {
-        Write-Host "        & '$venvPy' -m pip install $($torchPackages -join ' ')" -ForegroundColor Yellow
-    }
-    foreach ($req in @($Profile.install.requirements)) {
-        if (-not [string]::IsNullOrWhiteSpace($req)) {
-            Write-Host "        & '$venvPy' -m pip install -r $req" -ForegroundColor Yellow
-        }
-    }
-    Write-Host "        Or run setup.bat real / .\setup.ps1 -Real for the guided install." -ForegroundColor Yellow
-}
-
 function Get-NewestWriteUtc([string[]]$Paths) {
     $latest = [datetime]::MinValue
     foreach ($path in $Paths) {
@@ -173,6 +153,10 @@ if ([string]::IsNullOrWhiteSpace($BindHost)) {
 
 $env:HFAB_HOST = $BindHost
 $env:HFAB_PORT = "$Port"
+
+# Hardware profile resolution needs a host Python before the venv exists. Prefer
+# the project-managed Python under .tools so first run is independent of PATH.
+Assert-Python
 
 $selectedProfile = $null
 $stubModeRaw = [Environment]::GetEnvironmentVariable("HFAB_STUB_MODE", "Process")
@@ -248,7 +232,9 @@ if (-not (Test-Path $venvPy)) {
     Write-Host "[setup] creating venv + installing foundation deps..." -ForegroundColor Cyan
     python -m venv .venv
     & $venvPy -m pip install --upgrade pip
-    & $venvPy -m pip install -r backend\requirements.txt
+}
+if (-not (Test-FoundationDepsReady $venvPy)) {
+    Install-FoundationDeps $venvPy
 }
 
 # --- ensure the accelerator stack for REAL mode (zero-decision default) --------
@@ -261,11 +247,18 @@ if (-not $isStubMode -and -not (Test-AcceleratorStackReady $venvPy)) {
     Write-Host "[setup] REAL mode needs the accelerator stack -> installing it now (one-time, large)..." -ForegroundColor Cyan
     Install-AcceleratorStack $venvPy $selectedProfile
 }
+if (-not $isStubMode -and -not (Test-VoiceAssetsReady $venvPy)) {
+    Write-Host "[setup] REAL mode needs shared voice changer assets -> downloading them now..." -ForegroundColor Cyan
+    if (-not (Install-VoiceAssets $venvPy)) {
+        Write-Host "[setup] voice asset download failed; the Voice tab can retry later." -ForegroundColor Yellow
+    }
+}
 
 # --- bootstrap frontend deps --------------------------------------------------
 # run.ps1 always drives npm (install + dev/build), so make sure the toolchain is
 # really there before the first `npm` call turns into a CommandNotFoundException.
 Assert-NodeToolchain
+$npmCmd = Get-NpmCommand
 $frontendDir = Join-Path $root "frontend"
 if (-not (Test-FrontendReady $frontendDir)) {
     if (Test-Path (Join-Path $frontendDir "node_modules")) {
@@ -279,7 +272,7 @@ if (-not (Test-FrontendReady $frontendDir)) {
 if ($Prod -and (Test-DistStale)) {
     Write-Host "[build] frontend/dist is missing or stale -> npm run build" -ForegroundColor Cyan
     Push-Location frontend
-    npm run build
+    & $npmCmd run build
     Pop-Location
 }
 
@@ -302,21 +295,23 @@ try {
     if ($Prod) {
         $healthUrl = "http://127.0.0.1:$Port/api/health"
         if (Wait-Health $healthUrl) {
-            Start-Process "http://localhost:$Port"
+            if (-not $NoOpen) { Start-Process "http://localhost:$Port" }
         } else {
             Write-Host "[warn] backend did not answer $healthUrl before timeout" -ForegroundColor Yellow
         }
         Wait-Process -Id $backend.Id
     } else {
         # Open the UI once the servers have had a moment to come up.
-        Start-Job -ScriptBlock {
-            param($url)
-            Start-Sleep -Seconds 6
-            Start-Process $url
-        } -ArgumentList "http://localhost:$FrontendPort" | Out-Null
+        if (-not $NoOpen) {
+            Start-Job -ScriptBlock {
+                param($url)
+                Start-Sleep -Seconds 6
+                Start-Process $url
+            } -ArgumentList "http://localhost:$FrontendPort" | Out-Null
+        }
 
         Push-Location frontend
-        npm run dev          # foreground; blocks until Ctrl+C
+        & $npmCmd run dev          # foreground; blocks until Ctrl+C
     }
 } finally {
     if (-not $Prod) { Pop-Location }

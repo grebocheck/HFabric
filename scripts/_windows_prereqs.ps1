@@ -1,85 +1,280 @@
-# Shared Windows setup helpers for setup.ps1 and scripts/run.ps1:
-# prerequisite checks (Python / Node) plus a robust frontend `npm install`.
+# Shared Windows setup helpers for setup.ps1, scripts/run.ps1, and update.ps1:
+# managed local Python / Node provisioning plus a robust frontend `npm install`.
 #
 # Dot-source this file so the functions land in the caller's scope:
 #     . "$PSScriptRoot\_windows_prereqs.ps1"
 #
 # Why this exists: a bare `npm install` / `python -m venv` throws an opaque
-# "CommandNotFoundException" when the toolchain isn't on PATH. Worse, the #1
-# Windows trap is a toolchain that *is* installed but invisible to an
-# already-open shell because its PATH was captured before the install. These
-# helpers refresh PATH from the registry, recheck, optionally auto-install via
-# winget, and otherwise fail with an actionable message instead of a stack trace.
-
-function Update-SessionPath {
-    # Rebuild this process's PATH from the persisted Machine + User values so a
-    # freshly installed tool is visible without reopening the terminal.
-    $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
-    $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
-    $combined = @($machine, $user) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    if ($combined.Count -gt 0) { $env:Path = $combined -join ";" }
-}
+# "CommandNotFoundException" when the toolchain isn't on PATH. These helpers
+# create project-local tools under .tools (no system PATH writes) instead of
+# sending the user to hunt for installers.
 
 function Test-ToolOnPath {
     param([string]$Name)
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Test-WinGetAvailable {
-    return [bool](Get-Command winget -ErrorAction SilentlyContinue)
+function Get-RepoRoot {
+    return (Split-Path -Parent $PSScriptRoot)
+}
+
+function Get-ToolsRoot {
+    return (Join-Path (Get-RepoRoot) ".tools")
+}
+
+function Get-ManagedPythonVersion {
+    if ([string]::IsNullOrWhiteSpace($env:HFAB_MANAGED_PYTHON_VERSION)) { return "3.12.10" }
+    return $env:HFAB_MANAGED_PYTHON_VERSION.Trim()
+}
+
+function Get-ManagedNodeVersion {
+    if ([string]::IsNullOrWhiteSpace($env:HFAB_MANAGED_NODE_VERSION)) { return "24.17.0" }
+    return $env:HFAB_MANAGED_NODE_VERSION.Trim().TrimStart("v")
+}
+
+function Get-ManagedPythonDir {
+    return (Join-Path (Get-ToolsRoot) ("python-" + (Get-ManagedPythonVersion)))
+}
+
+function Get-ManagedPythonExe {
+    return (Join-Path (Get-ManagedPythonDir) "python.exe")
+}
+
+function Get-ManagedNodeDir {
+    $version = Get-ManagedNodeVersion
+    return (Join-Path (Get-ToolsRoot) "node-v$version-win-x64")
+}
+
+function Get-ManagedNodeExe {
+    return (Join-Path (Get-ManagedNodeDir) "node.exe")
+}
+
+function Get-ManagedNpmCmd {
+    return (Join-Path (Get-ManagedNodeDir) "npm.cmd")
+}
+
+function Add-ToolDirToPath {
+    param([string]$Dir)
+    if (-not (Test-Path $Dir)) { return }
+    $parts = @($env:Path -split ";" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $resolved = (Resolve-Path -LiteralPath $Dir).Path
+    $kept = @()
+    foreach ($part in $parts) {
+        try {
+            if ((Resolve-Path -LiteralPath $part -ErrorAction Stop).Path -ieq $resolved) {
+                continue
+            }
+        } catch {}
+        $kept += $part
+    }
+    $env:Path = (@($resolved) + $kept) -join ";"
+}
+
+function Enable-ManagedPython {
+    $exe = Get-ManagedPythonExe
+    if (Test-Path $exe) {
+        Add-ToolDirToPath (Get-ManagedPythonDir)
+    }
+}
+
+function Enable-ManagedNode {
+    $exe = Get-ManagedNodeExe
+    if (Test-Path $exe) {
+        Add-ToolDirToPath (Get-ManagedNodeDir)
+    }
+}
+
+function Invoke-HFabricDownload {
+    param(
+        [string]$Url,
+        [string]$OutFile
+    )
+    $parent = Split-Path -Parent $OutFile
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    if (Test-Path $OutFile) { return }
+    Write-Host "[prereq] downloading $Url" -ForegroundColor Cyan
+    Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $OutFile
+}
+
+function Assert-UnderToolsRoot {
+    param([string]$Path)
+    $tools = (Resolve-Path -LiteralPath (Get-ToolsRoot) -ErrorAction SilentlyContinue)
+    if (-not $tools) {
+        New-Item -ItemType Directory -Force -Path (Get-ToolsRoot) | Out-Null
+        $tools = Resolve-Path -LiteralPath (Get-ToolsRoot)
+    }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetFullPath($tools.Path)
+    if (-not $full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "refusing to modify a path outside .tools: $full"
+    }
+}
+
+function Install-ManagedPython {
+    param([switch]$Force)
+    $version = Get-ManagedPythonVersion
+    $dir = Get-ManagedPythonDir
+    $exe = Get-ManagedPythonExe
+    if ((Test-Path $exe) -and -not $Force) {
+        Enable-ManagedPython
+        return
+    }
+
+    Assert-UnderToolsRoot $dir
+    New-Item -ItemType Directory -Force -Path (Get-ToolsRoot) | Out-Null
+    if (Test-Path $dir) {
+        Remove-Item -LiteralPath $dir -Recurse -Force
+    }
+
+    # Use the official CPython NuGet package rather than the Windows installer:
+    # the MSI installer modifies an existing per-user Python of the same version
+    # instead of creating a true side-by-side project-local copy.
+    $cache = Join-Path (Get-ToolsRoot) "cache"
+    $package = Join-Path $cache "python.$version.nupkg"
+    $zip = Join-Path $cache "python.$version.zip"
+    $extract = Join-Path $cache "python-$version-extract"
+    $url = "https://api.nuget.org/v3-flatcontainer/python/$version/python.$version.nupkg"
+    Invoke-HFabricDownload $url $package
+
+    Write-Host "[prereq] unpacking local Python $version into $dir" -ForegroundColor Cyan
+    Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath $package -Destination $zip -Force
+    Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+    $tools = Join-Path $extract "tools"
+    if (-not (Test-Path (Join-Path $tools "python.exe"))) {
+        Write-Host "[prereq] Python package unpacked, but tools\python.exe was not found." -ForegroundColor Red
+        exit 1
+    }
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Get-ChildItem -LiteralPath $tools -Force | Copy-Item -Destination $dir -Recurse -Force
+    Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+
+    if (-not (Test-Path $exe)) {
+        Write-Host "[prereq] local Python unpack finished, but python.exe was not found at $exe." -ForegroundColor Red
+        exit 1
+    }
+    Enable-ManagedPython
+    & $exe -m ensurepip --upgrade 2>$null | Out-Null
+}
+
+function Install-ManagedNode {
+    param([switch]$Force)
+    $version = Get-ManagedNodeVersion
+    $dir = Get-ManagedNodeDir
+    $exe = Get-ManagedNodeExe
+    if ((Test-Path $exe) -and (Test-Path (Get-ManagedNpmCmd)) -and -not $Force) {
+        Enable-ManagedNode
+        return
+    }
+
+    Assert-UnderToolsRoot $dir
+    New-Item -ItemType Directory -Force -Path (Get-ToolsRoot) | Out-Null
+    if (Test-Path $dir) {
+        Remove-Item -LiteralPath $dir -Recurse -Force
+    }
+
+    $zip = Join-Path (Get-ToolsRoot) "cache\node-v$version-win-x64.zip"
+    $url = "https://nodejs.org/dist/v$version/node-v$version-win-x64.zip"
+    Invoke-HFabricDownload $url $zip
+
+    Write-Host "[prereq] unpacking local Node.js $version into .tools" -ForegroundColor Cyan
+    Expand-Archive -LiteralPath $zip -DestinationPath (Get-ToolsRoot) -Force
+    if (-not (Test-Path $exe)) {
+        Write-Host "[prereq] local Node.js archive unpacked, but node.exe was not found at $exe." -ForegroundColor Red
+        exit 1
+    }
+    Enable-ManagedNode
+}
+
+function Get-PythonVersion {
+    Enable-ManagedPython
+    if (-not (Test-ToolOnPath "python")) { return $null }
+    $raw = & python -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    try { return [version]$raw.Trim() } catch { return $null }
+}
+
+function Get-NodeVersion {
+    Enable-ManagedNode
+    if (-not ((Test-ToolOnPath "node") -and (Test-Path (Get-NpmCommand)))) { return $null }
+    $raw = & node -p "process.versions.node" 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    try { return [version]$raw.Trim() } catch { return $null }
+}
+
+function Get-NpmCommand {
+    $managed = Get-ManagedNpmCmd
+    if (Test-Path $managed) { return $managed }
+    $cmd = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $cmd = Get-Command "npm" -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return "npm"
+}
+
+function Test-MinVersion {
+    param(
+        [version]$Version,
+        [int]$Major,
+        [int]$Minor
+    )
+    if ($null -eq $Version) { return $false }
+    return ($Version.Major -gt $Major) -or (($Version.Major -eq $Major) -and ($Version.Minor -ge $Minor))
 }
 
 function Assert-Python {
-    # Needed to create the backend venv. Quiet on success.
-    if (Test-ToolOnPath "python") { return }
-    Update-SessionPath
-    if (Test-ToolOnPath "python") { return }
+    # Needed to create the backend venv. Windows is intentionally project-managed:
+    # even if system Python exists, create/use the local .tools runtime first.
+    if (-not (Test-Path (Get-ManagedPythonExe))) {
+        Install-ManagedPython
+    } else {
+        Enable-ManagedPython
+    }
+    $version = Get-PythonVersion
+    if (Test-MinVersion $version 3 12) {
+        if ($version.Major -eq 3 -and $version.Minor -gt 12) {
+            Write-Host "[prereq] Python $version detected; 3.12 is the validated runtime for optional native wheels." -ForegroundColor Yellow
+        }
+        return
+    }
+    Write-Host "[prereq] local Python runtime is missing or invalid; reinstalling it." -ForegroundColor Yellow
+    Install-ManagedPython -Force
+    $version = Get-PythonVersion
+    if (Test-MinVersion $version 3 12) { return }
 
     Write-Host ""
-    Write-Host "[prereq] Python was not found on PATH." -ForegroundColor Red
-    Write-Host "         HFabric needs Python 3.12+ to create the backend environment." -ForegroundColor Yellow
-    Write-Host "           - Download: https://www.python.org/downloads/  (check 'Add Python to PATH')" -ForegroundColor Cyan
-    Write-Host "           - Or:       winget install Python.Python.3.12" -ForegroundColor Cyan
-    Write-Host "         If you just installed Python, open a NEW terminal so PATH refreshes." -ForegroundColor Yellow
+    if ($version) {
+        Write-Host "[prereq] Python $version is too old." -ForegroundColor Red
+    } else {
+        Write-Host "[prereq] local Python could not be started." -ForegroundColor Red
+    }
+    Write-Host "[prereq] local Python install did not produce Python 3.12+." -ForegroundColor Red
     exit 1
 }
 
 function Assert-NodeToolchain {
-    # Needed for the frontend (npm install / dev / build). Quiet on success.
-    # Handles the stale-PATH case first, then offers a one-shot winget install.
-    if ((Test-ToolOnPath "node") -and (Test-ToolOnPath "npm")) { return }
-
-    Update-SessionPath
-    if ((Test-ToolOnPath "node") -and (Test-ToolOnPath "npm")) {
-        Write-Host "[prereq] found Node.js after refreshing PATH from the registry." -ForegroundColor DarkGray
-        return
+    # Needed for the frontend (npm install / dev / build). Windows is intentionally
+    # project-managed: even if system Node exists, create/use local .tools first.
+    if (-not ((Test-Path (Get-ManagedNodeExe)) -and (Test-Path (Get-ManagedNpmCmd)))) {
+        Install-ManagedNode
+    } else {
+        Enable-ManagedNode
     }
+    $version = Get-NodeVersion
+    if (Test-MinVersion $version 18 0) { return }
+
+    Write-Host "[prereq] local Node.js runtime is missing or invalid; reinstalling it." -ForegroundColor Yellow
+    Install-ManagedNode -Force
+    $version = Get-NodeVersion
+    if (Test-MinVersion $version 18 0) { return }
 
     Write-Host ""
-    Write-Host "[prereq] Node.js / npm was not found on PATH." -ForegroundColor Red
-    Write-Host "         The frontend needs Node.js 18+ (which provides npm)." -ForegroundColor Yellow
-
-    if ((Test-WinGetAvailable) -and [Environment]::UserInteractive) {
-        $answer = Read-Host "         Install Node.js LTS now with winget? [Y/n]"
-        if ([string]::IsNullOrWhiteSpace($answer) -or $answer.Trim().ToLowerInvariant().StartsWith("y")) {
-            Write-Host "[prereq] winget install OpenJS.NodeJS.LTS ..." -ForegroundColor Cyan
-            winget install --id OpenJS.NodeJS.LTS -e --source winget `
-                --accept-package-agreements --accept-source-agreements
-            Update-SessionPath
-            if ((Test-ToolOnPath "node") -and (Test-ToolOnPath "npm")) {
-                Write-Host "[prereq] Node.js installed and detected." -ForegroundColor Green
-                return
-            }
-            Write-Host "[prereq] Node.js was installed but isn't visible in this session yet." -ForegroundColor Yellow
-            Write-Host "         Close this window and start the app again." -ForegroundColor Yellow
-            exit 1
-        }
+    if ($version) {
+        Write-Host "[prereq] Node.js $version is too old." -ForegroundColor Red
+    } else {
+        Write-Host "[prereq] local Node.js / npm could not be started." -ForegroundColor Red
     }
-
-    Write-Host "         Install it, then re-run:" -ForegroundColor Yellow
-    Write-Host "           - Download: https://nodejs.org/  (LTS; keep 'Add to PATH' checked)" -ForegroundColor Cyan
-    Write-Host "           - Or:       winget install OpenJS.NodeJS.LTS" -ForegroundColor Cyan
-    Write-Host "         If you just installed Node.js, open a NEW terminal so PATH refreshes." -ForegroundColor Yellow
+    Write-Host "[prereq] local Node.js install did not produce Node.js 18+." -ForegroundColor Red
     exit 1
 }
 
@@ -103,20 +298,53 @@ function Show-NpmFailureHelp {
     Write-Host "        Common Windows causes and fixes:" -ForegroundColor Yellow
     Write-Host "          - TLS errors (ERR_SSL_CIPHER_OPERATION_FAILED): a VPN, corporate proxy," -ForegroundColor Cyan
     Write-Host "            or antivirus is intercepting HTTPS. Pause it (or configure npm proxy)," -ForegroundColor Cyan
-    Write-Host "            and update npm:  npm install -g npm@latest" -ForegroundColor Cyan
+    Write-Host "            then re-run update.bat --force or setup.bat." -ForegroundColor Cyan
     Write-Host "          - EPERM removing node_modules: the folder is locked. Move the project OUT" -ForegroundColor Cyan
     Write-Host "            of a OneDrive-synced folder (Desktop/Documents) to a short local path" -ForegroundColor Cyan
     Write-Host "            like C:\HFabric, close editors/Explorer on it, and exclude it from AV." -ForegroundColor Cyan
-    Write-Host "          - Then delete frontend\node_modules and run this again." -ForegroundColor Cyan
+    Write-Host "          - Then re-run update.bat --force or setup.bat." -ForegroundColor Cyan
+}
+
+function Test-FoundationDepsReady {
+    # Foundation mode still needs the in-app model downloader, diagnostics, DB,
+    # and basic image/audio helpers. Keep this as a find_spec check so launch
+    # stays cheap and does not import FastAPI/torch.
+    param([string]$VenvPy)
+    if (-not (Test-Path $VenvPy)) { return $false }
+    $code = @"
+import importlib.util, sys
+mods = ['fastapi', 'pydantic_settings', 'sqlalchemy', 'PIL', 'psutil', 'huggingface_hub']
+missing = [m for m in mods if importlib.util.find_spec(m) is None]
+sys.exit(1 if missing else 0)
+"@
+    & $VenvPy -c $code 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Install-FoundationDeps {
+    param([string]$VenvPy)
+    Write-Host "[setup] installing foundation backend packages..." -ForegroundColor Cyan
+    & $VenvPy -m pip install -r backend\requirements.txt
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[setup] foundation dependency install failed (exit $LASTEXITCODE)." -ForegroundColor Red
+        exit 1
+    }
 }
 
 function Test-AcceleratorStackReady {
-    # REAL mode needs the heavy stack; torch is the sentinel. Use find_spec (no
-    # actual import) so this stays a fast per-launch check, not a multi-second
-    # torch import. Foundation-only venvs won't have torch.
+    # REAL mode needs the heavy stack. Use find_spec (no actual import) so this
+    # stays a fast per-launch check, not a multi-second torch import. Torch alone
+    # is not enough: voice/audio previously failed when sounddevice/onnxruntime
+    # were absent in a half-upgraded venv.
     param([string]$VenvPy)
     if (-not (Test-Path $VenvPy)) { return $false }
-    & $VenvPy -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('torch') else 1)" 2>$null
+    $code = @"
+import importlib.util, sys
+mods = ['torch', 'diffusers', 'transformers', 'accelerate', 'sounddevice', 'soundfile', 'onnxruntime', 'torchfcpe', 'torchcrepe', 'faiss']
+missing = [m for m in mods if importlib.util.find_spec(m) is None]
+sys.exit(1 if missing else 0)
+"@
+    & $VenvPy -c $code 2>$null
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -125,7 +353,7 @@ function Install-AcceleratorStack {
     # index), the profile's backend requirements (diffusers, sounddevice, etc.), and
     # the managed llama.cpp runtime. This is what makes "double-click and it works"
     # true — both run.ps1 (first run) and setup.ps1 install through here so they
-    # behave identically. Optional Nunchaku acceleration stays a setup.ps1 prompt.
+    # behave identically. Optional Nunchaku acceleration stays explicitly opt-in.
     param(
         [string]$VenvPy,
         $Profile
@@ -176,6 +404,27 @@ function Install-AcceleratorStack {
     }
 }
 
+function Test-VoiceAssetsReady {
+    param([string]$VenvPy)
+    if (-not (Test-Path $VenvPy)) { return $false }
+    $code = @"
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path('backend').resolve()))
+from app.services.voice_engine.assets import discover_assets
+sys.exit(0 if discover_assets()['ready'] else 1)
+"@
+    & $VenvPy -c $code 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Install-VoiceAssets {
+    param([string]$VenvPy)
+    Write-Host "[setup] downloading shared voice changer assets..." -ForegroundColor Cyan
+    & $VenvPy "scripts\fetch_voice_assets.py"
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Install-FrontendDeps {
     # npm is a native exe, so a failed install does NOT throw — it just returns a
     # non-zero code. Callers used to ignore that and march on to `npm run dev`,
@@ -184,13 +433,14 @@ function Install-FrontendDeps {
     # then fail loudly with actionable help.
     param([string]$FrontendDir)
     $code = 0
+    $npm = Get-NpmCommand
     Push-Location $FrontendDir
     try {
-        npm install
+        & $npm install
         if ($LASTEXITCODE -eq 0) { return }
         Write-Host "[setup] npm install failed (exit $LASTEXITCODE); clearing cache and retrying once..." -ForegroundColor DarkYellow
-        npm cache clean --force
-        npm install
+        & $npm cache clean --force
+        & $npm install
         if ($LASTEXITCODE -eq 0) { return }
         $code = $LASTEXITCODE
     } finally {

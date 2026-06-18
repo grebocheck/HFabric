@@ -54,6 +54,7 @@ they never collide.
 - [Full install (GPU)](#full-install-gpu)
 - [Getting models](#getting-models)
 - [Running the app](#running-the-app)
+- [Updating](#updating)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
@@ -100,8 +101,8 @@ If you're on ROCm or Apple Silicon and willing to help validate, the
 | **RAM** | 32 GB recommended (≈16 GB for models + 16 GB for OS/processes). |
 | **OS** | Windows 11 (validated CUDA path), Linux (ROCm), macOS Apple Silicon (MPS). |
 | **Disk** | 40+ GB for the starter set; 150 GB for the larger FLUX/SDXL/LLM workspace. |
-| **Python** | 3.12+ — `python --version` |
-| **Node.js** | 18+ (20 recommended) — `node --version` |
+| **Python** | Windows setup downloads and uses portable Python 3.12.10 from `.tools/` via NuGet. Linux/macOS: Python 3.12+ on PATH. |
+| **Node.js** | Windows setup downloads and uses local Node.js/npm from `.tools/`. Linux/macOS: Node.js 18+ on PATH. |
 | **Git** | optional, used by `huggingface-cli` for model downloads |
 
 A recent GPU driver is needed for acceleration (`nvidia-smi` should report your
@@ -124,10 +125,11 @@ run.bat stub
 
 ```powershell
 # PowerShell
-.\scripts\run.ps1 -Stub
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run.ps1 -Stub
 ```
 
-This bootstraps the Python venv + npm deps on first run, starts the backend
+On Windows this also bootstraps local Python/Node under `.tools/` when needed.
+Then it creates the Python venv + npm deps on first run, starts the backend
 (`:8260`) and the Vite dev server (`:5173`), and opens
 <http://localhost:5173>. **Ctrl+C** stops both. Try the chat/image forms — you'll
 see mock responses. This is the right mode for UI work and for confirming the
@@ -152,16 +154,19 @@ setup.bat all      :: auto setup + download a profile-aware starter model set
 ```
 
 ```powershell
-# PowerShell
-.\setup.ps1            # auto setup
-.\setup.ps1 -DownloadAll  # auto setup + starter models
+# PowerShell, if you prefer not to use setup.bat
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -DownloadAll
 ```
 
-The setup script: checks Python/Node, probes hardware and selects a profile,
+The setup script: checks Python/Node (and on Windows downloads local managed
+runtimes into `.tools/` when needed), probes hardware and selects a profile,
 creates the venv, installs the profile's PyTorch wheels + Python deps, installs
 npm packages, installs the managed `llama.cpp` build for your accelerator,
-installs Nunchaku when the CUDA profile supports it, and (with `all`) downloads
-the starter models. When finished, run the app with `run.bat` / `./run.sh`.
+fetches the required shared voice-changer assets, installs Nunchaku only when you
+pass `-Nunchaku`/`all`, and (with `all`) downloads the starter models plus
+optional voice denoise assets. When finished, run the app with
+`run.bat` / `./run.sh`.
 
 <details>
 <summary><b>Manual GPU install (advanced)</b></summary>
@@ -215,6 +220,11 @@ disk; and downloads with a progress bar — no terminal needed. The same tab sho
 everything installed (grouped by type, with sizes) and lets you **delete** models to
 reclaim disk.
 
+Advanced entries include large full-repo image models (FLUX.2 [klein],
+Z-Image-Turbo, Qwen-Image-2512). They are not preselected because they are big
+and may have provider-specific terms; expand **Advanced** in the Models tab when
+you want them.
+
 From the command line, the equivalent is the hardware-aware starter downloader
 (also run by `setup … all`):
 
@@ -238,6 +248,7 @@ Qwen-Image, Z-Image, voice/DTLN assets), see **[models/README.md](models/README.
 run.bat            :: auto-select REAL/STUB from the hardware profile
 run.bat stub       :: STUB mode: full pipeline, no GPU/ML stack
 run.bat --prod     :: production: one FastAPI port serves the built frontend
+run.bat --no-open  :: start without opening the browser
 ```
 
 ```bash
@@ -245,12 +256,14 @@ run.bat --prod     :: production: one FastAPI port serves the built frontend
 ```
 
 ```powershell
-.\scripts\run.ps1 [-Stub] [-Prod]
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run.ps1 [-Stub] [-Prod] [-NoOpen]
 ```
 
-On first run it bootstraps the venv + npm deps, frees any stale ports left by an
-earlier run, then runs the backend (`:8260`) and the Vite dev server (`:5173`)
-together in one window and opens <http://localhost:5173>. Ctrl+C stops both.
+On first run it bootstraps local Windows runtimes if needed, creates/repairs the
+venv + npm deps, frees any stale ports left by an earlier run, installs any
+missing profile packages, then runs the backend
+(`:8260`) and the Vite dev server (`:5173`) together in one window and opens
+<http://localhost:5173>. Ctrl+C stops both.
 
 `--prod` builds the frontend and serves it from FastAPI on a single port (no Node
 at runtime) — simpler for daily use and a smaller surface to secure.
@@ -259,6 +272,28 @@ After submitting a generation job, watch your GPU monitor (`nvidia-smi -l 1`,
 `rocm-smi`, or Activity Monitor) fill and empty as the arbiter loads and frees the
 model. The backend console (and `data/logs/hfabric.log`) shows timing, memory
 snapshots, and load/unload events.
+
+## Updating
+
+Use the updater instead of hand-running git and package managers. On Windows it
+uses the same local `.tools/` Python/Node bootstrap as setup/run:
+
+```bat
+update.bat          :: git pull + refresh dependencies
+update.bat all      :: also refresh starter models + voice assets
+update.bat --prod   :: also rebuild frontend/dist
+```
+
+```bash
+./update.sh         # same options on Linux/macOS
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\update.ps1 [-DownloadAll] [-Prod]
+```
+
+If you have local source edits, the updater asks git to use `--autostash` so the
+pull does not overwrite them silently. It does not delete `models/` or `data/`.
 
 ## Architecture
 
@@ -322,11 +357,11 @@ speech/RAG/chat-native vision/voice, capability autotune) is in
 | Symptom | Fix |
 |---------|-----|
 | **`WinError 10013: socket forbidden`** | A previous run still holds port 8260/5173. Re-run `run.bat` (it auto-kills stale processes), or `netstat -ano \| findstr :8260` then `taskkill /PID <pid> /F`. |
-| **`ModuleNotFoundError: torch`** | venv not active or torch not installed. Delete `backend\.venv` and re-run `run.bat`, or `pip install -r backend/requirements-gpu.txt`. |
+| **`ModuleNotFoundError: torch`** | Re-run `run.bat` / `./run.sh` or `update.bat`; launchers repair a missing REAL stack automatically. |
 | **CUDA out of memory** | Lower **Settings → LLM runtime → GPU layers**, disable **torch.compile**, reduce resolution, try a smaller model, or check **Settings → Memory policy**. |
 | **"No image models discovered"** | Models are missing or in the wrong folder. Confirm files under `models/image/`, `models/llm/`, etc., or run `python scripts/fetch_models.py`. |
-| **Vite dev server won't start** | Port 5173 conflict (`run.bat` frees it automatically) or `npm install` in `frontend/` failed. |
-| **Backend crashes after first request** | A REAL-mode code path with no ML stack installed. Install GPU deps, or use `run.bat stub`. |
+| **Vite dev server won't start** | Port 5173 conflict (`run.bat` frees it automatically) or frontend dependencies are stale; re-run `run.bat` or `setup.bat`. |
+| **Backend crashes after first request** | Re-run `update.bat` (or `setup.bat`) so the venv matches the current code; use `run.bat stub` to isolate UI/foundation issues. |
 
 More detail and logs: the backend console and `data/logs/hfabric.log` are the
 first places to look. Hardware/profile diagnostics:

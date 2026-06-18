@@ -88,6 +88,23 @@ async def test_assets_fetch_noop_when_already_present(client):
     assert res.json()["asset_download"]["state"] != "running"
 
 
+async def test_assets_fetch_can_target_optional_dtln(client, monkeypatch):
+    from app.services import model_download_service as downloads
+
+    captured = []
+    monkeypatch.setattr(downloads, "is_downloading", lambda: False)
+    monkeypatch.setattr(downloads, "start_custom", lambda specs: captured.extend(specs) or downloads.get_status())
+
+    res = await client.post(
+        "/api/voice/engine/assets/fetch",
+        json={"names": ["denoise_dtln"], "include_optional": True},
+    )
+
+    assert res.status_code == 200
+    assert [item["filename"] for item in captured] == ["dtln_model_1.onnx", "dtln_model_2.onnx"]
+    assert all(item["subdir"] == "pretrain/denoise" for item in captured)
+
+
 async def test_settings_clamps_and_rejects_bad_f0(client):
     response = await client.post(
         "/api/voice/engine/settings",

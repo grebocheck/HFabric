@@ -72,6 +72,107 @@ else
   C_GREEN=""; C_YELLOW=""; C_CYAN=""; C_DIM=""; C_RST=""
 fi
 have() { command -v "$1" >/dev/null 2>&1; }
+cmd_ready() { [ -x "$1" ] || command -v "$1" >/dev/null 2>&1; }
+python_ready() {
+  cmd_ready "$PYHOST" && "$PYHOST" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' >/dev/null 2>&1
+}
+node_ready() {
+  have node && have npm && node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)" >/dev/null 2>&1
+}
+frontend_ready() {
+  [ -d "$ROOT/frontend/node_modules" ] || return 1
+  [ -x "$ROOT/frontend/node_modules/.bin/vite" ] ||
+  [ -f "$ROOT/frontend/node_modules/.bin/vite" ] ||
+  [ -f "$ROOT/frontend/node_modules/vite/package.json" ]
+}
+foundation_ready() {
+  [ -x "$PYBIN" ] || return 1
+  "$PYBIN" - <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+
+mods = ["fastapi", "pydantic_settings", "sqlalchemy", "PIL", "psutil", "huggingface_hub"]
+missing = [m for m in mods if importlib.util.find_spec(m) is None]
+raise SystemExit(1 if missing else 0)
+PY
+}
+accelerator_stack_ready() {
+  [ -x "$PYBIN" ] || return 1
+  "$PYBIN" - <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+
+mods = [
+    "torch",
+    "diffusers",
+    "transformers",
+    "accelerate",
+    "sounddevice",
+    "soundfile",
+    "onnxruntime",
+    "torchfcpe",
+    "torchcrepe",
+    "faiss",
+]
+missing = [m for m in mods if importlib.util.find_spec(m) is None]
+raise SystemExit(1 if missing else 0)
+PY
+}
+voice_assets_ready() {
+  [ -x "$PYBIN" ] || return 1
+  "$PYBIN" - <<'PY' >/dev/null 2>&1
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path("backend").resolve()))
+from app.services.voice_engine.assets import discover_assets
+
+raise SystemExit(0 if discover_assets()["ready"] else 1)
+PY
+}
+
+install_foundation_deps() {
+  printf '%s[setup] installing foundation backend packages...%s\n' "$C_CYAN" "$C_RST"
+  "$PYBIN" -m pip install -r backend/requirements.txt
+}
+
+install_accelerator_stack() {
+  [ -n "$PROFILE_JSON" ] || resolve_profile
+  local profile_id torch_index verify req
+  profile_id="$(profile_get selected_profile)"
+  torch_index="$(profile_get install.torch.index_url)"
+  torch_packages=()
+  while IFS= read -r package; do
+    [ -n "$package" ] && torch_packages+=("$package")
+  done < <(profile_list install.torch.packages)
+
+  if [ "${#torch_packages[@]}" -gt 0 ]; then
+    printf '%s[setup] installing PyTorch for %s (one-time, large)...%s\n' "$C_CYAN" "$profile_id" "$C_RST"
+    if [ -n "$torch_index" ]; then
+      "$PYBIN" -m pip install "${torch_packages[@]}" --index-url "$torch_index"
+    else
+      "$PYBIN" -m pip install "${torch_packages[@]}"
+    fi
+  fi
+
+  verify="$(profile_get install.verify)"
+  if [ -n "$verify" ]; then
+    if "$PYBIN" -c "$verify"; then
+      printf '%s[setup] torch profile verified%s\n' "$C_GREEN" "$C_RST"
+    else
+      printf '%s[setup] warning: torch installed but profile verification failed%s\n' "$C_YELLOW" "$C_RST"
+    fi
+  fi
+
+  while IFS= read -r req; do
+    [ -n "$req" ] || continue
+    printf '%s[setup] installing backend requirements: %s%s\n' "$C_CYAN" "$req" "$C_RST"
+    "$PYBIN" -m pip install -r "$req"
+  done < <(profile_list install.requirements)
+
+  printf '%s[setup] installing the matching llama.cpp runtime...%s\n' "$C_CYAN" "$C_RST"
+  "$PYBIN" scripts/fetch_llama.py || true
+}
 
 PYHOST=""
 if [ -x "$PYBIN" ]; then
@@ -82,6 +183,11 @@ else
   done
 fi
 [ -n "$PYHOST" ] || PYHOST="python3"
+
+if ! python_ready; then
+  printf '%s[prereq] Python 3.12+ is required. Install Python 3.12 and re-run.%s\n' "$C_YELLOW" "$C_RST"
+  exit 1
+fi
 
 truthy() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
@@ -227,14 +333,31 @@ if [ ! -x "$PYBIN" ]; then
   printf '%s[setup] creating venv + installing foundation deps...%s\n' "$C_CYAN" "$C_RST"
   "$PYHOST" -m venv .venv
   "$PYBIN" -m pip install --upgrade pip >/dev/null
-  "$PYBIN" -m pip install -r backend/requirements.txt >/dev/null
-  if [ "${HFAB_STUB_MODE}" = "false" ]; then
-    print_accelerator_install_hint
-  fi
+fi
+if ! foundation_ready; then
+  install_foundation_deps
+fi
+
+# A plain ./run.sh should match Windows run.bat: when REAL mode is selected but
+# the heavy stack is missing or half-upgraded, install it instead of starting a
+# backend that will fail later with missing torch/sounddevice/onnxruntime.
+if [ "${HFAB_STUB_MODE}" = "false" ] && ! accelerator_stack_ready; then
+  printf '%s[setup] REAL mode needs the accelerator stack -> installing it now.%s\n' "$C_CYAN" "$C_RST"
+  install_accelerator_stack
+fi
+if [ "${HFAB_STUB_MODE}" = "false" ] && ! voice_assets_ready; then
+  printf '%s[setup] REAL mode needs shared voice changer assets -> downloading them now.%s\n' "$C_CYAN" "$C_RST"
+  "$PYBIN" scripts/fetch_voice_assets.py || {
+    printf '%s[setup] voice asset download failed; the Voice tab can retry later.%s\n' "$C_YELLOW" "$C_RST"
+  }
 fi
 
 # --- bootstrap frontend deps -------------------------------------------------
-if [ ! -d "$ROOT/frontend/node_modules" ]; then
+if ! node_ready; then
+  printf '%s[prereq] Node.js 18+ and npm are required for the frontend.%s\n' "$C_YELLOW" "$C_RST"
+  exit 1
+fi
+if ! frontend_ready; then
   printf '%s[setup] installing frontend deps...%s\n' "$C_CYAN" "$C_RST"
   ( cd frontend && npm install )
 fi

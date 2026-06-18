@@ -43,11 +43,10 @@ backend, eslint + `tsc -b` + `npm run build` + vitest on the frontend.
 **Backend** (pytest, stub mode — hermetic temp DB + dummy model files):
 
 ```powershell
-cd backend
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt pytest pytest-asyncio pytest-cov ruff
-.\.venv\Scripts\ruff check app tests
-.\.venv\Scripts\python -m pytest
+.\.venv\Scripts\pip install -r backend\requirements-dev.txt
+.\.venv\Scripts\ruff check backend scripts
+.\.venv\Scripts\python -m pytest backend\tests
 ```
 
 Anchor coverage: `tests/test_scheduler.py` (the *one-swap-per-mixed-batch*

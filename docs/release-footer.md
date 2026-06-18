@@ -4,8 +4,8 @@
 
 1. Download and extract the source zip, or clone the repository:
    `git clone https://github.com/grebocheck/HFabric.git`
-2. Run setup for your platform: `setup.bat` on Windows, `./setup.sh` on
-   Linux/macOS, or `.\setup.ps1` in PowerShell.
+2. Run setup for your platform: `setup.bat` on Windows, or `./setup.sh` on
+   Linux/macOS.
 3. First try **STUB mode** to see the UI with no GPU: `run.bat stub` on Windows or
    `./run.sh stub` on Linux/macOS.
 4. Start in REAL mode with `run.bat` or `./run.sh`.

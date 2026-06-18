@@ -9,7 +9,8 @@ settings, and starts or stops the live session through `/api/voice/engine/*`.
 To use the converted voice in Discord, OBS, games, or meeting apps:
 
 1. Install a virtual audio cable such as VB-CABLE, or use VoiceMeeter if you need
-   more routing.
+   more routing. HFabric detects common cable devices and links the official
+   VB-Audio page from the Voice tab when none are present.
 2. In the HFabric Voice tab, set `Input` to your physical microphone.
 3. Set `Output` to the virtual cable input device.
 4. In the target app, set the microphone to the matching virtual cable output.

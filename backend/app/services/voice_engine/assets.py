@@ -19,7 +19,7 @@ class RequiredAsset:
 
 
 REQUIRED_ASSETS = (
-    RequiredAsset("content_vec", ("content_vec_500.onnx", "content_vec_500.fp16.onnx")),
+    RequiredAsset("content_vec", ("vec-768-layer-12.onnx", "content_vec_500.onnx", "content_vec_500.fp16.onnx")),
     RequiredAsset("rmvpe", ("rmvpe.pt",)),
 )
 OPTIONAL_ASSETS = (
@@ -34,28 +34,51 @@ OPTIONAL_ASSETS = (
 
 # Canonical upstream sources for the shared RVC pretrain assets so the in-app
 # "Download voice assets" action, scripts/fetch_voice_assets.py, and the docs all
-# agree on one place. These weights keep their upstream licenses (RVC-Project, MIT).
+# agree on one place. These weights keep their upstream licenses.
 # content_vec is required by every conversion; rmvpe is the quality F0 path (FCPE,
 # the default detector, bundles its own weights, so rmvpe matters for the RMVPE
 # presets). Each lands in models/voice/pretrain/ via the custom-download path
 # (kind=voice, subdir=pretrain).
 ASSET_SOURCES: dict[str, dict[str, str]] = {
     "content_vec": {
-        "filename": "content_vec_500.onnx",
-        "url": "https://huggingface.co/NaruseMioShirakana/MoeSS-SUBModel/resolve/main/contentvec/content_vec_500.onnx",
-        "approx_mb": "190",
+        "filename": "vec-768-layer-12.onnx",
+        "url": "https://huggingface.co/NaruseMioShirakana/MoeSS-SUBModel/resolve/main/vec-768-layer-12.onnx",
+        "approx_mb": "360",
+        "license": "GPL-3.0",
     },
     "rmvpe": {
         "filename": "rmvpe.pt",
         "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt",
         "approx_mb": "181",
+        "license": "MIT",
     },
+}
+OPTIONAL_ASSET_SOURCES: dict[str, tuple[dict[str, str], ...]] = {
+    "denoise_dtln": (
+        {
+            "filename": "dtln_model_1.onnx",
+            "url": "https://github.com/breizhn/DTLN/raw/master/pretrained_model/model_1.onnx",
+            "approx_mb": "2",
+            "license": "MIT",
+        },
+        {
+            "filename": "dtln_model_2.onnx",
+            "url": "https://github.com/breizhn/DTLN/raw/master/pretrained_model/model_2.onnx",
+            "approx_mb": "2",
+            "license": "MIT",
+        },
+    ),
 }
 
 
 def missing_required_names() -> list[str]:
     """Names of required assets not present on disk (what to fetch)."""
     return [a["name"] for a in discover_assets()["assets"] if not a["found"] and not a.get("optional")]
+
+
+def missing_optional_names() -> list[str]:
+    """Names of optional assets not present on disk (what can be fetched)."""
+    return [a["name"] for a in discover_assets()["assets"] if not a["found"] and a.get("optional")]
 
 
 def fetch_specs(names: list[str] | None = None) -> list[dict[str, str]]:
@@ -74,8 +97,25 @@ def fetch_specs(names: list[str] | None = None) -> list[dict[str, str]]:
             "subdir": "pretrain",
             "url": src["url"],
             "filename": src["filename"],
-            "label": f"voice asset · {src['filename']}",
+            "label": f"voice asset - {src['filename']}",
         })
+    return specs
+
+
+def fetch_optional_specs(names: list[str] | None = None) -> list[dict[str, str]]:
+    """Custom-download specs for optional voice assets such as DTLN denoise."""
+    wanted = names if names is not None else missing_optional_names()
+    specs: list[dict[str, str]] = []
+    for name in wanted:
+        for src in OPTIONAL_ASSET_SOURCES.get(name, ()):
+            specs.append({
+                "source": "url",
+                "kind": "voice",
+                "subdir": "pretrain/denoise",
+                "url": src["url"],
+                "filename": src["filename"],
+                "label": f"voice asset - {src['filename']}",
+            })
     return specs
 
 

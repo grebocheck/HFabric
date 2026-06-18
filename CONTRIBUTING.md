@@ -24,9 +24,9 @@ See the [developer guide](docs/developer.md) for the full layout and design rule
 Quick start:
 
 ```bash
-# backend (stub mode — no GPU needed)
-cd backend && python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt pytest pytest-asyncio pytest-cov ruff
+# backend (stub mode, no GPU needed)
+python -m venv .venv
+.venv/Scripts/pip install -r backend/requirements-dev.txt
 
 # frontend
 cd frontend && npm install
@@ -38,8 +38,8 @@ All of these should pass (CI runs them on every push):
 
 ```bash
 # backend
-ruff check app tests
-pytest
+.venv/Scripts/ruff check backend scripts
+.venv/Scripts/python -m pytest backend/tests
 
 # frontend
 npm run lint

@@ -60,6 +60,7 @@ import {
   waveformSlots,
 } from "./voiceHelpers";
 import type {
+  VoiceAudioDevice,
   VoiceEngineConvertResult,
   VoiceEnginePreset,
   VoiceEngineRecordingResult,
@@ -72,6 +73,13 @@ type Profile =
   | typeof clearVoicePreset
   | typeof smoothVoicePreset
   | typeof feminineVoicePreset;
+
+const virtualCablePattern = /\b(vb-cable|vb-audio|voicemeeter|virtual cable|cable input|cable output|blackhole|loopback|soundflower)\b/i;
+
+function looksLikeVirtualCable(device: VoiceAudioDevice | undefined): boolean {
+  if (!device) return false;
+  return virtualCablePattern.test(`${device.name} ${device.host_api}`);
+}
 
 export function VoicePanel() {
   const [status, setStatus] = useState<VoiceEngineStatus | null>(null);
@@ -146,6 +154,18 @@ export function VoicePanel() {
     }
   }, []);
 
+  const fetchDtlnAssets = useCallback(async () => {
+    setBusy("dtln-assets");
+    try {
+      setStatus(await api.voiceEngineFetchAssets({ names: ["denoise_dtln"], include_optional: true }));
+      setError("");
+    } catch (err) {
+      setError(parseApiError(err) || "could not start the DTLN asset download");
+    } finally {
+      setBusy("");
+    }
+  }, []);
+
   const refreshPresets = useCallback(async () => {
     try {
       const next = await api.voiceEnginePresets();
@@ -159,6 +179,9 @@ export function VoicePanel() {
   const models = useMemo(() => status?.models ?? [], [status]);
   const inputDevices = status?.audio_devices.inputs ?? [];
   const outputDevices = status?.audio_devices.outputs ?? [];
+  const selectedOutputDevice = outputDevices.find((device) => device.index === outputDeviceId);
+  const virtualCableDetected = [...inputDevices, ...outputDevices].some(looksLikeVirtualCable);
+  const outputIsVirtualCable = looksLikeVirtualCable(selectedOutputDevice);
   const selected = useMemo(() => models.find((m) => m.id === modelId), [models, modelId]);
   const loadedModel = useMemo(
     () => models.find((m) => m.id === status?.loaded_model),
@@ -650,8 +673,9 @@ export function VoicePanel() {
     };
   }, [ptt, statusLoaded]);
 
-  const assetsFound = (status?.assets ?? []).filter((asset) => asset.found || asset.optional).length;
+  const assetsFound = (status?.assets ?? []).filter((asset) => asset.found).length;
   const totalAssets = status?.assets.length ?? 0;
+  const denoiseDtlnMissing = Boolean((status?.assets ?? []).find((asset) => asset.name === "denoise_dtln" && !asset.found));
   const voiceOptions = models.map((m) => ({ value: m.id, label: m.name, hint: `${m.source ?? "local"} ${m.slot}` }));
   const selectedSupportsPitch = selected?.f0 !== false;
 
@@ -786,19 +810,39 @@ export function VoicePanel() {
                     disabled={busy === "assets"}
                     className="mt-2 rounded-md bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-black transition hover:bg-amber-400 disabled:opacity-40"
                   >
-                    {busy === "assets" ? "Starting…" : "Download voice assets (~370 MB)"}
+                    {busy === "assets" ? "Starting…" : "Download voice assets (~560 MB)"}
                   </button>
                 )}
                 {dl?.state === "error" ? (
                   <div className="mt-2 text-xs text-red-200">
-                    {dl.message} — you can also place them manually in{" "}
-                    <code className="rounded bg-black/30 px-1">models/voice/pretrain</code> (standard RVC assets:
-                    {" "}content_vec_500.onnx, rmvpe.pt).
+                    {dl.message} — retry the download here, or rerun setup.bat all / ./setup.sh all when the network is stable.
                   </div>
                 ) : null}
               </div>
             );
           })()}
+
+          {denoiseDtlnMissing ? (
+            <div className="mt-3 rounded-md border border-white/10 bg-black/15 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-white/78">Optional DTLN denoise assets</div>
+                  <div className="mt-1 text-xs leading-5 text-white/42">
+                    Enables the DTLN input denoise mode; files land in{" "}
+                    <code className="rounded bg-black/30 px-1">models/voice/pretrain/denoise</code>.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void fetchDtlnAssets()}
+                  disabled={busy === "dtln-assets" || status?.asset_download?.state === "running"}
+                  className="rounded-md border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                >
+                  {busy === "dtln-assets" ? "Starting..." : "Download DTLN"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </Panel>
 
         <Panel
@@ -1148,6 +1192,30 @@ export function VoicePanel() {
               <OfflineDevice label="Monitor" message={statusLoaded ? "No output device for monitor" : "Loading devices"} />
             )}
           </div>
+
+          {statusLoaded && !status?.stub ? (
+            <div className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${
+              outputIsVirtualCable
+                ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100/80"
+                : virtualCableDetected
+                  ? "border-amber-400/25 bg-amber-400/10 text-amber-100/80"
+                  : "border-white/10 bg-black/15 text-white/45"
+            }`}
+            >
+              {outputIsVirtualCable ? (
+                <>Virtual cable output selected; choose its matching input as the microphone in Discord, OBS, or calls.</>
+              ) : virtualCableDetected ? (
+                <>Virtual cable detected. Select its playback/input side as Output before starting live routing.</>
+              ) : (
+                <>
+                  No virtual audio cable detected for app routing. Install VB-CABLE or Voicemeeter from the official VB-Audio site, then refresh devices.{" "}
+                  <a className="text-accent-fg underline-offset-2 hover:underline" href="https://vb-audio.com/Cable/" target="_blank" rel="noreferrer">
+                    Open VB-Audio
+                  </a>
+                </>
+              )}
+            </div>
+          ) : null}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label>

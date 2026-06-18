@@ -11,17 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.config import settings  # noqa: E402
-
-FILES = (
-    (
-        "dtln_model_1.onnx",
-        "https://github.com/breizhn/DTLN/raw/master/pretrained_model/model_1.onnx",
-    ),
-    (
-        "dtln_model_2.onnx",
-        "https://github.com/breizhn/DTLN/raw/master/pretrained_model/model_2.onnx",
-    ),
-)
+from app.services.voice_engine.assets import OPTIONAL_ASSET_SOURCES  # noqa: E402
 
 
 def main() -> int:
@@ -30,7 +20,9 @@ def main() -> int:
     print("Fetching optional DTLN denoiser weights.")
     print("Upstream: breizhn/DTLN, MIT license. These weights keep their upstream license.")
     print(f"Destination: {out_dir}")
-    for filename, url in FILES:
+    for source in OPTIONAL_ASSET_SOURCES["denoise_dtln"]:
+        filename = source["filename"]
+        url = source["url"]
         target = out_dir / filename
         tmp = target.with_suffix(target.suffix + ".tmp")
         print(f"Downloading {filename}...")

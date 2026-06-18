@@ -12,7 +12,7 @@ import type {
 } from "../types";
 
 export const field = "w-full rounded-md border border-white/10 bg-black/25 px-2.5 py-1.5 text-sm outline-none transition focus:border-accent";
-export const assetSearchHint = "content_vec_500.onnx + rmvpe.pt -> models/voice/pretrain";
+export const assetSearchHint = "ContentVec + rmvpe.pt -> models/voice/pretrain";
 const denoiseAssetHint = "dtln_model_1.onnx + dtln_model_2.onnx -> models/voice/pretrain/denoise";
 export const modelDirHint = "models/voice";
 

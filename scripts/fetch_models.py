@@ -38,16 +38,36 @@ class FetchJob:
     license: str = ""
     profiles: tuple[str, ...] = ("nvidia-cuda", "amd-rocm-linux", "apple-mps")
     feature: str | None = None
+    source: str = "hf-file"  # hf-file | hf-repo
+    local_subdir: str = ""
+    include_patterns: tuple[str, ...] = ()
+    exclude_patterns: tuple[str, ...] = ()
+    present_markers: tuple[str, ...] = ("model_index.json",)
+
+    def target_dir(self) -> Path:
+        return self.dest / self.local_subdir if self.local_subdir else self.dest
+
+    def display_filename(self) -> str:
+        return self.filename or (f"{self.local_subdir}/" if self.local_subdir else ".")
+
+    def is_present(self) -> bool:
+        if self.source == "hf-repo":
+            target = self.target_dir()
+            if self.present_markers:
+                return all((target / marker).exists() for marker in self.present_markers)
+            return target.exists() and any(target.iterdir())
+        return (self.target_dir() / self.filename).exists()
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "repo": self.repo,
-            "filename": self.filename,
-            "dest": str(self.dest.relative_to(ROOT)),
+            "filename": self.display_filename(),
+            "dest": str(self.target_dir().relative_to(ROOT)),
             "label": self.label,
             "reason": self.reason,
             "approx_size_mb": self.approx_size_mb,
             "license": self.license,
+            "source": self.source,
         }
         if self.feature:
             out["feature"] = self.feature
@@ -74,6 +94,46 @@ STARTER_IMAGE_JOBS = [
         license="FLUX.1-dev Non-Commercial",
         profiles=("nvidia-cuda",),
         feature="nunchaku_cuda",
+    ),
+]
+
+ADVANCED_IMAGE_JOBS = [
+    FetchJob(
+        "black-forest-labs/FLUX.2-klein-9B",
+        "",
+        MODELS / "image",
+        "FLUX.2 klein 9B full repo",
+        "full FLUX.2 [klein] diffusers repo for 16 GB+ CUDA experiments",
+        approx_size_mb=22_000,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="flux2-klein-9b",
+    ),
+    FetchJob(
+        "Tongyi-MAI/Z-Image-Turbo",
+        "",
+        MODELS / "image",
+        "Z-Image-Turbo full repo",
+        "distilled full image model; backend defaults to 1024x1024, 9 steps, guidance 0.0",
+        approx_size_mb=12_000,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="z-image-turbo",
+        exclude_patterns=("assets/*",),
+    ),
+    FetchJob(
+        "Qwen/Qwen-Image-2512",
+        "",
+        MODELS / "image",
+        "Qwen-Image-2512 full repo",
+        "large full image repo; advanced only because disk/RAM requirements are high",
+        approx_size_mb=54_000,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="qwen-image-2512",
     ),
 ]
 
@@ -195,9 +255,9 @@ def _filter_jobs(jobs: list[FetchJob], profile_id: str, optional: set[str]) -> l
 
 def _dedupe(jobs: list[FetchJob]) -> list[FetchJob]:
     out: list[FetchJob] = []
-    seen: set[tuple[str, str, Path]] = set()
+    seen: set[tuple[str, str, Path, str]] = set()
     for job in jobs:
-        key = (job.repo, job.filename, job.dest)
+        key = (job.repo, job.display_filename(), job.target_dir(), job.source)
         if key in seen:
             continue
         seen.add(key)
@@ -207,21 +267,30 @@ def _dedupe(jobs: list[FetchJob]) -> list[FetchJob]:
 
 def download_jobs(jobs: list[FetchJob]) -> bool:
     try:
-        from huggingface_hub import hf_hub_download  # noqa: PLC0415
+        from huggingface_hub import hf_hub_download, snapshot_download  # noqa: PLC0415
     except Exception as exc:  # noqa: BLE001
         print(f"[fetch] huggingface_hub is not installed: {exc}", flush=True)
         return False
 
     ok = True
     for job in jobs:
-        job.dest.mkdir(parents=True, exist_ok=True)
-        print(f"[fetch] {job.label}: {job.repo}/{job.filename} -> {job.dest}", flush=True)
+        target = job.target_dir()
+        target.mkdir(parents=True, exist_ok=True)
+        print(f"[fetch] {job.label}: {job.repo}/{job.display_filename()} -> {target}", flush=True)
         try:
-            path = hf_hub_download(repo_id=job.repo, filename=job.filename, local_dir=str(job.dest))
+            if job.source == "hf-repo":
+                path = snapshot_download(
+                    repo_id=job.repo,
+                    local_dir=str(target),
+                    allow_patterns=list(job.include_patterns) or None,
+                    ignore_patterns=list(job.exclude_patterns) or None,
+                )
+            else:
+                path = hf_hub_download(repo_id=job.repo, filename=job.filename, local_dir=str(target))
             print(f"[done]  {path}", flush=True)
         except Exception as exc:  # noqa: BLE001
             ok = False
-            print(f"[FAIL]  {job.repo}/{job.filename}: {type(exc).__name__}: {exc}", flush=True)
+            print(f"[FAIL]  {job.repo}/{job.display_filename()}: {type(exc).__name__}: {exc}", flush=True)
     print("[all done]" if ok else "[done with failures]", flush=True)
     return ok
 

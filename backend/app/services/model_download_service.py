@@ -71,17 +71,35 @@ def _models_root() -> Path:
 
 def _all_jobs() -> list[Any]:
     fm = capability_profile.fetch_models_module()
-    return [*fm.STARTER_IMAGE_JOBS, *fm.COMMON_JOBS]
+    return [*fm.STARTER_IMAGE_JOBS, *getattr(fm, "ADVANCED_IMAGE_JOBS", []), *fm.COMMON_JOBS]
 
 
 def _recommended_keys(*, refresh: bool = False) -> set[tuple[str, str]]:
     fm = capability_profile.fetch_models_module()
     resolved = capability_profile.resolved_install_profile(refresh=refresh)
-    return {(job.repo, job.filename) for job in fm.plan_for_profile(resolved)}
+    return {(job.repo, _job_filename(job)) for job in fm.plan_for_profile(resolved)}
 
 
 def _job_key(repo: str, filename: str) -> str:
     return f"{repo}/{filename}"
+
+
+def _job_filename(job: Any) -> str:
+    if hasattr(job, "display_filename"):
+        return str(job.display_filename())
+    return str(job.filename)
+
+
+def _job_target_dir(job: Any) -> Path:
+    if hasattr(job, "target_dir"):
+        return job.target_dir()
+    return job.dest
+
+
+def _job_present(job: Any) -> bool:
+    if hasattr(job, "is_present"):
+        return bool(job.is_present())
+    return (job.dest / job.filename).exists()
 
 
 def catalog(*, refresh: bool = False) -> list[dict[str, Any]]:
@@ -90,20 +108,23 @@ def catalog(*, refresh: bool = False) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for job in _all_jobs():
-        ident = (job.repo, job.filename)
+        filename = _job_filename(job)
+        target_dir = _job_target_dir(job)
+        ident = (job.repo, filename)
         if ident in seen:
             continue
         seen.add(ident)
-        present = (job.dest / job.filename).exists()
+        present = _job_present(job)
         items.append(
             {
-                "key": _job_key(job.repo, job.filename),
+                "key": _job_key(job.repo, filename),
                 "repo": job.repo,
-                "filename": job.filename,
-                "dest": job.dest.relative_to(ROOT).as_posix(),
+                "filename": filename,
+                "dest": target_dir.relative_to(ROOT).as_posix(),
                 "label": job.label,
                 "reason": job.reason,
                 "feature": job.feature,
+                "source": getattr(job, "source", "hf-file"),
                 "approx_size_mb": job.approx_size_mb,
                 "license": job.license,
                 "repo_url": f"https://huggingface.co/{job.repo}",
@@ -144,11 +165,11 @@ def _hub_available() -> bool:
 # --------------------------------------------------------------------------- #
 def _jobs_for_keys(keys: list[str]) -> list[Any]:
     wanted = set(keys)
-    return [job for job in _all_jobs() if _job_key(job.repo, job.filename) in wanted]
+    return [job for job in _all_jobs() if _job_key(job.repo, _job_filename(job)) in wanted]
 
 
 def _required_mb(jobs: list[Any]) -> int:
-    return sum(job.approx_size_mb for job in jobs if not (job.dest / job.filename).exists())
+    return sum(job.approx_size_mb for job in jobs if not _job_present(job))
 
 
 def preflight(keys: list[str]) -> tuple[list[Any], str | None]:
@@ -179,7 +200,7 @@ def start(keys: list[str]) -> dict[str, Any]:
     jobs, error = preflight(keys)
     if error:
         raise ValueError(error)
-    pending = [job for job in jobs if not (job.dest / job.filename).exists()]
+    pending = [job for job in jobs if not _job_present(job)]
     if not pending:
         _set_status(state="done", message="All selected models are already present.",
                     current=None, progress={"done": 0, "total": 0}, failed=[])
@@ -191,20 +212,30 @@ def start(keys: list[str]) -> dict[str, Any]:
 
 def run_blocking(keys: list[str]) -> dict[str, Any]:
     """Download the selected jobs. Runs in a worker thread; updates status."""
-    from huggingface_hub import hf_hub_download  # noqa: PLC0415
+    from huggingface_hub import hf_hub_download, snapshot_download  # noqa: PLC0415
 
-    jobs = [job for job in _jobs_for_keys(keys) if not (job.dest / job.filename).exists()]
+    jobs = [job for job in _jobs_for_keys(keys) if not _job_present(job)]
     total = len(jobs)
     failed: list[dict[str, str]] = []
     for index, job in enumerate(jobs):
+        filename = _job_filename(job)
+        target_dir = _job_target_dir(job)
         _set_status(
-            current={"label": job.label, "filename": job.filename},
+            current={"label": job.label, "filename": filename},
             message=f"Downloading {job.label}…",
             progress={"done": index, "total": total},
         )
         try:
-            job.dest.mkdir(parents=True, exist_ok=True)
-            hf_hub_download(repo_id=job.repo, filename=job.filename, local_dir=str(job.dest))
+            target_dir.mkdir(parents=True, exist_ok=True)
+            if getattr(job, "source", "hf-file") == "hf-repo":
+                snapshot_download(
+                    repo_id=job.repo,
+                    local_dir=str(target_dir),
+                    allow_patterns=list(getattr(job, "include_patterns", ())) or None,
+                    ignore_patterns=list(getattr(job, "exclude_patterns", ())) or None,
+                )
+            else:
+                hf_hub_download(repo_id=job.repo, filename=job.filename, local_dir=str(target_dir))
         except Exception as exc:  # noqa: BLE001 - report each failure to the UI
             failed.append({"label": job.label, "error": f"{type(exc).__name__}: {exc}"})
 

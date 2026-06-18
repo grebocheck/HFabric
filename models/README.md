@@ -49,6 +49,11 @@ also get the Nunchaku FLUX fp4 checkpoint when the `nunchaku_cuda` feature is
 available. The `--dry-run --profile ...` form is planner-only, so it can show
 an AMD/MPS plan from another machine without installing or downloading anything.
 
+The in-app **Models** tab also exposes larger whole-repo image downloads under
+**Advanced**. These are not part of the starter set because they are large and
+may have provider-specific terms, but the downloader can place them directly:
+`FLUX.2-klein-9b/`, `z-image-turbo/`, and `qwen-image-2512/`.
+
 FLUX.2 klein is a multi-file diffusers repo, not a single `.safetensors`; put the
 downloaded folder under `models/image/`, for example:
 
@@ -104,9 +109,9 @@ both public repos.
 ### Voice changer pretrain assets
 
 Voice models you drop into `models/voice/` (RVC `.pth` files) all share a
-**ContentVec** encoder and, for the quality pitch path, **RMVPE** — these are not
-bundled with the voice files, so without them no voice model can run. Fetch them
-once into `models/voice/pretrain/`:
+**ContentVec** encoder and, for the quality pitch path, **RMVPE**. Windows
+`setup.bat` / `run.bat` fetch these required shared assets automatically for REAL
+mode; this script is the same fallback action the Voice tab uses:
 
 ```powershell
 python scripts/fetch_voice_assets.py
@@ -114,13 +119,14 @@ python scripts/fetch_voice_assets.py
 
 ```text
 models/voice/pretrain/
-|- content_vec_500.onnx   (required, ~190 MB)
+|- vec-768-layer-12.onnx  (required ContentVec, ~360 MB)
 `- rmvpe.pt               (RMVPE pitch path, ~181 MB)
 ```
 
 The in-app **Voice** tab also has a one-click **"Download voice assets"** button
-when they're missing. The weights come from the RVC-Project ecosystem and keep
-their upstream (MIT) license.
+when they're missing. These assets are not committed to the repository; setup
+downloads them from upstream into the user's local `models/` directory and they
+keep their upstream licenses.
 
 Optional DTLN neural input denoise weights are stored as:
 

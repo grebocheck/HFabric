@@ -24,7 +24,7 @@ def main() -> int:
     out_dir = settings.voice_pretrain_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     print("Fetching shared RVC pretrain assets (ContentVec + RMVPE).")
-    print("Upstream: RVC-Project ecosystem (MIT). These weights keep their upstream license.")
+    print("Upstream: RVC-compatible ContentVec/RMVPE assets. These weights keep their upstream license.")
     print(f"Destination: {out_dir}")
     failures = 0
     for name, source in ASSET_SOURCES.items():
@@ -42,9 +42,10 @@ def main() -> int:
             tmp.unlink(missing_ok=True)
             failures += 1
             print(f"  FAILED: {exc}")
-            print(f"  Place {source['filename']} manually in {out_dir} (source: {source['url']}).")
+            print("  Retry from the Voice tab, or rerun setup.bat all / ./setup.sh all when the network is stable.")
+            print(f"  Source kept for diagnostics: {source['url']}")
     if failures:
-        print(f"Done with {failures} failure(s); see the manual notes above.")
+        print("Done with {0} failure(s); retry via the Voice tab or setup.bat all / ./setup.sh all.".format(failures))
         return 1
     print("Voice asset fetch complete.")
     return 0

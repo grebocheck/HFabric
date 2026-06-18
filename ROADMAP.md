@@ -71,8 +71,12 @@ testers) and the **P24.7** resilience audit.
 - [~] **P24.7 — First-run experience & resilience.** *(P2 — the newcomer's first ten
   minutes.)* **Done:** Welcome modal, dismissible STUB-mode banner, no-image-models
   nudge, chat empty-state hint; friendly model-load failure messages (P17.6) clear the
-  spinner on error. **Remaining:** a deeper audit of the OOM-guarded / missing-binary
-  paths and any Setup-Doctor cross-links, revisited if testers hit them.
+  spinner on error; first-run dependency audit tightened Python/Node/version checks,
+  launcher self-repair of missing foundation/REAL stack packages, in-app model downloads
+  as a foundation dependency, managed voice/DTLN asset downloads, advanced full-model
+  catalog entries, and `update.*` scripts for git+dependency refresh. **Remaining:**
+  re-run the audit on a clean tester Windows machine and revisit any OOM-guarded /
+  missing-binary paths testers still hit.
 
 ### P22 — Voice realtime quality (optional residual)
 

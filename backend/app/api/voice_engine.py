@@ -73,6 +73,11 @@ class VoiceSessionStart(BaseModel):
     model_id: str
 
 
+class VoiceAssetFetchRequest(BaseModel):
+    names: list[str] | None = None
+    include_optional: bool = False
+
+
 def _asset_error(input_denoise: str | None = None) -> str | None:
     if settings.stub_mode:
         return None
@@ -224,14 +229,17 @@ async def voice_engine_status() -> dict[str, Any]:
 
 
 @router.post("/assets/fetch")
-async def voice_engine_fetch_assets() -> dict[str, Any]:
+async def voice_engine_fetch_assets(body: VoiceAssetFetchRequest | None = None) -> dict[str, Any]:
     """Download the missing shared RVC pretrain assets (ContentVec + RMVPE) into
     models/voice/pretrain so a voice model the user dropped in actually runs — no
     manual hunting for files. Reuses the background download machinery; the Voice
     tab shows progress via the ``asset_download`` field of the status payload."""
     if downloads.is_downloading():
         raise HTTPException(409, "a model download is already running; wait for it to finish")
-    specs = asset_discovery.fetch_specs()
+    names = body.names if body is not None else None
+    specs = asset_discovery.fetch_specs(names)
+    if body is not None and body.include_optional:
+        specs.extend(asset_discovery.fetch_optional_specs(names))
     if not specs:
         return _status_payload()  # nothing missing (or no known source)
     try:

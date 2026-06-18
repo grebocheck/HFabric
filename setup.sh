@@ -48,6 +48,12 @@ ok()      { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RST" "$1"; }
 warn()    { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RST" "$1"; }
 err()     { printf '  %s✗%s %s\n' "$C_RED" "$C_RST" "$1"; }
 have()    { command -v "$1" >/dev/null 2>&1; }
+frontend_ready() {
+  [ -d "frontend/node_modules" ] || return 1
+  [ -x "frontend/node_modules/.bin/vite" ] ||
+  [ -f "frontend/node_modules/.bin/vite" ] ||
+  [ -f "frontend/node_modules/vite/package.json" ]
+}
 
 profile_get() {
   "$PYHOST" -c 'import json, sys
@@ -95,16 +101,23 @@ if [ "$SKIP_CHECKS" -eq 0 ]; then
   fi
   PYVER="$("$PYHOST" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
   ok "Python found: $PYHOST ($PYVER)"
-  case "$PYVER" in
-    3.10|3.11|3.12|3.13) : ;;
-    *) warn "Python $PYVER is untested; 3.12 is the validated version (nunchaku ships cp312 wheels)." ;;
-  esac
+  if ! "$PYHOST" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+    err "Python $PYVER is too old. HFabric needs Python 3.12+."
+    exit 1
+  fi
+  if "$PYHOST" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] > (3, 12) else 1)'; then
+    warn "Python $PYVER is newer than the validated 3.12 runtime; optional native wheels may be skipped."
+  fi
 
   if ! have node; then
     err "Node.js not found. Install Node.js 18+ (https://nodejs.org/ or your package manager)."
     exit 1
   fi
   ok "Node.js found: $(node --version)"
+  if ! node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)"; then
+    err "Node.js $(node --version) is too old. HFabric needs Node.js 18+."
+    exit 1
+  fi
 
   if [ "$MODE" != "stub" ] && have nvidia-smi; then
     ok "NVIDIA GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)"
@@ -209,11 +222,18 @@ if [ "$REAL" -eq 1 ]; then
       warn "Nunchaku wheel install failed (needs Python 3.12 + Linux x86_64). Skipping — FLUX still works via the slower fp8 path."
     fi
   fi
+
+  section "Installing voice changer assets"
+  if "$PYBIN" scripts/fetch_voice_assets.py; then
+    ok "Shared voice assets ready"
+  else
+    warn "Some voice asset downloads failed; the Voice tab can retry them later."
+  fi
 fi
 
 # --- frontend deps -----------------------------------------------------------
 section "Installing frontend dependencies"
-if [ -d "frontend/node_modules" ] && [ "$FORCE" -eq 0 ]; then
+if frontend_ready && [ "$FORCE" -eq 0 ]; then
   ok "node_modules already exists"
 else
   ( cd frontend && npm install >/dev/null )
@@ -233,6 +253,18 @@ if [ "$MODE" = "all" ]; then
   fi
   if [ "$DOWNLOAD_OK" -ne 1 ]; then
     warn "Some starter model downloads failed; the app will still run, and you can re-run './setup.sh all'."
+  fi
+  printf '  Downloading shared voice assets...\n'
+  if "$PYBIN" scripts/fetch_voice_assets.py; then
+    ok "Shared voice assets downloaded"
+  else
+    warn "Some voice asset downloads failed; the Voice tab can retry them later."
+  fi
+  printf '  Downloading optional DTLN denoise assets...\n'
+  if "$PYBIN" scripts/fetch_dtln.py; then
+    ok "Optional DTLN denoise assets downloaded"
+  else
+    warn "DTLN denoise asset download failed; DTLN can be installed later from the Voice tab."
   fi
 fi
 
