@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, CustomDownloadItem, HealthStatus, HfRepoFiles, ImageItem, ImageStats, InstalledModelsState, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, CustomDownloadItem, HealthStatus, HfRepoFiles, HfSearchResponse, ImageItem, ImageStats, InstalledModelsState, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -126,6 +126,15 @@ export const api = {
       .then(j<ModelDownloadStatus>),
   hfRepoFiles: (repo: string) =>
     fetch(`/api/downloads/hf/files?repo=${encodeURIComponent(repo)}`).then(j<HfRepoFiles>),
+  hfSearch: (q: string, opts: { limit?: number; sort?: string; filter?: string } = {}) => {
+    const p = new URLSearchParams();
+    if (q.trim()) p.set("q", q.trim());
+    if (opts.limit != null) p.set("limit", String(opts.limit));
+    if (opts.sort) p.set("sort", opts.sort);
+    if (opts.filter) p.set("filter", opts.filter);
+    const qs = p.toString();
+    return fetch(`/api/downloads/hf/search${qs ? `?${qs}` : ""}`).then(j<HfSearchResponse>);
+  },
   installedModels: () => fetch("/api/models/installed").then(j<InstalledModelsState>),
   deleteInstalledModel: (kind: string, path: string) =>
     fetch(`/api/models/installed?kind=${encodeURIComponent(kind)}&path=${encodeURIComponent(path)}`, { method: "DELETE" })

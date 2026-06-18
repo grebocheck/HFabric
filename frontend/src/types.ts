@@ -65,6 +65,35 @@ export interface HfRepoFiles {
   files: HfRepoFile[];
 }
 
+export interface HfSearchResult {
+  id: string;
+  author?: string | null;
+  sha?: string | null;
+  downloads: number;
+  likes: number;
+  last_modified?: string | null;
+  created_at?: string | null;
+  pipeline_tag?: string | null;
+  library_name?: string | null;
+  tags: string[];
+  license?: string | null;
+  gated: boolean;
+  private: boolean;
+  weight_count: number;
+  file_count: number;
+  weight_formats: string[];
+  suggested_kind?: string | null;
+  url: string;
+}
+
+export interface HfSearchResponse {
+  query: string;
+  sort: string;
+  limit: number;
+  filters: string[];
+  results: HfSearchResult[];
+}
+
 export interface GpuStatus {
   resident: string | null;
   model_id: string | null;

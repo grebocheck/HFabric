@@ -57,14 +57,14 @@
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-base: #0b0d12;
+  --color-base: #000000;
   --color-white: #ffffff;
   --color-black: #000000;
-  --color-surface: #101219;
-  --color-surface-2: #12151c;
-  --color-fg: #e6e8ef;
-  --color-muted: #8f96a3;
-  --color-line: rgb(255 255 255 / 0.1);
+  --color-surface: #050507;
+  --color-surface-2: #0b0b10;
+  --color-fg: #f3f4f6;
+  --color-muted: #a1a1aa;
+  --color-line: rgb(255 255 255 / 0.12);
   --color-accent: #7c3aed;
   --color-accent-hover: #8b5cf6;
   --color-accent-fg: #ede9fe;
@@ -77,6 +77,8 @@
   --color-info: #0ea5e9;
   --color-info-fg: #e0f2fe;
   --color-accent-glow: rgb(124 58 237 / 0.55);
+  --shadow-panel: 0 18px 60px rgb(0 0 0 / 0.62);
+  --shadow-popover: 0 18px 45px rgb(0 0 0 / 0.68);
 }
 
 :root[data-theme="dim"] {
@@ -105,13 +107,13 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --color-base: #f5f7fb;
-  --color-white: #18202b;
+  --color-base: #f6f7fb;
+  --color-white: #1f2937;
   --color-black: #0f172a;
   --color-surface: #ffffff;
-  --color-surface-2: #eef2f8;
-  --color-fg: #18202b;
-  --color-muted: #5e6878;
+  --color-surface-2: #f1f5f9;
+  --color-fg: #172033;
+  --color-muted: #647084;
   --color-line: rgb(15 23 42 / 0.12);
   --color-accent: #2563eb;
   --color-accent-hover: #1d4ed8;
@@ -125,6 +127,36 @@
   --color-info: #0284c7;
   --color-info-fg: #075985;
   --color-accent-glow: rgb(37 99 235 / 0.3);
+  --shadow-panel: 0 16px 44px rgb(15 23 42 / 0.08);
+  --shadow-popover: 0 18px 45px rgb(15 23 42 / 0.16);
+}
+
+/* The app uses text-white/bg-black as semantic foreground/tint utilities.
+   In light mode, keep "black" dark for text-black and shadows, but turn the
+   low-alpha black backgrounds into crisp light surfaces. Higher alpha black
+   classes stay dark for real scrims, photo lightboxes, and overlays. */
+:root[data-theme="light"] .bg-black\/15 {
+  background-color: rgb(255 255 255 / 0.74);
+}
+
+:root[data-theme="light"] .bg-black\/20 {
+  background-color: rgb(255 255 255 / 0.78);
+}
+
+:root[data-theme="light"] .bg-black\/25 {
+  background-color: rgb(255 255 255 / 0.82);
+}
+
+:root[data-theme="light"] .bg-black\/30 {
+  background-color: rgb(255 255 255 / 0.86);
+}
+
+:root[data-theme="light"] .bg-black\/35 {
+  background-color: rgb(255 255 255 / 0.9);
+}
+
+:root[data-theme="light"] .bg-black\/40 {
+  background-color: rgb(255 255 255 / 0.92);
 }
 
 body {

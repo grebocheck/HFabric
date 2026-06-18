@@ -11,7 +11,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..backends.registry import ModelRegistry
 from ..services import model_download_service as downloads
@@ -58,6 +58,27 @@ async def list_hf_repo_files(repo: str) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"repo": repo.strip(), "files": files}
+
+
+@router.get("/hf/search")
+async def search_hf_models(
+    q: str = "",
+    limit: int = 24,
+    sort: str = "downloads",
+    filter_tags: str | None = Query(default=None, alias="filter"),
+) -> dict[str, Any]:
+    """Search Hugging Face model repos for the catalog-style Models tab."""
+    filters = [tag.strip() for tag in (filter_tags or "").split(",") if tag.strip()]
+    try:
+        return await asyncio.to_thread(
+            downloads.hf_search_models,
+            q,
+            limit=limit,
+            sort=sort,
+            filter_tags=filters,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/start")

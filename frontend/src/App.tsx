@@ -30,7 +30,7 @@ const WELCOME_KEY = "hfabric.welcome.seen";
 const STUB_BANNER_KEY = "hfabric.stubBanner.dismissed";
 const THEMES: AppTheme[] = ["dark", "dim", "light"];
 const THEME_META: Record<AppTheme, string> = {
-  dark: "#0b0d12",
+  dark: "#000000",
   dim: "#12151b",
   light: "#f5f7fb",
 };

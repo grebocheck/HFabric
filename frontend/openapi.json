@@ -2371,6 +2371,31 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VoiceAssetFetchRequest": {
+        "properties": {
+          "include_optional": {
+            "default": false,
+            "title": "Include Optional",
+            "type": "boolean"
+          },
+          "names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Names"
+          }
+        },
+        "title": "VoiceAssetFetchRequest",
+        "type": "object"
+      },
       "VoiceEnginePresetCreate": {
         "properties": {
           "model_id": {
@@ -3531,6 +3556,87 @@
           }
         },
         "summary": "List Hf Repo Files",
+        "tags": [
+          "downloads"
+        ]
+      }
+    },
+    "/api/downloads/hf/search": {
+      "get": {
+        "description": "Search Hugging Face model repos for the catalog-style Models tab.",
+        "operationId": "search_hf_models_api_downloads_hf_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "downloads",
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Search Hf Models Api Downloads Hf Search Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Hf Models",
         "tags": [
           "downloads"
         ]
@@ -6534,6 +6640,23 @@
       "post": {
         "description": "Download the missing shared RVC pretrain assets (ContentVec + RMVPE) into\nmodels/voice/pretrain so a voice model the user dropped in actually runs — no\nmanual hunting for files. Reuses the background download machinery; the Voice\ntab shows progress via the ``asset_download`` field of the status payload.",
         "operationId": "voice_engine_fetch_assets_api_voice_engine_assets_fetch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/VoiceAssetFetchRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -6545,6 +6668,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Voice Engine Fetch Assets",

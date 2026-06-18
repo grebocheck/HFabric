@@ -105,8 +105,8 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
     }
   };
 
-  // --- custom (any-source) download: HuggingFace browse (HfBrowser) or direct URL ---
-  const [customOpen, setCustomOpen] = useState(false);
+  // --- custom (any-source) download: Hugging Face catalog (HfBrowser) or direct URL ---
+  const [customOpen, setCustomOpen] = useState(true);
   const [source, setSource] = useState<"hf" | "url">("hf");
   const [kind, setKind] = useState("llm");
   const [filename, setFilename] = useState("");
@@ -176,7 +176,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
   return (
     <Panel>
       <SectionTitle
-        title="Model downloads"
+        title="Model catalog"
         subtitle="Curated starter models that fit this machine — recommended are preselected"
         actions={
           <button onClick={() => void start()} className={primaryButton} disabled={disabled}>
@@ -284,7 +284,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                 onClick={() => setCustomOpen((v) => !v)}
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] text-white/70 hover:text-white"
               >
-                <span>Add from a source (HuggingFace or direct URL)</span>
+                <span>Hugging Face catalog and direct URL</span>
                 <span className="text-white/35">{customOpen ? "–" : "+"}</span>
               </button>
               {customOpen ? (
@@ -296,7 +296,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                         onClick={() => setSource(s)}
                         className={`rounded px-2.5 py-1 transition ${source === s ? "bg-white/15 text-white" : "text-white/50 hover:text-white/80"}`}
                       >
-                        {s === "hf" ? "Browse HuggingFace" : "Direct URL"}
+                        {s === "hf" ? "Hugging Face catalog" : "Direct URL"}
                       </button>
                     ))}
                   </div>

@@ -7,6 +7,7 @@ models tree, and the download loop runs against a stub ``huggingface_hub``.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 import sys
 import types
@@ -204,3 +205,50 @@ def test_run_blocking_downloads_snapshot_jobs(fake_catalog: Path, monkeypatch: p
     assert calls and calls[0]["repo_id"] == "vendor/full-repo"
     assert calls[0]["ignore_patterns"] == ["assets/*"]
     assert (fake_catalog / "image" / "full-repo" / "model_index.json").exists()
+
+
+def test_hf_search_models_normalizes_results(monkeypatch: pytest.MonkeyPatch):
+    calls: list[dict] = []
+
+    class Sibling:
+        def __init__(self, name: str):
+            self.rfilename = name
+
+    class Model:
+        modelId = "owner/Qwen-GGUF"
+        id = modelId
+        author = "owner"
+        sha = "abc123"
+        downloads = 12_345
+        likes = 67
+        last_modified = datetime(2026, 1, 2, tzinfo=UTC)
+        created_at = datetime(2025, 12, 1, tzinfo=UTC)
+        pipeline_tag = "text-generation"
+        library_name = "transformers"
+        tags = ["gguf", "text-generation", "license:apache-2.0"]
+        gated = False
+        private = False
+        siblings = [Sibling("model-q4.gguf"), Sibling("README.md")]
+
+    class Api:
+        def list_models(self, **kwargs):
+            calls.append(kwargs)
+            return [Model()]
+
+    monkeypatch.setattr(dl, "_hub_available", lambda: True)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(HfApi=lambda: Api()))
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils", types.SimpleNamespace(HfHubHTTPError=Exception))
+
+    payload = dl.hf_search_models("qwen", limit=200, sort="updated", filter_tags=["gguf"])
+
+    assert calls[0]["search"] == "qwen"
+    assert calls[0]["sort"] == "last_modified"
+    assert calls[0]["direction"] == -1
+    assert calls[0]["limit"] == 50
+    assert calls[0]["filter"] == ["gguf"]
+    result = payload["results"][0]
+    assert result["id"] == "owner/Qwen-GGUF"
+    assert result["license"] == "apache-2.0"
+    assert result["weight_count"] == 1
+    assert result["weight_formats"] == ["gguf"]
+    assert result["suggested_kind"] == "llm"

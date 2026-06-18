@@ -29,14 +29,15 @@ they never collide.
   </tr>
 </table>
 
-> **Project status: public beta (v0.1, B+ / 8.0).** This is a `0.1` beta — solid for
+> **Project status: public beta (v0.2, B+ / 8.2).** This is a `0.2` beta — solid for
 > the author's own daily use and now open to other testers, but it has **not** had
 > wide testing and still has rough edges.
 >
 > - **What works:** the full local pipeline — chat LLM, image generation, the VRAM
 >   arbiter, and the workspaces — is real-GPU validated on **NVIDIA / Windows**.
 > - **What's rough:** AMD ROCm and Apple Silicon are **experimental** (unvalidated on
->   real hardware); first-run/empty-state UX and some error paths are unpolished.
+>   real hardware); first-run validation is much better, but some hardware-specific
+>   model and audio paths still need more tester coverage.
 > - **Privacy:** everything runs on your machine; nothing is sent to a cloud service.
 >
 > Before reporting, skim [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and the

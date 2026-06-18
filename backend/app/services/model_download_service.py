@@ -15,6 +15,7 @@ scans, so a fetched file is usable without copying.
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import shutil
 import threading
 import time
@@ -30,6 +31,15 @@ _CUSTOM_KINDS = ("image", "llm", "lora", "tts", "transcribe", "embed", "vision",
 _MB = 1024 * 1024
 # Refuse a batch unless this fraction of headroom over the estimate stays free.
 _DISK_HEADROOM = 1.15
+_HF_SEARCH_LIMIT_MAX = 50
+_HF_SORTS = {
+    "downloads": "downloads",
+    "likes": "likes",
+    "updated": "last_modified",
+    "trending": "trending_score",
+    "created": "created_at",
+}
+_WEIGHT_RE = re.compile(r"\.(safetensors|gguf|pt|pth|bin|ckpt|onnx)$", re.IGNORECASE)
 
 _status: dict[str, Any] = {
     "state": "idle",  # idle | running | done | error
@@ -303,6 +313,127 @@ def hf_list_files(repo: str) -> list[dict[str, Any]]:
         files.append({"path": name, "size_bytes": int(getattr(sibling, "size", None) or 0)})
     files.sort(key=lambda f: f["path"].lower())
     return files
+
+
+def _iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return str(value.isoformat())
+    return str(value)
+
+
+def _license_from_tags(tags: list[str]) -> str | None:
+    for tag in tags:
+        if tag.startswith("license:"):
+            return tag.split(":", 1)[1] or None
+    return None
+
+
+def _weight_formats(paths: list[str]) -> list[str]:
+    formats: set[str] = set()
+    for path in paths:
+        suffix = Path(path).suffix.lower().lstrip(".")
+        if suffix and _WEIGHT_RE.search(path):
+            formats.add(suffix)
+    return sorted(formats)
+
+
+def _infer_kind(repo_id: str, pipeline_tag: str | None, tags: list[str], paths: list[str]) -> str | None:
+    haystack = " ".join([repo_id, pipeline_tag or "", *tags, *paths]).lower()
+    tagset = {tag.lower() for tag in tags}
+    if "rvc" in haystack or "voice-conversion" in haystack:
+        return "voice"
+    if "automatic-speech-recognition" in tagset or pipeline_tag == "automatic-speech-recognition":
+        return "transcribe"
+    if "text-to-speech" in tagset or pipeline_tag == "text-to-speech":
+        return "tts"
+    if "sentence-transformers" in tagset or pipeline_tag == "feature-extraction":
+        return "embed"
+    if "lora" in tagset or "adapter" in tagset or "peft" in tagset or "lora" in haystack:
+        return "lora"
+    if "gguf" in tagset or any(path.lower().endswith(".gguf") for path in paths):
+        return "llm"
+    if pipeline_tag in {"text-to-image", "image-to-image", "image-to-video"} or "diffusers" in tagset:
+        return "image"
+    if pipeline_tag in {"image-text-to-text", "visual-question-answering"}:
+        return "vision"
+    return None
+
+
+def hf_search_models(
+    query: str,
+    *,
+    limit: int = 24,
+    sort: str = "downloads",
+    filter_tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Search Hugging Face model repos for the in-app catalog browser."""
+    query = (query or "").strip()
+    try:
+        limit = max(1, min(int(limit), _HF_SEARCH_LIMIT_MAX))
+    except (TypeError, ValueError):
+        limit = 24
+    sort_key = _HF_SORTS.get((sort or "").strip().lower(), "downloads")
+    filters = [tag.strip() for tag in (filter_tags or []) if tag.strip()]
+    if not _hub_available():
+        raise ValueError(
+            "huggingface_hub is not installed in this environment. Run the "
+            "accelerator setup (setup ... real) or `pip install huggingface_hub`."
+        )
+
+    from huggingface_hub import HfApi  # noqa: PLC0415
+    from huggingface_hub.utils import HfHubHTTPError  # noqa: PLC0415
+
+    try:
+        models = list(
+            HfApi().list_models(
+                search=query or None,
+                filter=filters or None,
+                sort=sort_key,
+                direction=-1,
+                limit=limit,
+                full=True,
+            )
+        )
+    except HfHubHTTPError as exc:
+        raise ValueError(f"Could not search Hugging Face: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - any hub failure becomes a clean message
+        raise ValueError(f"Could not search Hugging Face: {type(exc).__name__}: {exc}") from exc
+
+    results: list[dict[str, Any]] = []
+    for model in models:
+        repo_id = str(getattr(model, "modelId", None) or getattr(model, "id", "") or "")
+        if not repo_id:
+            continue
+        tags = [str(tag) for tag in (getattr(model, "tags", None) or []) if tag]
+        siblings = getattr(model, "siblings", None) or []
+        paths = [str(getattr(sibling, "rfilename", "")) for sibling in siblings if getattr(sibling, "rfilename", "")]
+        formats = _weight_formats(paths)
+        pipeline_tag = getattr(model, "pipeline_tag", None)
+        results.append(
+            {
+                "id": repo_id,
+                "author": getattr(model, "author", None),
+                "sha": getattr(model, "sha", None),
+                "downloads": int(getattr(model, "downloads", None) or 0),
+                "likes": int(getattr(model, "likes", None) or 0),
+                "last_modified": _iso(getattr(model, "last_modified", None) or getattr(model, "lastModified", None)),
+                "created_at": _iso(getattr(model, "created_at", None)),
+                "pipeline_tag": pipeline_tag,
+                "library_name": getattr(model, "library_name", None),
+                "tags": tags[:30],
+                "license": _license_from_tags(tags),
+                "gated": bool(getattr(model, "gated", False)),
+                "private": bool(getattr(model, "private", False)),
+                "weight_count": sum(1 for path in paths if _WEIGHT_RE.search(path)),
+                "file_count": len(paths),
+                "weight_formats": formats,
+                "suggested_kind": _infer_kind(repo_id, pipeline_tag, tags, paths),
+                "url": f"https://huggingface.co/{repo_id}",
+            }
+        )
+    return {"query": query, "sort": sort, "limit": limit, "filters": filters, "results": results}
 
 
 def validate_custom(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:

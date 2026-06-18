@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import { Select } from "./Select";
 import { toast } from "./Toast";
 import { fmtBytes } from "./format";
-import type { CustomDownloadItem, HfRepoFile } from "../types";
+import type { CustomDownloadItem, HfRepoFile, HfSearchResult } from "../types";
 
 const subtleButton =
   "rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
@@ -15,8 +15,61 @@ const field =
 // Weight-ish files worth pre-suggesting; everything is still shown and selectable.
 const WEIGHT_RE = /\.(safetensors|gguf|pt|pth|bin|ckpt|onnx)$/i;
 
-// Browse a HuggingFace repo (P25): fetch the file list with sizes, pick specific
-// file(s) or the whole repo, and download into the chosen kind folder.
+const SORT_OPTIONS = [
+  { value: "downloads", label: "Downloads" },
+  { value: "likes", label: "Likes" },
+  { value: "updated", label: "Updated" },
+  { value: "trending", label: "Trending" },
+];
+
+type FocusOption = { value: string; label: string; seed: string; kind: string; filter?: string };
+
+const FOCUS_OPTIONS: FocusOption[] = [
+  { value: "all", label: "All", seed: "", kind: "llm" },
+  { value: "gguf", label: "GGUF", seed: "gguf", filter: "gguf", kind: "llm" },
+  { value: "image", label: "Image", seed: "text-to-image safetensors", kind: "image" },
+  { value: "lora", label: "LoRA", seed: "lora safetensors", filter: "lora", kind: "lora" },
+  { value: "voice", label: "Voice", seed: "rvc voice conversion", kind: "voice" },
+];
+
+function fmtCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
+}
+
+function fmtDate(iso?: string | null): string {
+  if (!iso) return "";
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) return "";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "2-digit", year: "numeric" }).format(time);
+}
+
+function cleanTag(tag: string): string {
+  if (tag.startsWith("license:")) return tag.slice("license:".length);
+  if (tag.startsWith("base_model:")) return tag.slice("base_model:".length);
+  return tag;
+}
+
+function resultTags(result: HfSearchResult): string[] {
+  const tags = [
+    ...(result.weight_formats ?? []),
+    result.pipeline_tag ?? "",
+    result.library_name ?? "",
+    result.license ? `license:${result.license}` : "",
+    ...result.tags,
+  ]
+    .filter(Boolean)
+    .map(cleanTag);
+  return [...new Set(tags)].slice(0, 6);
+}
+
+function isKnownKind(kind: string | null | undefined, options: { value: string }[]): kind is string {
+  return !!kind && options.some((option) => option.value === kind);
+}
+
+// Browse Hugging Face as a small in-app catalog: search repos, inspect files,
+// pick specific weights or download a complete repo into the chosen model folder.
 export function HfBrowser({
   kind,
   setKind,
@@ -30,28 +83,73 @@ export function HfBrowser({
   disabled?: boolean;
   onStarted: () => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState("downloads");
+  const [focus, setFocus] = useState("all");
+  const [results, setResults] = useState<HfSearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
   const [repo, setRepo] = useState("");
   const [files, setFiles] = useState<HfRepoFile[] | null>(null);
   const [loadedRepo, setLoadedRepo] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [fileQuery, setFileQuery] = useState("");
   const [browsing, setBrowsing] = useState(false);
+  const [loadingRepo, setLoadingRepo] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const focusOption = FOCUS_OPTIONS.find((option) => option.value === focus) ?? FOCUS_OPTIONS[0];
   const repoName = loadedRepo.split("/").pop() ?? loadedRepo;
+  const visibleFiles = useMemo(() => {
+    const q = fileQuery.trim().toLowerCase();
+    if (!q) return files ?? [];
+    return (files ?? []).filter((file) => file.path.toLowerCase().includes(q));
+  }, [fileQuery, files]);
   const totalBytes = useMemo(() => (files ?? []).reduce((s, f) => s + f.size_bytes, 0), [files]);
   const selectedBytes = useMemo(
     () => (files ?? []).filter((f) => selected.has(f.path)).reduce((s, f) => s + f.size_bytes, 0),
     [files, selected],
   );
+  const selectedVisibleCount = visibleFiles.filter((file) => selected.has(file.path)).length;
 
-  const browse = async () => {
-    const id = repo.trim();
-    if (!id) return;
-    setBrowsing(true);
+  const chooseFocus = (value: string) => {
+    const next = FOCUS_OPTIONS.find((option) => option.value === value) ?? FOCUS_OPTIONS[0];
+    setFocus(next.value);
+    if (isKnownKind(next.kind, kindOptions)) setKind(next.kind);
+    if (!query.trim() && next.seed) setQuery(next.seed);
+  };
+
+  const search = async () => {
+    const trimmed = query.trim() || focusOption.seed;
+    if (!query.trim() && trimmed) setQuery(trimmed);
+    setSearching(true);
     try {
-      const res = await api.hfRepoFiles(id);
+      const res = await api.hfSearch(trimmed, {
+        limit: 24,
+        sort,
+        filter: focusOption.filter,
+      });
+      setResults(res.results);
+    } catch (err) {
+      setResults(null);
+      toast.error(err instanceof Error ? err.message : "Could not search Hugging Face");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const browseRepo = async (id = repo, suggestedKind?: string | null) => {
+    const clean = id.trim();
+    if (!clean) return;
+    if (isKnownKind(suggestedKind, kindOptions)) setKind(suggestedKind);
+    setRepo(clean);
+    setBrowsing(true);
+    setLoadingRepo(clean);
+    try {
+      const res = await api.hfRepoFiles(clean);
       setFiles(res.files);
       setLoadedRepo(res.repo);
+      setFileQuery("");
       // Pre-select the weight files (the common single-file case) so one click downloads.
       setSelected(new Set(res.files.filter((f) => WEIGHT_RE.test(f.path)).map((f) => f.path)));
     } catch (err) {
@@ -59,6 +157,7 @@ export function HfBrowser({
       toast.error(err instanceof Error ? err.message : "Could not read that repo");
     } finally {
       setBrowsing(false);
+      setLoadingRepo("");
     }
   };
 
@@ -70,11 +169,15 @@ export function HfBrowser({
       return next;
     });
 
+  const selectWeights = () => {
+    setSelected(new Set((files ?? []).filter((f) => WEIGHT_RE.test(f.path)).map((f) => f.path)));
+  };
+
   const start = async (items: CustomDownloadItem[]) => {
     setBusy(true);
     try {
       await api.downloadsCustom(items);
-      toast.info("Downloading… this can take a while.");
+      toast.info("Downloading... this can take a while.");
       onStarted();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not start download");
@@ -85,9 +188,11 @@ export function HfBrowser({
 
   const downloadSelected = () => {
     if (!files) return;
-    // Top-level files land flat in the kind folder; files inside a repo subpath keep
-    // their structure under a folder named after the repo (so partial diffusers repos
-    // still assemble).
+    const picked = files.filter((f) => selected.has(f.path));
+    const keepRepoFolder = picked.length > 1 || picked.some((f) => f.path.includes("/"));
+    // Single-file weights stay flat for the common GGUF/SafeTensors case. Partial
+    // multi-file repos stay together under a repo folder so model_index/config files
+    // and nested weights do not get split across different model roots.
     const items: CustomDownloadItem[] = files
       .filter((f) => selected.has(f.path))
       .map((f) => ({
@@ -95,26 +200,125 @@ export function HfBrowser({
         kind,
         repo: loadedRepo,
         filename: f.path,
-        subdir: f.path.includes("/") ? repoName : undefined,
+        subdir: keepRepoFolder ? repoName : undefined,
       }));
     if (items.length) void start(items);
   };
 
-  const downloadWholeRepo = () =>
+  const downloadWholeRepo = () => {
+    if (!loadedRepo) return;
     void start([{ source: "hf-repo", kind, repo: loadedRepo }]);
+  };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
+    <div className="space-y-3">
+      <div className="space-y-2 rounded-md border border-white/10 bg-black/15 p-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          {FOCUS_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => chooseFocus(option.value)}
+              className={`rounded px-2.5 py-1 text-xs transition ${
+                focus === option.value ? "bg-accent/30 text-white" : "bg-white/5 text-white/55 hover:bg-white/10 hover:text-white/80"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_9rem_auto]">
+          <input
+            className={field}
+            placeholder="Search Hugging Face weights"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
+          />
+          <Select value={sort} onChange={setSort} options={SORT_OPTIONS} />
+          <button onClick={() => void search()} className={primaryButton} disabled={searching}>
+            {searching ? "Searching..." : "Search"}
+          </button>
+        </div>
+
+        {results ? (
+          results.length === 0 ? (
+            <div className="rounded-md border border-dashed border-white/10 px-3 py-3 text-center text-xs text-white/35">
+              Nothing found.
+            </div>
+          ) : (
+            <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+              {results.map((result) => (
+                <li
+                  key={result.id}
+                  className={`rounded-md border px-2.5 py-2 ${
+                    loadedRepo === result.id ? "border-accent/45 bg-accent/10" : "border-white/10 bg-black/20"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="min-w-0 truncate font-mono text-[12px] text-white/85" title={result.id}>
+                          {result.id}
+                        </span>
+                        {result.suggested_kind ? (
+                          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">
+                            {result.suggested_kind}
+                          </span>
+                        ) : null}
+                        {result.gated ? (
+                          <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">gated</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-white/35">
+                        <span>{fmtCount(result.downloads)} downloads</span>
+                        <span>{fmtCount(result.likes)} likes</span>
+                        {result.last_modified ? <span>{fmtDate(result.last_modified)}</span> : null}
+                        <span>{result.weight_count} weights</span>
+                        <span>{result.file_count} files</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {resultTags(result).map((tag) => (
+                          <span key={tag} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-white/35">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <a
+                        href={result.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/55 transition hover:bg-white/10 hover:text-white"
+                      >
+                        Card
+                      </a>
+                      <button
+                        onClick={() => void browseRepo(result.id, result.suggested_kind)}
+                        className={subtleButton}
+                        disabled={browsing || disabled}
+                      >
+                        {loadingRepo === result.id ? "Loading..." : "Files"}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
         <input
           className={field}
-          placeholder="HuggingFace repo, e.g. ggml-org/Qwen2.5-VL-3B-Instruct-GGUF"
+          placeholder="owner/model repo id"
           value={repo}
           onChange={(e) => setRepo(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void browse(); }}
+          onKeyDown={(e) => { if (e.key === "Enter") void browseRepo(); }}
         />
-        <button onClick={() => void browse()} className={subtleButton} disabled={browsing || !repo.trim()}>
-          {browsing ? "Loading…" : "Browse"}
+        <button onClick={() => void browseRepo()} className={subtleButton} disabled={browsing || !repo.trim()}>
+          {browsing ? "Loading..." : "Browse repo"}
         </button>
       </div>
 
@@ -124,18 +328,25 @@ export function HfBrowser({
             No files found in <span className="font-mono">{loadedRepo}</span>.
           </div>
         ) : (
-          <>
-            <div className="flex items-center justify-between text-[11px] text-white/40">
-              <span className="truncate">
-                <span className="font-mono text-white/55">{loadedRepo}</span> · {files.length} files · {fmtBytes(totalBytes)}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/40">
+              <span className="min-w-0 truncate">
+                <span className="font-mono text-white/55">{loadedRepo}</span> / {files.length} files / {fmtBytes(totalBytes)}
               </span>
               <div className="flex items-center gap-2">
                 <button onClick={() => setSelected(new Set(files.map((f) => f.path)))} className="hover:text-white/70">all</button>
+                <button onClick={selectWeights} className="hover:text-white/70">weights</button>
                 <button onClick={() => setSelected(new Set())} className="hover:text-white/70">none</button>
               </div>
             </div>
-            <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-white/10 bg-black/15 p-1.5">
-              {files.map((f) => (
+            <input
+              className={field}
+              placeholder="Filter files"
+              value={fileQuery}
+              onChange={(e) => setFileQuery(e.target.value)}
+            />
+            <ul className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-white/10 bg-black/15 p-1.5">
+              {visibleFiles.map((f) => (
                 <li key={f.path}>
                   <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-white/5">
                     <input
@@ -147,30 +358,36 @@ export function HfBrowser({
                     <span className={`min-w-0 flex-1 truncate font-mono text-[12px] ${WEIGHT_RE.test(f.path) ? "text-white/80" : "text-white/45"}`} title={f.path}>
                       {f.path}
                     </span>
-                    <span className="shrink-0 text-[11px] text-white/35">{f.size_bytes ? fmtBytes(f.size_bytes) : "—"}</span>
+                    <span className="shrink-0 text-[11px] text-white/35">{f.size_bytes ? fmtBytes(f.size_bytes) : "-"}</span>
                   </label>
                 </li>
               ))}
+              {visibleFiles.length === 0 ? (
+                <li className="px-2 py-4 text-center text-xs text-white/30">No matching files.</li>
+              ) : null}
             </ul>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-white/40">Save to</span>
                 <div className="w-44"><Select value={kind} onChange={setKind} options={kindOptions} /></div>
+                <span className="text-[11px] text-white/30">
+                  {selectedVisibleCount}/{visibleFiles.length} shown selected
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={downloadWholeRepo} className={subtleButton} disabled={busy || disabled}>
                   Whole repo
                 </button>
                 <button onClick={downloadSelected} className={primaryButton} disabled={busy || disabled || selected.size === 0}>
-                  {disabled ? "Downloading…" : `Download ${selected.size || ""} selected${selectedBytes ? ` (${fmtBytes(selectedBytes)})` : ""}`}
+                  {disabled ? "Downloading..." : `Download ${selected.size || ""} selected${selectedBytes ? ` (${fmtBytes(selectedBytes)})` : ""}`}
                 </button>
               </div>
             </div>
             <p className="text-[11px] text-white/30">
-              Single weight files land in <span className="font-mono">models/{kind}/</span>; multi-file repos go in a
-              <span className="font-mono"> {repoName}/</span> subfolder. Review the model's license first.
+              Single-file weights land in <span className="font-mono">models/{kind}/</span>; multi-file picks use
+              <span className="font-mono"> {repoName}/</span>.
             </p>
-          </>
+          </div>
         )
       ) : null}
     </div>

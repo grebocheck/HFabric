@@ -85,11 +85,12 @@ def test_notes_main_reads_real_changelog(capsys):
     release = _load_release_module()
     root = Path(__file__).resolve().parents[2]
     init_text = (root / "backend" / "app" / "__init__.py").read_text(encoding="utf-8")
+    changelog_text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     current = release.read_version(init_text)
 
     assert release.main(["notes", current]) == 0
     captured = capsys.readouterr()
-    assert "First public beta" in captured.out
+    assert captured.out.strip() == release.extract_release_notes(changelog_text, current)
 
 
 def _load_release_module():

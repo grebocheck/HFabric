@@ -65,6 +65,26 @@ async def test_delete_rejects_traversal_and_folder_targets(app_client):
     assert missing.status_code in (400, 404)
 
 
+async def test_hf_search_route_passes_query_params(app_client, monkeypatch):
+    captured: dict = {}
+
+    def fake_search(q: str, **kwargs):
+        captured["q"] = q
+        captured.update(kwargs)
+        return {"query": q, "sort": kwargs["sort"], "limit": kwargs["limit"], "filters": kwargs["filter_tags"], "results": []}
+
+    monkeypatch.setattr(downloads, "hf_search_models", fake_search)
+
+    res = await app_client.get(
+        "/api/downloads/hf/search",
+        params={"q": "qwen", "sort": "likes", "limit": 3, "filter": "gguf,lora"},
+    )
+
+    assert res.status_code == 200
+    assert captured == {"q": "qwen", "limit": 3, "sort": "likes", "filter_tags": ["gguf", "lora"]}
+    assert res.json()["filters"] == ["gguf", "lora"]
+
+
 def test_validate_custom_normalizes_hf_and_url_and_rejects_bad_input():
     clean, error = downloads.validate_custom([
         {"source": "hf", "kind": "llm", "repo": "owner/model", "filename": "m.gguf"},

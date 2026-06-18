@@ -13,7 +13,7 @@ const familyColor: Record<string, string> = {
 };
 
 const themeLabel: Record<AppTheme, string> = {
-  dark: "Dark",
+  dark: "Black",
   dim: "Dim",
   light: "Light",
 };

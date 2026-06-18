@@ -7,6 +7,44 @@ include breaking changes — this is pre-release software.
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.2.0] — 2026-06-18
+
+### Added
+- **Hugging Face model catalog in the Models tab**: search Hub model repos in-app,
+  sort by downloads/likes/updated/trending, inspect model-card metadata, open repo
+  files, auto-select weight-like files, and download selected files or whole repos
+  into the right `models/<kind>/` folder. New `GET /api/downloads/hf/search`.
+- **Self-contained Windows setup/update path**: setup can provision local portable
+  Python and Node.js under `.tools/`, build the project virtualenv from those local
+  runtimes, and `update.ps1` can bring the checkout forward while preserving local
+  generated/runtime state.
+
+### Changed
+- **Theme polish**: the default dark theme is now a true black theme, while `Dim`
+  remains the softer gray dark mode. Light mode now uses crisp light panels and
+  controls instead of dark translucent fields.
+- **HF partial-repo downloads** keep multi-file selections together under a repo
+  folder, while single top-level weight files still land flat for the common GGUF /
+  SafeTensors case.
+
+### Fixed
+- **Voice changer first-run assets**: ContentVec and RMVPE can be fetched from the
+  app/setup path into `models/voice/pretrain/`, with ContentVec accepting the ONNX
+  layout used by the working upstream model.
+
+
 ## [0.1.0] — 2026-06-17
 
 First public beta. Real-GPU validated on NVIDIA / RTX 5070 Ti / Windows 11; AMD
@@ -103,5 +141,6 @@ CPU-first) — together with everything below.
   now degrades to an empty device list (warned once in the log) so the endpoint stays
   healthy and the Voice tab simply shows no devices.
 
-[Unreleased]: https://github.com/grebocheck/HFabric/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/grebocheck/HFabric/compare/v0.2.0...HEAD
 [0.1.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.1.0
+[0.2.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.2.0
