@@ -24,9 +24,9 @@ export function Slider({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-accent disabled:cursor-not-allowed"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-control-active accent-accent disabled:cursor-not-allowed"
       />
-      <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-white/55">{value.toFixed(2)}</span>
+      <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-ui-muted">{value.toFixed(2)}</span>
     </div>
   );
 }

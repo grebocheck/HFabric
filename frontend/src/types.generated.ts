@@ -836,6 +836,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Api Server */
+        get: operations["get_api_server_api_llm_server_get"];
+        put?: never;
+        /** Set Api Server */
+        post: operations["set_api_server_api_llm_server_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm/stop": {
         parameters: {
             query?: never;
@@ -1914,6 +1932,10 @@ export interface components {
             model?: string | null;
             /** Model Id */
             model_id?: string | null;
+            /** Pin */
+            pin?: {
+                [key: string]: string;
+            } | null;
             /** Resident */
             resident?: string | null;
             /** Warm */
@@ -2039,6 +2061,44 @@ export interface components {
          * @enum {string}
          */
         JobType: "llm" | "image" | "upscale";
+        /** LlmApiServerStatus */
+        LlmApiServerStatus: {
+            /** Available */
+            available: boolean;
+            /** Base Url */
+            base_url: string;
+            /** Chat Completions Url */
+            chat_completions_url: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Host */
+            host: string;
+            /** Loaded */
+            loaded: boolean;
+            /** Model */
+            model?: string | null;
+            /** Model Id */
+            model_id?: string | null;
+            /** Models Url */
+            models_url: string;
+            /** Note */
+            note?: string | null;
+            /** Pinned */
+            pinned: boolean;
+            /** Port */
+            port: number;
+            /** Protocol */
+            protocol: string;
+            /** Stub */
+            stub: boolean;
+        };
+        /** LlmApiServerUpdate */
+        LlmApiServerUpdate: {
+            /** Enabled */
+            enabled: boolean;
+            /** Model Id */
+            model_id?: string | null;
+        };
         /** LlmConfigUpdate */
         LlmConfigUpdate: {
             /** Backend */
@@ -4047,6 +4107,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_api_server_api_llm_server_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmApiServerStatus"];
+                };
+            };
+        };
+    };
+    set_api_server_api_llm_server_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmApiServerUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmApiServerStatus"];
                 };
             };
             /** @description Validation Error */

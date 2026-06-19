@@ -58,6 +58,8 @@ class GpuStatusOut(BaseModel):
     warm: list[dict[str, str]] = Field(default_factory=list)
     # Active non-arbiter GPU consumers (voice / TTS / transcribe): [{id, label}].
     lanes: list[dict[str, str]] = Field(default_factory=list)
+    # Optional resident pin, e.g. the LLM API server keeping a model in VRAM.
+    pin: dict[str, str] | None = None
 
 
 class LoraOut(BaseModel):

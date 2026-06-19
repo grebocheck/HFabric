@@ -16,9 +16,9 @@ const FAMILY_LABELS: Record<string, string> = {
 
 export function Chip({ children, onClear }: { children: ReactNode; onClear: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-white/70">
+    <span className="inline-flex items-center gap-1 rounded-full border border-line bg-control px-2 py-0.5 text-ui-muted">
       {children}
-      <button onClick={onClear} className="text-white/40 hover:text-white" title="remove filter">×</button>
+      <button onClick={onClear} className="text-ui-subtle hover:text-ui-strong" title="remove filter">×</button>
     </span>
   );
 }
@@ -104,7 +104,7 @@ export function DetailModal({
   return (
     <div className="fixed inset-0 z-30 flex bg-black/85" onClick={onClose}>
       <div
-        className="m-auto flex max-h-[96vh] w-[min(1760px,97vw)] gap-4 overflow-hidden rounded-lg border border-white/10 bg-surface p-4"
+        className="m-auto flex max-h-[96vh] w-[min(1760px,97vw)] gap-4 overflow-hidden rounded-lg border border-line bg-surface p-4 shadow-popover"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
@@ -130,20 +130,20 @@ export function DetailModal({
         </div>
         <aside className="flex w-72 shrink-0 flex-col overflow-y-auto">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="font-semibold text-white/80">Details</h3>
+            <h3 className="font-semibold text-ui-strong">Details</h3>
             <div className="flex items-center gap-2">
               <button
                 onClick={toggleFavorite}
                 disabled={savingMeta}
                 className={`rounded border px-2 py-0.5 text-[11px] transition disabled:opacity-40 ${
                   image.favorite
-                    ? "border-amber-300/50 bg-amber-400/15 text-amber-100"
-                    : "border-white/15 text-white/45 hover:bg-white/10 hover:text-white/80"
+                    ? "border-warn-border bg-warn-bg text-warn-fg"
+                    : "border-line text-ui-subtle hover:bg-control-hover hover:text-ui"
                 }`}
               >
                 {image.favorite ? "Favorited" : "Favorite"}
               </button>
-              <button onClick={onClose} className="text-white/40 hover:text-white">close</button>
+              <button onClick={onClose} className="text-ui-subtle hover:text-ui-strong">close</button>
             </div>
           </div>
 
@@ -174,16 +174,16 @@ export function DetailModal({
           </dl>
 
           <div className="mt-3">
-            <div className="text-xs uppercase tracking-wide text-white/35">Tags</div>
+            <div className="text-xs uppercase tracking-wide text-ui-subtle">Tags</div>
             <div className="mt-1 flex min-h-6 flex-wrap gap-1">
               {(image.tags ?? []).length ? (
                 image.tags.map((tag) => (
-                  <span key={tag} className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] text-white/65">
+                  <span key={tag} className="rounded-full border border-line bg-control px-2 py-0.5 text-[11px] text-ui-muted">
                     {tag}
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-white/30">-</span>
+                <span className="text-xs text-ui-subtle">-</span>
               )}
             </div>
             <div className="mt-2 flex gap-1.5">
@@ -194,7 +194,7 @@ export function DetailModal({
                   if (e.key === "Enter") void saveTags();
                 }}
                 placeholder="tag, another tag"
-                className="min-w-0 flex-1 rounded border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-accent"
+                className="ui-field min-w-0 flex-1 rounded px-2 py-1 text-xs"
               />
               <button onClick={saveTags} disabled={savingMeta} className={`${actionBtn} disabled:opacity-40`}>
                 Save
@@ -204,20 +204,20 @@ export function DetailModal({
 
           <div className="mt-3">
             <div className="flex items-center justify-between">
-              <div className="text-xs uppercase tracking-wide text-white/35">Prompt</div>
+              <div className="text-xs uppercase tracking-wide text-ui-subtle">Prompt</div>
               <button
                 onClick={() => navigator.clipboard?.writeText(text(params.prompt)).catch(() => {})}
-                className="text-[11px] text-white/40 hover:text-white/80"
+                className="text-[11px] text-ui-subtle hover:text-ui-strong"
               >
                 copy
               </button>
             </div>
-            <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-white/70">{text(params.prompt) || "-"}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-ui">{text(params.prompt) || "-"}</p>
           </div>
           {text(params.negative) ? (
             <div className="mt-3">
-              <div className="text-xs uppercase tracking-wide text-white/35">Negative</div>
-              <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-white/55">{text(params.negative)}</p>
+              <div className="text-xs uppercase tracking-wide text-ui-subtle">Negative</div>
+              <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-ui-muted">{text(params.negative)}</p>
             </div>
           ) : null}
 
@@ -236,14 +236,14 @@ export function DetailModal({
   );
 }
 
-const actionBtn = "rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10";
-const primaryBtn = "rounded bg-accent px-2.5 py-1 text-xs font-medium text-white transition hover:bg-accent-hover";
+const actionBtn = "ui-button rounded px-2.5 py-1 text-xs";
+const primaryBtn = "rounded bg-accent px-2.5 py-1 text-xs font-medium text-ui-inverse transition hover:bg-accent-hover";
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-white/35">{label}</dt>
-      <dd className="mt-0.5 truncate text-white/70" title={value}>{value || "-"}</dd>
+      <dt className="text-xs uppercase tracking-wide text-ui-subtle">{label}</dt>
+      <dd className="mt-0.5 truncate text-ui" title={value}>{value || "-"}</dd>
     </div>
   );
 }

@@ -45,7 +45,11 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 1. **P24.1 — push the `v0.1.0` tag.** The pipeline is built and statically verified;
    the only thing left is the deliberate tag push that *is* the launch.
-2. **P24.6 — invite-readiness.** Screenshots/GIF + a tight repo description so a
+2. **P25.1/P25.2 — visual polish + first-class light theme.** The 2K workspace
+   composition is acceptable; the visible product risk is micro-detail debt:
+   dark-mode utility leakage, uneven state colors, and a light theme that feels
+   patched instead of designed.
+3. **P24.6 — invite-readiness.** Screenshots/GIF + a tight repo description so a
    stranger sees it work before deciding to clone. *(Needs the user for assets.)*
 
 Then the long-pole items that need other people/hardware: **P21.4** (ROCm + Apple
@@ -77,6 +81,97 @@ testers) and the **P24.7** resilience audit.
   catalog entries, and `update.*` scripts for git+dependency refresh. **Remaining:**
   re-run the audit on a clean tester Windows machine and revisit any OOM-guarded /
   missing-binary paths testers still hit.
+
+### P25 — Visual polish, color system & first-class light theme
+
+Audit notes (2026-06-19): the overall 2K workspace composition is broadly right for a
+local AI production tool. The debt is in micro-finish: color roles, control states,
+small text contrast, hover/focus behavior, badge tones, popovers, and light-theme
+surfaces. Code confirms the pattern: hundreds of component-level `text-white`,
+`bg-black`, and `border-white` utilities are acting as a dark-theme design language,
+while light mode currently patches low-alpha black backgrounds into white surfaces.
+That makes light mode usable, but not beautiful or trustworthy.
+
+Design direction: keep the dense workstation layout, keep dark media canvases where
+image inspection benefits from them, but make **Light** a designed "Studio" theme:
+paper-like chrome, graphite text, crisp cool-gray borders, restrained blue/violet
+accent use, and warmer semantic feedback colors that are tuned separately from dark
+mode. Do not make the app a pale copy of the black theme.
+
+Implementation pass (2026-06-19): semantic tokens, Studio light palette, tone bridge,
+shared controls, key workspace polish, themed overlays, and `docs/theme-qa.md` are in
+place. Keep P25 active until a manual screenshot sweep across real data states is
+complete, then move the shipped record to `docs/history.md`.
+
+- [~] **P25.1 — Semantic UI color tokens.** *(P1 — foundation for every polish pass.)*
+  Add real UI roles in `frontend/src/index.css`: `ui-strong`, `ui`, `ui-muted`,
+  `ui-subtle`, `ui-inverse`, `canvas`, `panel`, `raised`, `sunken`, `stage`,
+  `overlay`, `border`, `border-strong`, `control`, `control-hover`,
+  `control-active`, and tone pairs for
+  success/warn/error/info/accent. Acceptance: common text/control classes no longer
+  encode a dark palette; `text-white/*`, `bg-black/*`, and `border-white/*` remain
+  only for true overlays, media lightboxes, image gradients, and intentionally dark
+  inspection canvases.
+- [~] **P25.2 — Redesign the light theme as a first-class Studio theme.** *(P1.)*
+  Replace the current light palette with a cohesive one: near-white app canvas,
+  white panels, slightly blue-gray raised/sunken surfaces, graphite foreground,
+  darker muted text, visible but quiet borders, and restrained shadows. Preserve a
+  neutral/dark checker or charcoal stage behind generated images so artwork still
+  reads with contrast. Acceptance: Images, History, LLM, Voice, Models, and System
+  all look intentionally light; no "white text on white card", washed-out badges, or
+  invisible disabled states.
+- [~] **P25.3 — Light-mode state/tone palette.** *(P1.)* Define separate light/dark
+  recipes for badges, notices, queue states, model-family chips, RAM/VRAM indicators,
+  security/STUB banners, destructive buttons, and inline errors. Current saturated
+  dark-mode tones such as emerald/amber/red-on-tint should map to legible light
+  alternatives instead of relying on Tailwind defaults. Acceptance: every semantic
+  tone passes contrast in light mode for small text, and status chips are visually
+  distinct without looking candy-colored.
+- [~] **P25.4 — Shared micro-control kit pass.** *(P1/P2.)* Consolidate repeated
+  local constants for `field`, `label`, `subtleButton`, mini buttons, cards, and
+  status tiles into shared primitives/recipes. Add variants for primary, secondary,
+  quiet, danger, success, icon, and compact controls with stable heights. Acceptance:
+  inputs, selects, sliders, toggles, file fields, popover search boxes, and command
+  palette rows share one radius, border, hover, focus, disabled, and placeholder
+  language across themes.
+- [~] **P25.5 — Header/nav micro-polish.** *(P2.)* Refine the top chrome without
+  changing its density: stronger active tab state, calmer inactive tabs, clearer
+  theme switch affordance, polished `Ctrl K` keycap, more readable active-model chip,
+  and a VRAM meter that works on light backgrounds. Acceptance: the header feels like
+  one toolbar, not mixed badges and plain buttons; no tab/status text disappears in
+  light mode.
+- [~] **P25.6 — Image workspace detail polish.** *(P2.)* Keep the three-column 2K
+  layout, but tune the details: prompt textarea contrast, section dividers, model
+  family chip, notices, LoRA empty states, footer action bar, thumbnail rail, selected
+  thumbnail border, and the result-stage background. Replace text-heavy secondary
+  actions with a more consistent compact action style where practical. Acceptance:
+  the generated image remains the visual hero, while surrounding controls feel crisp
+  and less improvised in both themes.
+- [~] **P25.7 — History/gallery finish pass.** *(P2.)* Polish filter inputs, chips,
+  favorites, selection checkmarks, bulk action bar, "Load more", image hover captions,
+  and detail-modal metadata. Use dark gradients only over thumbnails/media, not as
+  generic light-theme chrome. Acceptance: gallery filters feel like a media library,
+  selected/favorited states are unmistakable, and light mode keeps thumbnail contrast.
+- [~] **P25.8 — Chat/Code/RAG reading polish.** *(P2.)* Tune long-message typography,
+  message bubbles, markdown/code backgrounds, attachment chips, sidebars, model
+  settings controls, and inline tool states. Acceptance: text-heavy workspaces are
+  easier to scan in light mode, code blocks keep enough contrast, and accent color is
+  reserved for selection/action instead of sprinkling.
+- [~] **P25.9 — Voice/System telemetry polish.** *(P2.)* Give meters, sliders,
+  diagnostic tiles, timelines, provider-health rows, and warning panels dedicated
+  light/dark recipes. Voice can keep a console/mixer feel, but its off/disabled/live
+  states need clearer visual separation in light mode. Acceptance: telemetry remains
+  dense but readable, and warning/safe/running states are distinguishable at a glance.
+- [~] **P25.10 — Popovers, modals, and overlays.** *(P2.)* Theme command palette,
+  select menus, welcome/auth modals, prompt library, model browser, zoom controls, and
+  image detail overlays. Keep true image lightboxes dark in every theme; make app
+  dialogs theme-aware. Acceptance: no light theme popover uses hardcoded `bg-zinc-950`
+  or dark-only text unless it is intentionally a media overlay.
+- [~] **P25.11 — Visual QA gate for themes.** *(P1/P2.)* Add a repeatable theme QA
+  checklist or screenshot harness for at least Images, History, LLM, Voice, System,
+  Welcome/Auth, and Command Palette at desktop and mobile widths. Acceptance: a PR
+  touching shared UI tokens includes before/after screenshots or an automated visual
+  capture, plus a quick contrast pass for small text and disabled states.
 
 ### P22 — Voice realtime quality (optional residual)
 

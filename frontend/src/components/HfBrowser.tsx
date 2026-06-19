@@ -6,11 +6,11 @@ import { fmtBytes } from "./format";
 import type { CustomDownloadItem, HfRepoFile, HfSearchResult } from "../types";
 
 const subtleButton =
-  "rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
+  "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
 const primaryButton =
-  "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition hover:bg-accent-hover disabled:opacity-35";
+  "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-ui-inverse transition hover:bg-accent-hover disabled:opacity-35";
 const field =
-  "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-white/25 focus:border-accent";
+  "ui-field w-full rounded-md px-2.5 py-1.5 text-[13px]";
 
 // Weight-ish files worth pre-suggesting; everything is still shown and selectable.
 const WEIGHT_RE = /\.(safetensors|gguf|pt|pth|bin|ckpt|onnx)$/i;
@@ -212,14 +212,14 @@ export function HfBrowser({
 
   return (
     <div className="space-y-3">
-      <div className="space-y-2 rounded-md border border-white/10 bg-black/15 p-2.5">
+      <div className="space-y-2 rounded-md border border-line bg-control p-2.5">
         <div className="flex flex-wrap gap-1.5">
           {FOCUS_OPTIONS.map((option) => (
             <button
               key={option.value}
               onClick={() => chooseFocus(option.value)}
               className={`rounded px-2.5 py-1 text-xs transition ${
-                focus === option.value ? "bg-accent/30 text-white" : "bg-white/5 text-white/55 hover:bg-white/10 hover:text-white/80"
+                focus === option.value ? "bg-accent/15 text-accent-fg" : "bg-raised text-ui-muted hover:bg-control-hover hover:text-ui"
               }`}
             >
               {option.label}
@@ -242,7 +242,7 @@ export function HfBrowser({
 
         {results ? (
           results.length === 0 ? (
-            <div className="rounded-md border border-dashed border-white/10 px-3 py-3 text-center text-xs text-white/35">
+            <div className="rounded-md border border-dashed border-line px-3 py-3 text-center text-xs text-ui-subtle">
               Nothing found.
             </div>
           ) : (
@@ -251,17 +251,17 @@ export function HfBrowser({
                 <li
                   key={result.id}
                   className={`rounded-md border px-2.5 py-2 ${
-                    loadedRepo === result.id ? "border-accent/45 bg-accent/10" : "border-white/10 bg-black/20"
+                    loadedRepo === result.id ? "border-accent/45 bg-accent/10" : "border-line bg-control"
                   }`}
                 >
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="min-w-0 truncate font-mono text-[12px] text-white/85" title={result.id}>
+                        <span className="min-w-0 truncate font-mono text-[12px] text-ui-strong" title={result.id}>
                           {result.id}
                         </span>
                         {result.suggested_kind ? (
-                          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">
+                          <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">
                             {result.suggested_kind}
                           </span>
                         ) : null}
@@ -269,7 +269,7 @@ export function HfBrowser({
                           <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">gated</span>
                         ) : null}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-white/35">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ui-subtle">
                         <span>{fmtCount(result.downloads)} downloads</span>
                         <span>{fmtCount(result.likes)} likes</span>
                         {result.last_modified ? <span>{fmtDate(result.last_modified)}</span> : null}
@@ -278,7 +278,7 @@ export function HfBrowser({
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {resultTags(result).map((tag) => (
-                          <span key={tag} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-white/35">
+                          <span key={tag} className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">
                             {tag}
                           </span>
                         ))}
@@ -289,7 +289,7 @@ export function HfBrowser({
                         href={result.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/55 transition hover:bg-white/10 hover:text-white"
+                        className="ui-button rounded-md px-2.5 py-1 text-xs"
                       >
                         Card
                       </a>
@@ -324,19 +324,19 @@ export function HfBrowser({
 
       {files ? (
         files.length === 0 ? (
-          <div className="rounded-md border border-dashed border-white/10 px-3 py-3 text-center text-xs text-white/35">
+          <div className="rounded-md border border-dashed border-line px-3 py-3 text-center text-xs text-ui-subtle">
             No files found in <span className="font-mono">{loadedRepo}</span>.
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/40">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-ui-subtle">
               <span className="min-w-0 truncate">
-                <span className="font-mono text-white/55">{loadedRepo}</span> / {files.length} files / {fmtBytes(totalBytes)}
+                <span className="font-mono text-ui-muted">{loadedRepo}</span> / {files.length} files / {fmtBytes(totalBytes)}
               </span>
               <div className="flex items-center gap-2">
-                <button onClick={() => setSelected(new Set(files.map((f) => f.path)))} className="hover:text-white/70">all</button>
-                <button onClick={selectWeights} className="hover:text-white/70">weights</button>
-                <button onClick={() => setSelected(new Set())} className="hover:text-white/70">none</button>
+                <button onClick={() => setSelected(new Set(files.map((f) => f.path)))} className="hover:text-ui">all</button>
+                <button onClick={selectWeights} className="hover:text-ui">weights</button>
+                <button onClick={() => setSelected(new Set())} className="hover:text-ui">none</button>
               </div>
             </div>
             <input
@@ -345,32 +345,32 @@ export function HfBrowser({
               value={fileQuery}
               onChange={(e) => setFileQuery(e.target.value)}
             />
-            <ul className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-white/10 bg-black/15 p-1.5">
+            <ul className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-line bg-control p-1.5">
               {visibleFiles.map((f) => (
                 <li key={f.path}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-white/5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-control-hover">
                     <input
                       type="checkbox"
                       className="accent-[var(--accent)]"
                       checked={selected.has(f.path)}
                       onChange={() => toggle(f.path)}
                     />
-                    <span className={`min-w-0 flex-1 truncate font-mono text-[12px] ${WEIGHT_RE.test(f.path) ? "text-white/80" : "text-white/45"}`} title={f.path}>
+                    <span className={`min-w-0 flex-1 truncate font-mono text-[12px] ${WEIGHT_RE.test(f.path) ? "text-ui" : "text-ui-subtle"}`} title={f.path}>
                       {f.path}
                     </span>
-                    <span className="shrink-0 text-[11px] text-white/35">{f.size_bytes ? fmtBytes(f.size_bytes) : "-"}</span>
+                    <span className="shrink-0 text-[11px] text-ui-subtle">{f.size_bytes ? fmtBytes(f.size_bytes) : "-"}</span>
                   </label>
                 </li>
               ))}
               {visibleFiles.length === 0 ? (
-                <li className="px-2 py-4 text-center text-xs text-white/30">No matching files.</li>
+                <li className="px-2 py-4 text-center text-xs text-ui-subtle">No matching files.</li>
               ) : null}
             </ul>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-white/40">Save to</span>
+                <span className="text-[11px] text-ui-subtle">Save to</span>
                 <div className="w-44"><Select value={kind} onChange={setKind} options={kindOptions} /></div>
-                <span className="text-[11px] text-white/30">
+                <span className="text-[11px] text-ui-subtle">
                   {selectedVisibleCount}/{visibleFiles.length} shown selected
                 </span>
               </div>
@@ -383,7 +383,7 @@ export function HfBrowser({
                 </button>
               </div>
             </div>
-            <p className="text-[11px] text-white/30">
+            <p className="text-[11px] text-ui-subtle">
               Single-file weights land in <span className="font-mono">models/{kind}/</span>; multi-file picks use
               <span className="font-mono"> {repoName}/</span>.
             </p>

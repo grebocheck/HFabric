@@ -29,10 +29,10 @@ import {
 } from "./imageComposerHelpers";
 
 const field =
-  "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-white/25 focus:border-accent";
-const label = "text-[10px] font-medium uppercase tracking-wide text-white/45";
-const section = "border-b border-white/10 p-3 last:border-b-0";
-const subtleButton = "rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
+  "ui-field w-full rounded-md px-2.5 py-1.5 text-[13px]";
+const label = "text-[10px] font-medium uppercase tracking-wide text-ui-subtle";
+const section = "border-b border-line p-3 last:border-b-0";
+const subtleButton = "ui-button rounded-md px-2.5 py-1.5 text-xs disabled:opacity-30";
 
 const RATIOS: Array<{ label: string; w: number; h: number }> = [
   { label: "1:1", w: 1, h: 1 },
@@ -376,14 +376,14 @@ export function ImageComposer({
   const visiblePromptHistory = promptHistory.filter((item) => item !== promptDraft.trim()).slice(0, 8);
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-surface max-[860px]:mb-4 max-[860px]:h-[760px]">
-      <div className="border-b border-white/10 px-3 py-3">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-panel max-[860px]:mb-4 max-[860px]:h-[760px]">
+      <div className="border-b border-line px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-white/85">Generate</h2>
-            <p className="mt-0.5 truncate text-xs text-white/40">{width}x{height} / {steps} steps / {selectedLoras.length || "no"} LoRA</p>
+            <h2 className="text-sm font-semibold text-ui-strong">Generate</h2>
+            <p className="mt-0.5 truncate text-xs text-ui-subtle">{width}x{height} / {steps} steps / {selectedLoras.length || "no"} LoRA</p>
           </div>
-          <span className="shrink-0 rounded-md border border-white/10 bg-black/25 px-2 py-1 text-[11px] uppercase text-white/50">
+          <span className="shrink-0 rounded-md border border-line bg-control px-2 py-1 text-[11px] uppercase text-ui-muted">
             {selectedFamily ?? "image"}
           </span>
         </div>
@@ -402,14 +402,14 @@ export function ImageComposer({
                   title={visiblePromptHistory.length ? "Recall recent prompt" : "No recent image prompts"}
                   aria-label="Recall recent image prompt"
                   aria-expanded={promptHistoryOpen}
-                  className="h-6 w-6 rounded-md border border-white/15 text-sm leading-none text-white/55 transition hover:bg-white/10 hover:text-white disabled:opacity-25"
+                  className="ui-button h-6 w-6 rounded-md text-sm leading-none disabled:opacity-25"
                 >
                   ↑
                 </button>
                 {promptHistoryOpen ? (
-                  <div className="absolute right-0 z-30 mt-1 w-72 overflow-hidden rounded-md border border-white/10 bg-surface-2 py-1 shadow-xl shadow-black/60">
+                  <div className="absolute right-0 z-30 mt-1 w-72 overflow-hidden rounded-md border border-line bg-surface-2 py-1 shadow-popover">
                     {visiblePromptHistory.length === 0 ? (
-                      <div className="px-2.5 py-1.5 text-sm text-white/30">no recent prompts</div>
+                      <div className="px-2.5 py-1.5 text-sm text-ui-subtle">no recent prompts</div>
                     ) : (
                       visiblePromptHistory.map((prompt) => (
                         <button
@@ -419,7 +419,7 @@ export function ImageComposer({
                             setPromptDraft(prompt);
                             setPromptHistoryOpen(false);
                           }}
-                          className="block w-full truncate px-2.5 py-1.5 text-left text-sm text-white/75 transition hover:bg-white/10 hover:text-white"
+                          className="block w-full truncate px-2.5 py-1.5 text-left text-sm text-ui transition hover:bg-control-hover hover:text-ui-strong"
                           title={prompt}
                         >
                           {prompt}
@@ -434,11 +434,11 @@ export function ImageComposer({
                 onClick={() => setLibraryOpen(true)}
                 title="Prompt library"
                 aria-label="Open prompt library"
-                className="h-6 rounded-md border border-white/15 px-2 text-xs leading-none text-white/55 transition hover:bg-white/10 hover:text-white"
+                className="ui-button h-6 rounded-md px-2 text-xs leading-none"
               >
                 Library
               </button>
-              <span className="text-[11px] text-white/30">{promptChars ? `${promptChars} chars` : "empty"}</span>
+              <span className="text-[11px] text-ui-subtle">{promptChars ? `${promptChars} chars` : "empty"}</span>
             </div>
           </div>
           <textarea
@@ -478,7 +478,7 @@ export function ImageComposer({
             {modelsLoading && imgModels.length === 0 ? (
               <SkeletonLine />
             ) : imgModels.length === 0 ? (
-              <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/35">no image models</div>
+              <div className="rounded-md border border-line bg-control px-3 py-2 text-sm text-ui-subtle">no image models</div>
             ) : (
               <ModelPicker models={imgModels} value={imgModel} onChange={setImgModel} />
             )}
@@ -571,7 +571,7 @@ export function ImageComposer({
         <section className={section}>
           <div className="flex items-center justify-between gap-2">
             <div className={label}>LoRA</div>
-            <span className="text-[11px] text-white/35">{selectedLoras.length ? `${selectedLoras.length} active` : "none active"}</span>
+            <span className="text-[11px] text-ui-subtle">{selectedLoras.length ? `${selectedLoras.length} active` : "none active"}</span>
           </div>
           {lorasLoading && selectedImgModel && compatibleLoras.length === 0 ? (
             <div className="mt-1.5">
@@ -593,7 +593,7 @@ export function ImageComposer({
               })}
             </div>
           ) : (
-            <div className="mt-1.5 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/35">
+            <div className="mt-1.5 rounded-md border border-line bg-control px-3 py-2 text-sm text-ui-subtle">
               {selectedImgModel ? "no compatible LoRA files" : "pick an image model first"}
             </div>
           )}
@@ -629,7 +629,7 @@ export function ImageComposer({
         </section>
       </div>
 
-      <div className="border-t border-white/10 bg-black/20 p-3">
+      <div className="border-t border-line bg-raised p-3">
         <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-2">
           <label>
             <div className={label}>Jobs</div>
@@ -638,19 +638,19 @@ export function ImageComposer({
               value={count}
               min={1}
               onChange={(e) => setCount(Math.max(1, Number(e.target.value)))}
-              className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-2 py-2 text-sm outline-none focus:border-accent"
+              className="ui-field mt-1 w-full rounded-md px-2 py-2 text-sm"
             />
           </label>
           <button
             onClick={generate}
             disabled={!canQueue}
             title={selectedUnavailableReason || undefined}
-            className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-hover disabled:opacity-40"
+            className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-ui-inverse transition hover:bg-accent-hover disabled:opacity-40"
           >
             {queueLabel}
           </button>
         </div>
-        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-white/35">
+        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-ui-subtle">
           <span className="truncate">{selectedImgModel?.name ?? "No image model"}</span>
           <span className="shrink-0">{seed === -1 ? "random seed" : `seed ${seed}`}</span>
         </div>

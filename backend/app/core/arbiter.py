@@ -24,6 +24,7 @@ class GpuArbiter:
         self._lock = asyncio.Lock()
         self._current: GpuBackend | None = None
         self._warm_backends: list[GpuBackend] = []
+        self._resident_pin: dict[str, str] | None = None
         # Non-arbiter GPU consumers (voice session, TTS, transcribe) keyed by a
         # stable lane id -> human label. These don't hold a resident heavy model;
         # they're tracked purely so status()/the topbar report that the GPU is busy
@@ -33,6 +34,10 @@ class GpuArbiter:
     @property
     def current(self) -> GpuBackend | None:
         return self._current
+
+    @property
+    def resident_pin(self) -> dict[str, str] | None:
+        return dict(self._resident_pin) if self._resident_pin is not None else None
 
     def busy_paths(self) -> set[Path]:
         """Resolved on-disk paths of the resident + warm models — i.e. weights that
@@ -56,6 +61,26 @@ class GpuArbiter:
         async with self._lock:
             if self._current is backend and backend.loaded:
                 return
+            if self._resident_pin is not None and self._current is not None and self._current is not backend:
+                await self._bus.publish(Event(
+                    EventType.ARBITER_NOTE,
+                    reason="resident_pinned",
+                    message=(
+                        f"{self._resident_pin['label']} is keeping "
+                        f"{self._current.descriptor.name} in VRAM. Turn it off "
+                        f"before loading {backend.descriptor.name}."
+                    ),
+                    model_id=self._current.descriptor.id,
+                    model=self._current.descriptor.name,
+                    family=self._current.descriptor.family.value,
+                    target_model_id=backend.descriptor.id,
+                    target_model=backend.descriptor.name,
+                    target_family=backend.descriptor.family.value,
+                ))
+                raise RuntimeError(
+                    f"{self._resident_pin['label']} is keeping "
+                    f"{self._current.descriptor.name} in VRAM"
+                )
             if self._current is not None and self._current is not backend:
                 await self._bus.publish(Event(
                     EventType.ARBITER_NOTE,
@@ -96,13 +121,47 @@ class GpuArbiter:
             self._current = backend
             await self._publish_status()
 
-    async def free_all(self) -> None:
+    async def free_all(self, *, force: bool = False) -> None:
         async with self._lock:
+            if self._resident_pin is not None and not force:
+                for backend in list(self._warm_backends):
+                    await self._unload_warm(backend)
+                await self._publish_status()
+                return
+            if force:
+                self._resident_pin = None
             if self._current is not None:
                 await self._unload_current(allow_keep_warm=False)
             for backend in list(self._warm_backends):
                 await self._unload_warm(backend)
             await self._publish_status()
+
+    async def pin_current(self, pin_id: str, label: str) -> dict[str, str]:
+        """Keep the current resident model in VRAM until the pin is released."""
+        async with self._lock:
+            if self._current is None or not self._current.loaded:
+                raise RuntimeError("no loaded resident model to pin")
+            cur = self._current
+            self._resident_pin = {
+                "id": pin_id,
+                "label": label,
+                "resident": cur.resident_key,
+                "model_id": cur.descriptor.id,
+                "model": cur.descriptor.name,
+                "family": cur.descriptor.family.value,
+            }
+            await self._publish_status()
+            return dict(self._resident_pin)
+
+    async def unpin(self, pin_id: str | None = None) -> bool:
+        async with self._lock:
+            if self._resident_pin is None:
+                return False
+            if pin_id is not None and self._resident_pin.get("id") != pin_id:
+                return False
+            self._resident_pin = None
+            await self._publish_status()
+            return True
 
     async def record_profile(self, backend: GpuBackend) -> None:
         await self._record_profile(backend)
@@ -328,6 +387,7 @@ class GpuArbiter:
                 {"id": lane_id, "label": label}
                 for lane_id, label in self._lanes.items()
             ],
+            "pin": dict(self._resident_pin) if self._resident_pin is not None else None,
         }
 
     async def _publish_status(self) -> None:

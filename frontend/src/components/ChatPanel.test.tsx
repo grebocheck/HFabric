@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "./ChatPanel";
-import type { BusEvent, ChatConversation, ChatMessage, LlmConfig, Model } from "../types";
+import type { BusEvent, ChatConversation, ChatMessage, LlmApiServerStatus, LlmConfig, Model } from "../types";
 
 const mocks = vi.hoisted(() => ({
   eventHandler: undefined as ((event: BusEvent) => void) | undefined,
@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
     listConversations: vi.fn(),
     listPresets: vi.fn(),
     getLlmConfig: vi.fn(),
+    getLlmServer: vi.fn(),
+    setLlmServer: vi.fn(),
     createConversation: vi.fn(),
     sendChatMessage: vi.fn(),
     stopLlm: vi.fn(),
@@ -87,6 +89,25 @@ function llmConfig(): LlmConfig {
   };
 }
 
+function llmServer(): LlmApiServerStatus {
+  return {
+    enabled: false,
+    available: false,
+    protocol: "openai-compatible",
+    base_url: "http://127.0.0.1:8261/v1",
+    chat_completions_url: "http://127.0.0.1:8261/v1/chat/completions",
+    models_url: "http://127.0.0.1:8261/v1/models",
+    host: "127.0.0.1",
+    port: 8261,
+    model_id: null,
+    model: null,
+    loaded: false,
+    pinned: false,
+    stub: true,
+    note: null,
+  };
+}
+
 function renderPanel() {
   function Harness() {
     const [draft, setDraft] = useState("");
@@ -103,6 +124,8 @@ beforeEach(() => {
   mocks.api.listConversations.mockResolvedValue([]);
   mocks.api.listPresets.mockResolvedValue([]);
   mocks.api.getLlmConfig.mockResolvedValue(llmConfig());
+  mocks.api.getLlmServer.mockResolvedValue(llmServer());
+  mocks.api.setLlmServer.mockResolvedValue({ ...llmServer(), enabled: true });
   mocks.api.createConversation.mockResolvedValue(conversation());
   mocks.api.sendChatMessage.mockResolvedValue({
     job_id: "job-1",

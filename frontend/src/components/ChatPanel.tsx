@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { ChatAttachment, ChatMessage, ChatSendBody, LlmConfig, Model, Preset } from "../types";
+import type { ChatAttachment, ChatMessage, ChatSendBody, LlmApiServerStatus, LlmConfig, Model, Preset } from "../types";
 import { ModelPicker } from "./ModelPicker";
 import { PromptLibrary } from "./PromptLibrary";
 import { Select } from "./Select";
@@ -23,9 +23,9 @@ import {
 import { setLastAssistant, useChatStream, useConversation } from "./ChatPanelHooks";
 import { MessageComposer, MessageList } from "./ChatPanelParts";
 
-const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
-const numField = "w-full rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs outline-none focus:border-emerald-500";
-const label = "text-xs uppercase tracking-wide text-white/40";
+const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
+const numField = "ui-field w-full rounded-md px-2 py-1 text-xs";
+const label = "text-xs uppercase tracking-wide text-ui-subtle";
 
 export type ChatJump = { conversationId: string; jobId?: string; nonce: number };
 
@@ -74,8 +74,10 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   const [personaName, setPersonaName] = useState("");
 
   const [cfg, setCfg] = useState<LlmConfig | null>(null);
+  const [llmServer, setLlmServer] = useState<LlmApiServerStatus | null>(null);
   const [ctxDraft, setCtxDraft] = useState<number | null>(null);
   const [ctxTypeBusy, setCtxTypeBusy] = useState(false);
+  const [serverBusy, setServerBusy] = useState(false);
   const [cfgNote, setCfgNote] = useState("");
   const [importNote, setImportNote] = useState("");
 
@@ -144,6 +146,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     refreshConvs();
     refreshPersonas();
     api.getLlmConfig().then((c) => { setCfg(c); setCtxDraft((p) => p ?? c.ctx); }).catch(() => {});
+    api.getLlmServer().then(setLlmServer).catch(() => {});
   }, [refreshConvs, refreshPersonas]);
 
   useEffect(() => {
@@ -420,6 +423,33 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     (ct) => !activeBackend || activeBackend.context_types.includes(ct.id),
   );
 
+  const toggleLlmServer = async (enabled: boolean) => {
+    setCfgNote("");
+    setServerBusy(true);
+    try {
+      const next = await api.setLlmServer({ enabled, ...(enabled && modelId ? { model_id: modelId } : {}) });
+      setLlmServer(next);
+      const nextCfg = await api.getLlmConfig();
+      setCfg(nextCfg);
+      setCtxDraft(nextCfg.ctx);
+      setCfgNote(enabled ? (next.available ? "OpenAI API ready" : next.note ?? "API server enabled") : "API server stopped");
+    } catch (err) {
+      setCfgNote(err instanceof Error ? err.message : "could not update API server");
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
+  const copyLlmServerUrl = async () => {
+    if (!llmServer?.base_url) return;
+    try {
+      await navigator.clipboard?.writeText(llmServer.base_url);
+      setCfgNote("API base URL copied");
+    } catch {
+      setCfgNote("could not copy API URL");
+    }
+  };
+
   // --- personas ---
   const applyPersona = (id: string) => {
     setPersonaId(id);
@@ -551,22 +581,22 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
   return (
     <div className="flex h-full gap-3">
       {/* --- conversations --- */}
-      <aside className="flex w-56 shrink-0 flex-col rounded-lg border border-white/10">
-        <button onClick={() => void newChat()} className="mx-2 mt-2 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500">
+      <aside className="flex w-56 shrink-0 flex-col rounded-lg border border-line bg-surface">
+        <button onClick={() => void newChat()} className="mx-2 mt-2 rounded-md bg-success px-3 py-1.5 text-sm font-medium text-ui-inverse">
           + New chat
         </button>
         <input
           value={convQuery}
           onChange={(e) => setConvQuery(e.target.value)}
           placeholder="search chats"
-          className="mx-2 my-2 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-emerald-500"
+          className="ui-field mx-2 my-2 rounded-md px-2 py-1 text-xs"
         />
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {convsLoading && convs.length === 0 ? (
             <SkeletonRows rows={7} />
           ) : (
             <>
-              {filteredConvs.length === 0 && <div className="px-1 text-xs text-white/30">no conversations</div>}
+              {filteredConvs.length === 0 && <div className="px-1 text-xs text-ui-subtle">no conversations</div>}
               {filteredConvs.map((c) => (
                 <div
                   key={c.id}
@@ -575,10 +605,10 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
                     activeId === c.id ? "bg-white/15" : "hover:bg-white/5"
                   }`}
                 >
-                  <span className="min-w-0 flex-1 truncate text-white/80">{c.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-ui">{c.title}</span>
                   <button
                     onClick={(e) => { e.stopPropagation(); void deleteConversation(c.id); }}
-                    className="shrink-0 text-white/30 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
+                    className="shrink-0 text-ui-subtle opacity-0 transition hover:text-error-fg group-hover:opacity-100"
                     title="delete"
                   >
                     ✕
@@ -591,7 +621,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
       </aside>
 
       {/* --- conversation --- */}
-      <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-white/10">
+      <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface">
         <MessageList
           editText={editText}
           editingId={editingId}
@@ -651,14 +681,14 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
       </div>
 
       {/* --- settings --- */}
-      <aside className="flex w-72 shrink-0 flex-col gap-4 overflow-y-auto rounded-lg border border-white/10 p-4">
+      <aside className="flex w-72 shrink-0 flex-col gap-4 overflow-y-auto rounded-lg border border-line bg-surface p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white/75">Model settings</h2>
+          <h2 className="text-sm font-semibold text-ui">Model settings</h2>
           <div className="flex gap-1">
             <button
               onClick={exportChat}
               disabled={!messages.length}
-              className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
+              className="ui-button rounded px-2 py-1 text-xs disabled:opacity-30"
               title="Export conversation as Markdown"
             >
               MD
@@ -666,14 +696,14 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
             <button
               onClick={exportJson}
               disabled={!activeId && personas.length === 0}
-              className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
+              className="ui-button rounded px-2 py-1 text-xs disabled:opacity-30"
               title="Export importable JSON bundle"
             >
               JSON
             </button>
             <button
               onClick={() => importInputRef.current?.click()}
-              className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10"
+              className="ui-button rounded px-2 py-1 text-xs"
               title="Import JSON bundle"
             >
               Import
@@ -687,7 +717,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
             />
           </div>
         </div>
-        {importNote && <div className="text-[11px] text-emerald-300/80">{importNote}</div>}
+        {importNote && <div className="text-[11px] text-success-fg">{importNote}</div>}
 
         <label>
           <div className={label}>Model</div>
@@ -700,19 +730,56 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
           )}
         </label>
 
-        <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+        <div className="rounded-md border border-line bg-control px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              <span className="block text-sm font-medium text-ui">OpenAI API</span>
+              <span className="block text-xs text-ui-subtle">
+                {llmServer?.enabled
+                  ? `${llmServer.stub ? "stub" : llmServer.available ? "ready" : "starting"} · ${llmServer.model ?? llmServer.model_id ?? "LLM"}`
+                  : "serve the selected LLM"}
+              </span>
+            </span>
+            <Toggle
+              checked={Boolean(llmServer?.enabled)}
+              disabled={serverBusy || (!modelId && !llmServer?.enabled)}
+              onChange={(value) => void toggleLlmServer(value)}
+              ariaLabel="Toggle OpenAI-compatible LLM API"
+            />
+          </div>
+          {llmServer?.enabled ? (
+            <div className="mt-2 space-y-1.5 text-[11px]">
+              <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+                <span className="text-ui-subtle">Base URL</span>
+                <code className="truncate rounded bg-raised px-1.5 py-0.5 font-mono text-success-fg">
+                  {llmServer.base_url}
+                </code>
+                <button onClick={() => void copyLlmServerUrl()} className="ui-button rounded px-1.5 py-0.5">
+                  Copy
+                </button>
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-2">
+                <span className="text-ui-subtle">Model</span>
+                <code className="truncate font-mono text-ui-muted">{llmServer.model ?? llmServer.model_id}</code>
+              </div>
+              {llmServer.note ? <div className="text-ui-subtle">{llmServer.note}</div> : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 rounded-md border border-line bg-control px-3 py-2">
           <span>
-            <span className="block text-sm font-medium text-white/70">Model image tool</span>
-            <span className="block text-xs text-white/35">{pickImageModel(models)?.name ?? "no image model"} · /image stays manual</span>
+            <span className="block text-sm font-medium text-ui">Model image tool</span>
+            <span className="block text-xs text-ui-subtle">{pickImageModel(models)?.name ?? "no image model"} · /image stays manual</span>
           </span>
           <Toggle checked={imageTool} disabled={!pickImageModel(models)} onChange={setImageTool} />
         </div>
 
-        <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+        <div className="rounded-md border border-line bg-control px-3 py-2">
           <div className="flex items-center justify-between gap-3">
             <span>
-              <span className="block text-sm font-medium text-white/70">Document tool</span>
-              <span className="block text-xs text-white/35">model-driven RAG search</span>
+              <span className="block text-sm font-medium text-ui">Document tool</span>
+              <span className="block text-xs text-ui-subtle">model-driven RAG search</span>
             </span>
             <Toggle checked={documentTool} onChange={setDocumentTool} />
           </div>
@@ -736,14 +803,14 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
           <div className="mt-1 flex gap-2">
             <input type="number" min={512} step={512} value={ctxDraft ?? ""} onChange={(e) => setCtxDraft(Number(e.target.value))} className={numField} />
             <button onClick={() => void applyCtx()} disabled={ctxDraft == null || ctxDraft === cfg?.ctx}
-              className="shrink-0 rounded-md border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30">
+              className="ui-button shrink-0 rounded-md px-2.5 py-1 text-xs disabled:opacity-30">
               Apply
             </button>
           </div>
-          <div className="mt-1 text-[11px] text-white/35">current {cfg?.ctx ?? "?"} · {cfg?.loaded ? "loaded" : "not loaded"}</div>
-          {cfgNote && <div className="mt-1 text-[11px] text-emerald-300/80">{cfgNote}</div>}
+          <div className="mt-1 text-[11px] text-ui-subtle">current {cfg?.ctx ?? "?"} · {cfg?.loaded ? "loaded" : "not loaded"}</div>
+          {cfgNote && <div className="mt-1 text-[11px] text-success-fg">{cfgNote}</div>}
           {ctxDraft != null && cfg && ctxDraft !== cfg.ctx && cfg.loaded && (
-            <div className="mt-1 text-[11px] text-amber-300/80">applying reloads the running model</div>
+            <div className="mt-1 text-[11px] text-warn-fg">applying reloads the running model</div>
           )}
         </div>
 
@@ -762,7 +829,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
             ))}
           </select>
           {activeBackend && !activeBackend.available && !cfg?.stub && (
-            <div className="mt-1 text-[11px] text-amber-300/80">
+            <div className="mt-1 text-[11px] text-warn-fg">
               binary not found at <span className="font-mono">{activeBackend.path}</span> — the LLM won't start with this backend
             </div>
           )}
@@ -782,12 +849,12 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
               </option>
             ))}
           </select>
-          <div className="mt-1 text-[11px] text-white/35">quantizes the context to fit a longer window in the same VRAM</div>
+          <div className="mt-1 text-[11px] text-ui-subtle">quantizes the context to fit a longer window in the same VRAM</div>
           {cfg?.context_types.find((ct) => ct.id === cfg.context_type)?.experimental && (
-            <div className="mt-1 text-[11px] text-amber-300/80">TurboQuant types require the TurboQuant backend's patched llama.cpp build</div>
+            <div className="mt-1 text-[11px] text-warn-fg">TurboQuant types require the TurboQuant backend's patched llama.cpp build</div>
           )}
           {cfg && cfg.context_type !== "f16" && cfg.loaded && (
-            <div className="mt-1 text-[11px] text-amber-300/80">applying reloads the running model</div>
+            <div className="mt-1 text-[11px] text-warn-fg">applying reloads the running model</div>
           )}
         </div>
 
@@ -803,7 +870,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
 
         {/* advanced sampling */}
         <div>
-          <button onClick={() => setShowAdvanced((v) => !v)} className="flex w-full items-center justify-between text-xs uppercase tracking-wide text-white/40 hover:text-white/70">
+          <button onClick={() => setShowAdvanced((v) => !v)} className="flex w-full items-center justify-between text-xs uppercase tracking-wide text-ui-subtle hover:text-ui">
             <span>Advanced sampling</span>
             <span>{showAdvanced ? "▾" : "▸"}</span>
           </button>
@@ -837,14 +904,14 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
               />
             )}
             <button onClick={() => void deletePersona()} disabled={!personaId}
-              className="rounded-md border border-red-400/25 px-2 py-1 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-30">
+              className="rounded-md border border-error-border px-2 py-1 text-xs text-error-fg hover:bg-error-bg disabled:opacity-30">
               Del
             </button>
           </div>
           <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
             <input value={personaName} onChange={(e) => setPersonaName(e.target.value)} placeholder="save current as…" className={numField} />
             <button onClick={() => void savePersona()} disabled={!personaName.trim()}
-              className="rounded-md border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30">
+              className="ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30">
               Save
             </button>
           </div>

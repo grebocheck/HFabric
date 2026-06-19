@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type { ImageItem } from "../types";
 import { ZoomableImage } from "./ZoomableImage";
 
-const actionBtn = "rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white";
+const actionBtn = "ui-button rounded-md px-2.5 py-1.5 text-xs";
 
 export function ResultPreview({
   images,
@@ -107,21 +107,21 @@ export function ResultPreview({
     : [];
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-surface max-[860px]:mb-4 max-[860px]:h-[720px]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-3">
+    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-panel max-[860px]:mb-4 max-[860px]:h-[720px]">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-white/85">Result</h2>
-          <p className="mt-0.5 truncate text-xs text-white/40">
+          <h2 className="text-sm font-semibold text-ui-strong">Result</h2>
+          <p className="mt-0.5 truncate text-xs text-ui-subtle">
             {selected ? text(params.prompt) || "Generated image" : "No image yet"}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {note ? <span className="text-xs text-emerald-300/85">{note}</span> : null}
+          {note ? <span className="text-xs text-success-fg">{note}</span> : null}
           <button onClick={onOpenHistory} className={actionBtn}>History</button>
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/35">
+      <div className="ui-stage relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         {generating ? <div className="skeleton absolute inset-x-0 top-0 z-10 h-0.5" /> : null}
         {selected ? (
           <button
@@ -130,38 +130,38 @@ export function ResultPreview({
             title="Open detail view"
           >
             <img src={selected.url} alt="" className="max-h-full max-w-full object-contain shadow-2xl shadow-black/50" />
-            <span className="absolute right-3 top-3 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[11px] text-white/65 opacity-0 transition group-hover:opacity-100">
+            <span className="absolute right-3 top-3 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[11px] text-white/65 opacity-0 backdrop-blur transition group-hover:opacity-100">
               Detail
             </span>
           </button>
         ) : generating ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8">
             <div className="skeleton h-40 w-40 rounded-lg" />
-            <span className="text-xs text-white/40">generating…</span>
+            <span className="text-xs text-white/70">generating...</span>
           </div>
         ) : !hasImageModels && !modelsLoading ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
-            <p className="text-sm text-white/50">No image models installed yet.</p>
-            <p className="max-w-xs text-xs leading-5 text-white/35">
+            <p className="text-sm text-white/75">No image models installed yet.</p>
+            <p className="max-w-xs text-xs leading-5 text-white/55">
               Open the Models tab to fetch a starter model for your hardware, then come back here to generate.
             </p>
             {onGetModels ? (
               <button
                 onClick={onGetModels}
-                className="mt-1 rounded-md border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent/25"
+                className="mt-1 rounded-md border border-accent/40 bg-accent px-3 py-1.5 text-xs font-medium text-ui-inverse hover:bg-accent-hover"
               >
                 Open Model downloads
               </button>
             ) : null}
           </div>
         ) : (
-          <div className="flex h-full w-full items-center justify-center p-8 text-sm text-white/30">
+          <div className="flex h-full w-full items-center justify-center p-8 text-sm text-white/60">
             Queue a generation to see the result here.
           </div>
         )}
       </div>
 
-      <div className="border-t border-white/10 bg-black/20 p-3">
+      <div className="border-t border-line bg-raised p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={copyImage} disabled={!selected} className={`${actionBtn} disabled:opacity-30`}>Copy</button>
@@ -202,7 +202,7 @@ export function ResultPreview({
               </>
             ) : null}
           </div>
-          <div className="min-w-0 truncate text-xs text-white/40">
+          <div className="min-w-0 truncate text-xs text-ui-subtle">
             {facts.length ? facts.join(" / ") : "Waiting for output"}
           </div>
         </div>
@@ -215,7 +215,7 @@ export function ResultPreview({
                 onClick={() => setSelectedId(img.id)}
                 title={text(img.params?.prompt)}
                 className={`relative h-[68px] w-[68px] shrink-0 overflow-hidden rounded-md border transition ${
-                  selected?.id === img.id ? "border-accent/90" : "border-white/10 hover:border-white/35"
+                  selected?.id === img.id ? "border-accent/90" : "border-line hover:border-border-strong"
                 }`}
               >
                 <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />

@@ -230,9 +230,9 @@ export function Gallery({
       {/* --- header: counters + search + filters --- */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-sm font-semibold text-white/80">History</h2>
+          <h2 className="text-sm font-semibold text-ui-strong">History</h2>
           {stats && (
-            <span className="text-xs text-white/40">
+            <span className="text-xs text-ui-subtle">
               {stats.total} total · {stats.today} today
             </span>
           )}
@@ -246,11 +246,11 @@ export function Gallery({
                 if (e.key === "Enter") submitSearch();
               }}
               placeholder="search prompt / seed"
-              className="w-44 rounded-l-md border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none focus:border-accent"
+              className="ui-field w-44 rounded-l-md px-2 py-1 text-xs"
             />
             <button
               onClick={submitSearch}
-              className="rounded-r-md border border-l-0 border-white/10 px-2 py-1 text-xs text-white/70 hover:bg-white/10"
+              className="ui-button rounded-r-md border-l-0 px-2 py-1 text-xs"
             >
               Go
             </button>
@@ -270,7 +270,7 @@ export function Gallery({
           <button
             onClick={() => setApplied((a) => ({ ...a, favorite: !a.favorite }))}
             className={`rounded-md border px-2.5 py-1 text-xs transition ${
-              applied.favorite ? "border-amber-300/60 bg-amber-400/15 text-amber-100" : "border-white/15 text-white/60 hover:bg-white/10"
+              applied.favorite ? "border-warn-border bg-warn-bg text-warn-fg" : "ui-button"
             }`}
           >
             Favorites
@@ -287,7 +287,7 @@ export function Gallery({
               setSelected(new Set());
             }}
             className={`rounded-md border px-2.5 py-1 text-xs transition ${
-              selectMode ? "border-accent/70 bg-accent/20 text-white" : "border-white/15 text-white/60 hover:bg-white/10"
+              selectMode ? "border-accent/70 bg-accent/15 text-accent-fg" : "ui-button"
             }`}
           >
             {selectMode ? "Done" : "Select"}
@@ -318,23 +318,23 @@ export function Gallery({
 
       {/* --- bulk action bar --- */}
       {selectMode && (
-        <div className="flex items-center gap-2 rounded-md border border-white/10 bg-black/30 px-3 py-1.5 text-xs">
-          <span className="text-white/60">{selected.size} selected</span>
+        <div className="flex items-center gap-2 rounded-md border border-line bg-raised px-3 py-1.5 text-xs shadow-panel">
+          <span className="text-ui-muted">{selected.size} selected</span>
           <button
             onClick={removeSelected}
             disabled={!selected.size}
-            className="rounded border border-red-400/30 px-2 py-0.5 text-red-300 hover:bg-red-400/10 disabled:opacity-30"
+            className="rounded border border-error-border px-2 py-0.5 text-error-fg hover:bg-error-bg disabled:opacity-30"
           >
             Delete selected
           </button>
           <button
             onClick={exportSelected}
             disabled={!selected.size || exporting}
-            className="rounded border border-white/15 px-2 py-0.5 text-white/65 hover:bg-white/10 disabled:opacity-30"
+            className="ui-button rounded px-2 py-0.5 disabled:opacity-30"
           >
             {exporting ? "Exporting..." : "Export ZIP"}
           </button>
-          <button onClick={() => setSelected(new Set())} disabled={!selected.size} className="rounded border border-white/15 px-2 py-0.5 text-white/60 hover:bg-white/10 disabled:opacity-30">
+          <button onClick={() => setSelected(new Set())} disabled={!selected.size} className="ui-button rounded px-2 py-0.5 disabled:opacity-30">
             Clear
           </button>
         </div>
@@ -343,7 +343,7 @@ export function Gallery({
       {/* --- grid --- */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-white/30">
+          <div className="flex h-full items-center justify-center text-sm text-ui-subtle">
             {loading ? "loading…" : "no images match"}
           </div>
         ) : (
@@ -357,7 +357,7 @@ export function Gallery({
                     onClick={() => (selectMode ? toggleSelected(img.id) : setOpenId(img.id))}
                     title={String(img.params?.prompt ?? "")}
                     className={`group relative aspect-square animate-fade-in overflow-hidden rounded-md border transition ${
-                      isSel ? "border-accent ring-2 ring-accent/40" : "border-white/10 hover:border-white/30"
+                      isSel ? "border-accent ring-2 ring-accent/40" : "border-line hover:border-border-strong"
                     }`}
                   >
                     <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />
@@ -368,7 +368,7 @@ export function Gallery({
                     )}
                     {selectMode && (
                       <span className={`absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded border text-[11px] ${
-                        isSel ? "border-accent/80 bg-accent text-white" : "border-white/40 bg-black/40 text-transparent"
+                        isSel ? "border-accent/80 bg-accent text-ui-inverse" : "border-white/60 bg-black/40 text-transparent"
                       }`}>
                         ✓
                       </span>
@@ -387,7 +387,7 @@ export function Gallery({
                 <button
                   onClick={loadMore}
                   disabled={loading}
-                  className="rounded-md border border-white/15 px-4 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-40"
+                  className="ui-button rounded-md px-4 py-1.5 text-xs disabled:opacity-40"
                 >
                   {loading ? "loading…" : "Load more"}
                 </button>

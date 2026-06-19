@@ -108,13 +108,13 @@ export function Select({
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-left text-sm outline-none transition focus:border-accent hover:border-white/20"
+        className="ui-field flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm"
       >
-        <span className={`min-w-0 truncate ${selected ? "" : "text-white/40"}`}>
+        <span className={`min-w-0 truncate ${selected ? "text-fg" : "text-ui-subtle"}`}>
           {selected ? selected.label : placeholder}
         </span>
         <svg
-          className={`h-3.5 w-3.5 shrink-0 text-white/40 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-ui-subtle transition-transform ${open ? "rotate-180" : ""}`}
           viewBox="0 0 16 16"
           fill="none"
           stroke="currentColor"
@@ -125,9 +125,9 @@ export function Select({
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-white/10 bg-surface-2 shadow-xl shadow-black/60">
+        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-line bg-surface-2 shadow-popover">
           {searchable ? (
-            <div className="border-b border-white/10 p-1.5">
+            <div className="border-b border-line p-1.5">
               <input
                 ref={searchRef}
                 value={query}
@@ -137,12 +137,12 @@ export function Select({
                 }}
                 onKeyDown={onSearchKeyDown}
                 placeholder="search..."
-                className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-xs outline-none transition placeholder:text-white/25 focus:border-accent"
+                className="ui-field w-full rounded px-2 py-1 text-xs"
               />
             </div>
           ) : null}
           <div className="max-h-56 overflow-y-auto py-1">
-            {filteredOptions.length === 0 ? <div className="px-2.5 py-1.5 text-sm text-white/30">no options</div> : null}
+            {filteredOptions.length === 0 ? <div className="px-2.5 py-1.5 text-sm text-ui-subtle">no options</div> : null}
             {filteredOptions.map((o, i) => (
               <button
                 key={o.value || `opt-${i}`}
@@ -152,10 +152,10 @@ export function Select({
                 onMouseEnter={() => setActive(i)}
                 className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-30 ${
                   o.value === value
-                    ? "bg-accent/30 text-white"
+                    ? "bg-accent/15 text-accent-fg"
                     : i === active
-                      ? "bg-white/10 text-white/90"
-                      : "text-white/80"
+                      ? "bg-control-hover text-ui-strong"
+                      : "text-ui"
                 }`}
               >
                 {renderOption ? (
@@ -163,7 +163,7 @@ export function Select({
                 ) : (
                   <>
                     <span className="min-w-0 truncate">{o.label}</span>
-                    {o.hint ? <span className="shrink-0 text-[11px] text-white/40">{o.hint}</span> : null}
+                    {o.hint ? <span className="shrink-0 text-[11px] text-ui-subtle">{o.hint}</span> : null}
                   </>
                 )}
               </button>

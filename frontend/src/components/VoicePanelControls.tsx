@@ -11,7 +11,7 @@ import type {
   VoiceModel,
 } from "../types";
 
-export const field = "w-full rounded-md border border-white/10 bg-black/25 px-2.5 py-1.5 text-sm outline-none transition focus:border-accent";
+export const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 export const assetSearchHint = "ContentVec + rmvpe.pt -> models/voice/pretrain";
 const denoiseAssetHint = "dtln_model_1.onnx + dtln_model_2.onnx -> models/voice/pretrain/denoise";
 export const modelDirHint = "models/voice";
@@ -86,11 +86,11 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-lg border border-white/10 bg-surface p-4 shadow-panel ${className}`}>
+    <section className={`rounded-lg border border-line bg-surface p-4 shadow-panel ${className}`}>
       <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          {eyebrow ? <div className="text-[11px] font-medium text-white/35">{eyebrow}</div> : null}
-          <h3 className="truncate text-sm font-semibold text-white/85">{title}</h3>
+          {eyebrow ? <div className="text-[11px] font-medium text-ui-subtle">{eyebrow}</div> : null}
+          <h3 className="truncate text-sm font-semibold text-ui-strong">{title}</h3>
         </div>
         {aside ? <div className="shrink-0">{aside}</div> : null}
       </div>
@@ -109,15 +109,15 @@ export function StatusTile({
   tone?: "neutral" | "good" | "warn" | "info";
 }) {
   const color = {
-    neutral: "border-white/10 bg-black/20",
-    good: "border-emerald-300/25 bg-emerald-300/10",
-    warn: "border-amber-300/25 bg-amber-300/10",
-    info: "border-sky-300/25 bg-sky-300/10",
+    neutral: "border-line bg-control",
+    good: "border-success-border bg-success-bg",
+    warn: "border-warn-border bg-warn-bg",
+    info: "border-info-border bg-info-bg",
   }[tone];
   return (
     <div className={`min-w-0 rounded-md border px-3 py-2 ${color}`}>
-      <div className="truncate text-[11px] text-white/40">{label}</div>
-      <div className="mt-0.5 truncate text-sm font-medium text-white/80">{value}</div>
+      <div className="truncate text-[11px] text-ui-subtle">{label}</div>
+      <div className="mt-0.5 truncate text-sm font-medium text-ui">{value}</div>
     </div>
   );
 }
@@ -140,11 +140,11 @@ export function Button({
   title?: string;
 }) {
   const tones = {
-    ghost: "border-white/12 text-white/70 hover:bg-white/10 hover:text-white",
-    primary: "border-accent/40 bg-accent text-white hover:bg-accent-hover",
-    danger: "border-red-400/40 bg-red-600/90 text-white hover:bg-red-500",
-    warn: "border-amber-300/30 bg-amber-300/10 text-amber-100 hover:bg-amber-300/15",
-    success: "border-emerald-300/35 bg-emerald-600 text-white hover:bg-emerald-500",
+    ghost: "border-line bg-control text-ui-muted hover:bg-control-hover hover:text-ui",
+    primary: "border-accent/40 bg-accent text-ui-inverse hover:bg-accent-hover",
+    danger: "border-error-border bg-error text-ui-inverse hover:bg-error",
+    warn: "border-warn-border bg-warn-bg text-warn-fg hover:bg-warn-bg",
+    success: "border-success-border bg-success text-ui-inverse hover:bg-success",
   }[tone];
   return (
     <button
@@ -177,8 +177,8 @@ export function MiniButton({
       disabled={disabled}
       className={`rounded border px-2 py-1 text-xs transition disabled:opacity-30 ${
         active
-          ? "border-accent/45 bg-accent/20 text-white"
-          : "border-white/10 bg-black/15 text-white/62 hover:bg-white/10 hover:text-white"
+          ? "border-accent/45 bg-accent/15 text-accent-fg"
+          : "border-line bg-control text-ui-muted hover:bg-control-hover hover:text-ui"
       }`}
     >
       {children}
@@ -213,10 +213,10 @@ export function SignedControl({
 }) {
   const commit = (next: number) => onChange(clamp(Number(next.toFixed(precision || 3)), min, max));
   return (
-    <div className={`rounded-md border border-white/10 bg-black/15 p-3 ${disabled ? "opacity-55" : ""}`}>
+    <div className={`rounded-md border border-line bg-control p-3 ${disabled ? "opacity-55" : ""}`}>
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 text-xs font-medium text-white/55">{label}</div>
-        <div className="shrink-0 font-mono text-lg font-semibold tabular-nums text-white/90">
+        <div className="min-w-0 text-xs font-medium text-ui-muted">{label}</div>
+        <div className="shrink-0 font-mono text-lg font-semibold tabular-nums text-ui-strong">
           {signed(value, precision)}{unit}
         </div>
       </div>
@@ -225,7 +225,7 @@ export function SignedControl({
           type="button"
           onClick={() => commit(value - step)}
           disabled={disabled || value <= min}
-          className="grid h-8 w-8 place-items-center rounded-md border border-white/10 bg-white/[0.03] text-lg leading-none text-white/70 transition hover:bg-white/10 disabled:opacity-25"
+          className="grid h-8 w-8 place-items-center rounded-md border border-line bg-raised text-lg leading-none text-ui-muted transition hover:bg-control-hover disabled:opacity-25"
         >
           -
         </button>
@@ -237,13 +237,13 @@ export function SignedControl({
           value={value}
           disabled={disabled}
           onChange={(event) => commit(Number(event.target.value))}
-          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-accent disabled:cursor-not-allowed"
+          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-control-active accent-accent disabled:cursor-not-allowed"
         />
         <button
           type="button"
           onClick={() => commit(value + step)}
           disabled={disabled || value >= max}
-          className="grid h-8 w-8 place-items-center rounded-md border border-white/10 bg-white/[0.03] text-lg leading-none text-white/70 transition hover:bg-white/10 disabled:opacity-25"
+          className="grid h-8 w-8 place-items-center rounded-md border border-line bg-raised text-lg leading-none text-ui-muted transition hover:bg-control-hover disabled:opacity-25"
         >
           +
         </button>
@@ -257,7 +257,7 @@ export function SignedControl({
           ))}
         </div>
       ) : null}
-      {note ? <div className="mt-2 text-xs text-white/38">{note}</div> : null}
+      {note ? <div className="mt-2 text-xs text-ui-subtle">{note}</div> : null}
     </div>
   );
 }
@@ -283,10 +283,10 @@ export function CompactSignedControl({
 }) {
   const commit = (next: number) => onChange(clamp(Number(next.toFixed(precision || 3)), min, max));
   return (
-    <div className="min-w-0 rounded-md border border-white/10 bg-black/15 px-3 py-2">
+    <div className="min-w-0 rounded-md border border-line bg-control px-3 py-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium text-white/55">{label}</span>
-        <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-white/85">
+        <span className="truncate text-xs font-medium text-ui-muted">{label}</span>
+        <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-ui">
           {signed(value, precision)}{unit}
         </span>
       </div>
@@ -294,7 +294,7 @@ export function CompactSignedControl({
         <button
           type="button"
           onClick={() => commit(value - step)}
-          className="grid h-6 w-6 place-items-center rounded border border-white/10 text-sm text-white/65 hover:bg-white/10"
+          className="grid h-6 w-6 place-items-center rounded border border-line text-sm text-ui-muted hover:bg-control-hover"
         >
           -
         </button>
@@ -305,12 +305,12 @@ export function CompactSignedControl({
           step={step}
           value={value}
           onChange={(event) => commit(Number(event.target.value))}
-          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-accent"
+          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-control-active accent-accent"
         />
         <button
           type="button"
           onClick={() => commit(value + step)}
-          className="grid h-6 w-6 place-items-center rounded border border-white/10 text-sm text-white/65 hover:bg-white/10"
+          className="grid h-6 w-6 place-items-center rounded border border-line text-sm text-ui-muted hover:bg-control-hover"
         >
           +
         </button>
@@ -342,13 +342,13 @@ export function LabeledSlider({
   note?: ReactNode;
   disabled?: boolean;
 }) {
-  const toneClass = tone === "warn" ? "text-amber-200/85" : "text-white/55";
-  const noteClass = tone === "warn" ? "text-amber-200/75" : "text-white/35";
+  const toneClass = tone === "warn" ? "text-warn-fg" : "text-ui-muted";
+  const noteClass = tone === "warn" ? "text-warn-fg" : "text-ui-subtle";
   return (
     <div className={`min-w-0 ${disabled ? "opacity-45" : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <div className={`truncate text-xs font-medium ${toneClass}`}>{label}</div>
-        {valueLabel ? <div className="shrink-0 font-mono text-xs tabular-nums text-white/45">{valueLabel}</div> : null}
+        {valueLabel ? <div className="shrink-0 font-mono text-xs tabular-nums text-ui-subtle">{valueLabel}</div> : null}
       </div>
       <Slider value={value} min={min} max={max} step={step} onChange={onChange} disabled={disabled} />
       {note ? <div className={`mt-1 truncate text-[11px] ${noteClass}`} title={String(note)}>{note}</div> : null}
@@ -397,14 +397,14 @@ export function PresetCard({
   return (
     <div
       className={`rounded-md border p-3 transition ${
-        active ? "border-accent/45 bg-accent/10" : "border-white/10 bg-black/15 hover:bg-white/[0.04]"
+        active ? "border-accent/45 bg-accent/10" : "border-line bg-control hover:bg-control-hover"
       }`}
     >
       <button type="button" onClick={onSelect} className="block w-full min-w-0 text-left">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-white/86">{preset.name}</div>
-            <div className="mt-1 truncate text-xs text-white/38" title={presetModelLabel(preset, models)}>
+            <div className="truncate text-sm font-semibold text-ui-strong">{preset.name}</div>
+            <div className="mt-1 truncate text-xs text-ui-subtle" title={presetModelLabel(preset, models)}>
               {presetModelLabel(preset, models)}
             </div>
           </div>
@@ -434,9 +434,9 @@ export function PresetCard({
 
 function PresetMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded border border-white/10 bg-white/[0.03] px-2 py-1">
-      <div className="truncate text-[10px] text-white/32">{label}</div>
-      <div className="truncate font-mono text-[11px] tabular-nums text-white/68">{value}</div>
+    <div className="min-w-0 rounded border border-line bg-raised px-2 py-1">
+      <div className="truncate text-[10px] text-ui-subtle">{label}</div>
+      <div className="truncate font-mono text-[11px] tabular-nums text-ui-muted">{value}</div>
     </div>
   );
 }
@@ -460,7 +460,7 @@ export function DiagnosticsCompact({ status, samples }: { status: VoiceEngineSta
         <StatusTile label="Squelch" value={metrics?.squelched ? "silence" : "voice"} tone={metrics?.squelched ? "warn" : "good"} />
       </div>
       {metrics?.latency_warning ? (
-        <div className="rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100/85">
+        <div className="rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs leading-5 text-warn-fg">
           {metrics.latency_warning}
         </div>
       ) : null}
@@ -468,12 +468,12 @@ export function DiagnosticsCompact({ status, samples }: { status: VoiceEngineSta
       <ProviderHealth providers={providers} />
       <div className="grid gap-1.5">
         {timings.length ? timings.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-3 rounded border border-white/10 bg-black/15 px-2 py-1 text-xs">
-            <span className="truncate text-white/42">{label}</span>
-            <span className="shrink-0 font-mono text-white/65">{formatMs(value)}</span>
+          <div key={label} className="flex items-center justify-between gap-3 rounded border border-line bg-control px-2 py-1 text-xs">
+            <span className="truncate text-ui-subtle">{label}</span>
+            <span className="shrink-0 font-mono text-ui-muted">{formatMs(value)}</span>
           </div>
         )) : (
-          <div className="rounded border border-white/10 bg-black/15 px-2 py-1.5 text-xs text-white/36">waiting for stages</div>
+          <div className="rounded border border-line bg-control px-2 py-1.5 text-xs text-ui-subtle">waiting for stages</div>
         )}
       </div>
     </div>
@@ -492,9 +492,9 @@ function ProviderHealth({
   return (
     <div className="grid gap-1.5">
       {rows.map(([label, item]) => (
-        <div key={label} className="flex items-center justify-between gap-3 rounded border border-white/10 bg-black/15 px-2 py-1 text-xs">
-          <span className="truncate text-white/42">{label}</span>
-          <span className="shrink-0 truncate font-mono text-white/65" title={String(item?.actual ?? item?.requested ?? "unknown")}>
+        <div key={label} className="flex items-center justify-between gap-3 rounded border border-line bg-control px-2 py-1 text-xs">
+          <span className="truncate text-ui-subtle">{label}</span>
+          <span className="shrink-0 truncate font-mono text-ui-muted" title={String(item?.actual ?? item?.requested ?? "unknown")}>
             {item?.actual ?? item?.requested ?? "unknown"}
           </span>
         </div>
@@ -531,7 +531,7 @@ export function VoiceOption({
     <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
       <span className="min-w-0">
         <span className="block truncate">{option.label}</span>
-        <span className="block truncate text-[11px] text-white/36">{model?.slot ?? option.hint}</span>
+        <span className="block truncate text-[11px] text-ui-subtle">{model?.slot ?? option.hint}</span>
       </span>
       {model ? <ModelBadges model={model} /> : null}
     </span>

@@ -6,9 +6,9 @@ import { formatSize } from "./imageComposerHelpers";
 import type { LlamaState } from "../types";
 
 const subtleButton =
-  "rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
+  "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
 const primaryButton =
-  "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition hover:bg-accent-hover disabled:opacity-35";
+  "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-ui-inverse transition hover:bg-accent-hover disabled:opacity-35";
 
 function errMsg(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
@@ -153,13 +153,13 @@ export function LlamaRuntime() {
         ) : (
           <>
             {installing ? (
-              <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-white/75">
+              <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-accent-fg">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="truncate">{status?.message ?? "Downloading…"}</span>
-                  {pct != null ? <span className="font-mono text-white/55">{pct}%</span> : null}
+                  {pct != null ? <span className="font-mono text-ui-muted">{pct}%</span> : null}
                 </div>
                 {pct != null ? (
-                  <div className="h-1.5 overflow-hidden rounded bg-white/10">
+                  <div className="h-1.5 overflow-hidden rounded bg-control-active">
                     <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 ) : null}
@@ -173,7 +173,7 @@ export function LlamaRuntime() {
             ) : null}
 
             {data.versions.length === 0 ? (
-              <div className="rounded-md border border-dashed border-white/10 px-3 py-3 text-white/40">
+              <div className="rounded-md border border-dashed border-line px-3 py-3 text-ui-subtle">
                 {data.legacy_binary_present
                   ? "Using a manually-placed binary at bin/llama. Click Install latest to switch to a managed build."
                   : "No llama.cpp installed yet. Click Install latest to download the right build for this machine."}
@@ -184,29 +184,29 @@ export function LlamaRuntime() {
                   <li
                     key={v.id}
                     className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 ${
-                      v.active ? "border-emerald-500/35 bg-emerald-500/10" : "border-white/10 bg-black/20"
+                      v.active ? "border-success-border bg-success-bg" : "border-line bg-control"
                     }`}
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-white/80">{v.tag}</span>
-                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/50">{v.variant}</span>
+                        <span className="font-mono text-ui">{v.tag}</span>
+                        <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-muted">{v.variant}</span>
                         {v.active ? (
-                          <span className="rounded bg-emerald-600/40 px-1.5 py-0.5 text-[10px] text-emerald-100">active</span>
+                          <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg">active</span>
                         ) : null}
                         {v.active && data.active_verified ? (
                           data.active_verified.ok ? (
-                            <span className="rounded bg-emerald-700/40 px-1.5 py-0.5 text-[10px] text-emerald-100" title={`Runs OK${data.active_verified.version ? ` (${data.active_verified.version})` : ""}`}>
+                            <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg" title={`Runs OK${data.active_verified.version ? ` (${data.active_verified.version})` : ""}`}>
                               ✓ verified
                             </span>
                           ) : (
-                            <span className="rounded bg-red-700/45 px-1.5 py-0.5 text-[10px] text-red-100" title={data.active_verified.error ?? "failed to run"}>
+                            <span className="rounded border border-error-border bg-error-bg px-1.5 py-0.5 text-[10px] text-error-fg" title={data.active_verified.error ?? "failed to run"}>
                               ✕ won&apos;t run
                             </span>
                           )
                         ) : null}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-white/35">
+                      <div className="mt-0.5 text-[11px] text-ui-subtle">
                         {v.size_bytes ? formatSize(v.size_bytes) : "—"}
                         {v.installed_at ? ` · ${new Date(v.installed_at).toLocaleDateString()}` : ""}
                         {` · ${v.binaries.length} bin`}
@@ -221,7 +221,7 @@ export function LlamaRuntime() {
                       {!v.active ? (
                         <button
                           onClick={() => void remove(v.id)}
-                          className="rounded-md border border-red-400/25 px-2 py-1 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-30"
+                          className="rounded-md border border-error-border px-2 py-1 text-xs text-error-fg hover:bg-error-bg disabled:opacity-30"
                           disabled={Boolean(busy)}
                         >
                           Remove
@@ -232,7 +232,7 @@ export function LlamaRuntime() {
                 ))}
               </ul>
             )}
-            <p className="text-[11px] text-white/30">
+            <p className="text-[11px] text-ui-subtle">
               Powers the LLM, RAG, TTS, and chat-native vision paths. Old builds are kept so a bad update can be rolled back.
             </p>
           </>

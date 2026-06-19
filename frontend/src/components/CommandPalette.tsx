@@ -52,9 +52,9 @@ export function CommandPalette({
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 pt-[15vh] backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-[36rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-white/10 bg-zinc-950 shadow-2xl"
+        className="w-[36rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface-2 text-fg shadow-popover"
         onClick={(e) => e.stopPropagation()}
       >
         <input
@@ -63,21 +63,21 @@ export function CommandPalette({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Type a command…"
-          className="w-full border-b border-white/10 bg-transparent px-4 py-3 text-sm outline-none"
+          className="w-full border-b border-line bg-transparent px-4 py-3 text-sm outline-none placeholder:text-ui-subtle"
         />
         <div className="max-h-80 overflow-y-auto py-1">
-          {filtered.length === 0 && <div className="px-4 py-3 text-sm text-white/30">no matches</div>}
+          {filtered.length === 0 && <div className="px-4 py-3 text-sm text-ui-subtle">no matches</div>}
           {filtered.map((c, i) => (
             <button
               key={c.id}
               onMouseEnter={() => setActive(i)}
               onClick={() => run(i)}
               className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm ${
-                i === active ? "bg-white/10" : ""
+                i === active ? "bg-control-hover text-ui-strong" : "text-ui"
               }`}
             >
               <span>{c.label}</span>
-              {c.hint && <span className="text-xs text-white/35">{c.hint}</span>}
+              {c.hint && <span className="text-xs text-ui-subtle">{c.hint}</span>}
             </button>
           ))}
         </div>

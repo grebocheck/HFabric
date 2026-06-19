@@ -44,7 +44,7 @@ export function ModelStatus({
   onPalette: () => void;
 }) {
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-line px-5 py-3">
+    <header className="flex items-center justify-between gap-4 border-b border-line bg-base/95 px-5 py-3">
       <div className="flex min-w-0 items-center gap-5">
         <div className="flex shrink-0 items-center gap-2">
           <Logo className="h-7 w-7" />
@@ -62,15 +62,15 @@ export function ModelStatus({
           )}
         </div>
 
-        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-white/10 bg-black/20 p-1">
+        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-line bg-control p-1">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => onView(t.id)}
               className={`rounded-md px-3 py-1 text-sm font-medium transition ${
                 view === t.id
-                  ? "bg-white/15 text-white"
-                  : "text-white/50 hover:text-white/80"
+                  ? "bg-accent text-ui-inverse shadow-sm"
+                  : "text-ui-muted hover:bg-control-hover hover:text-ui"
               }`}
             >
               {t.label}
@@ -85,8 +85,8 @@ export function ModelStatus({
             className="flex items-center gap-1.5"
             title={`VRAM ${mem.vram.used_gb.toFixed(1)} / ${mem.vram.total_gb.toFixed(1)} GB`}
           >
-            <span className="text-xs text-white/35">VRAM</span>
-            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
+            <span className="text-xs text-ui-subtle">VRAM</span>
+            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-control-active">
               <div
                 className="h-full bg-accent transition-all"
                 style={{ width: `${Math.min(100, (mem.vram.used_gb / Math.max(1, mem.vram.total_gb)) * 100)}%` }}
@@ -94,40 +94,40 @@ export function ModelStatus({
             </div>
           </div>
         ) : null}
-        <span className="text-white/50">Active model:</span>
+        <span className="text-ui-muted">Active model:</span>
         {gpu.model ? (
           <span className="flex min-w-0 items-center gap-2">
             <span
-              className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+              className={`rounded px-1.5 py-0.5 text-xs font-medium text-ui-inverse ${
                 familyColor[gpu.family ?? ""] ?? "bg-slate-600"
               }`}
             >
               {gpu.family}
             </span>
             <span className="max-w-52 truncate font-mono" title={gpu.model}>{gpu.model}</span>
-            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
-              on GPU
+            <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] font-medium text-success-fg">
+              {gpu.pin ? gpu.pin.label : "on GPU"}
             </span>
           </span>
         ) : gpu.lanes?.length ? (
           // A non-arbiter GPU consumer (voice / TTS / transcribe) is running; no
           // resident heavy model, but the GPU is busy — say so instead of "idle".
           <span className="flex min-w-0 items-center gap-2" title="GPU busy (non-model workload)">
-            <span className="max-w-52 truncate rounded bg-sky-500/20 px-1.5 py-0.5 text-xs font-medium text-sky-200">
+            <span className="max-w-52 truncate rounded border border-info-border bg-info-bg px-1.5 py-0.5 text-xs font-medium text-info-fg">
               {gpu.lanes.map((l) => l.label).join(", ")}
             </span>
-            <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+            <span className="rounded border border-info-border bg-info-bg px-1.5 py-0.5 text-[10px] font-medium text-info-fg">
               on GPU
             </span>
           </span>
         ) : (
-          <span className="text-white/40">idle</span>
+          <span className="text-ui-subtle">idle</span>
         )}
         {gpu.warm?.length ? (
-          <span className="flex items-center gap-1 text-xs text-white/45">
+          <span className="flex items-center gap-1 text-xs text-ui-subtle">
             <span>CPU warm:</span>
             <span
-              className="max-w-44 truncate font-mono text-white/60"
+              className="max-w-44 truncate font-mono text-ui-muted"
               title={gpu.warm.map((m) => m.model).join(", ")}
             >
               {gpu.warm.map((m) => m.model).join(", ")}
@@ -137,21 +137,21 @@ export function ModelStatus({
         <button
           onClick={onFree}
           disabled={!gpu.model && !gpu.warm?.length}
-          className="rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10 disabled:opacity-30"
+          className="ui-button rounded px-2.5 py-1 text-xs disabled:opacity-30"
         >
           Free GPU
         </button>
         <button
           onClick={onTheme}
           title="Cycle theme"
-          className="rounded border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10"
+          className="ui-button rounded px-2.5 py-1 text-xs"
         >
           {themeLabel[theme]}
         </button>
         <button
           onClick={onPalette}
           title="Command palette (Ctrl+K)"
-          className="rounded border border-white/15 px-2 py-1 text-xs text-white/50 hover:bg-white/10"
+          className="ui-button rounded px-2 py-1 font-mono text-[11px]"
         >
           Ctrl K
         </button>

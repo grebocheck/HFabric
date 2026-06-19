@@ -4,19 +4,19 @@ import { Badge } from "./Badge";
 import type { ArbiterNote, Job, QueuePlan } from "../types";
 
 const statusColor: Record<string, string> = {
-  queued: "text-white/55",
+  queued: "text-ui-muted",
   running: "text-accent",
-  done: "text-emerald-400",
-  error: "text-red-400",
-  cancelled: "text-white/30",
+  done: "text-success-fg",
+  error: "text-error-fg",
+  cancelled: "text-ui-subtle",
 };
 
 const statusBorder: Record<string, string> = {
-  queued: "border-l-white/25",
+  queued: "border-l-border-strong",
   running: "border-l-accent",
-  done: "border-l-emerald-400",
-  error: "border-l-red-400",
-  cancelled: "border-l-white/15",
+  done: "border-l-success",
+  error: "border-l-error",
+  cancelled: "border-l-line",
 };
 
 const order: Record<string, number> = { running: 0, queued: 1, error: 2, done: 3, cancelled: 4 };
@@ -26,8 +26,9 @@ const cellColors = ["bg-white/45", "bg-accent/35", "bg-cyan-300/35", "bg-fuchsia
 // Only the "why is the queue blocked" reasons belong in the queue banner;
 // transient swaps are shown on the System timeline instead.
 const BLOCKING_NOTE_TONES: Record<string, string> = {
-  ram_budget: "border-red-400/30 bg-red-500/10 text-red-200",
-  voice_lane: "border-sky-400/30 bg-sky-500/10 text-sky-200",
+  ram_budget: "border-error-border bg-error-bg text-error-fg",
+  voice_lane: "border-info-border bg-info-bg text-info-fg",
+  resident_pinned: "border-success-border bg-success-bg text-success-fg",
 };
 
 export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: () => void; note?: ArbiterNote | null }) {
@@ -83,12 +84,12 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-surface max-[1240px]:col-span-2 max-[860px]:h-[520px]">
-      <div className="border-b border-white/10 px-3 py-3">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-panel max-[1240px]:col-span-2 max-[860px]:h-[520px]">
+      <div className="border-b border-line px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-white/85">Queue</h2>
-            <div className="mt-1 flex gap-2 text-[11px] text-white/40">
+            <h2 className="text-sm font-semibold text-ui-strong">Queue</h2>
+            <div className="mt-1 flex gap-2 text-[11px] text-ui-subtle">
               <span>{running} running</span>
               <span>{queued} queued</span>
               <span>{finished} finished</span>
@@ -97,7 +98,7 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
           <button
             onClick={() => api.clearFinished().then(onChanged)}
             disabled={!finished && !jobs.some((job) => job.status === "error")}
-            className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-white/55 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+            className="ui-button rounded-md px-2.5 py-1.5 text-xs disabled:opacity-30"
           >
             Clear
           </button>
@@ -112,7 +113,7 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {sorted.length === 0 ? (
-          <div className="flex h-full items-center justify-center rounded-md border border-dashed border-white/10 text-sm text-white/30">
+          <div className="flex h-full items-center justify-center rounded-md border border-dashed border-line text-sm text-ui-subtle">
             Empty queue
           </div>
         ) : (
@@ -169,24 +170,24 @@ function JobCard({
         e.preventDefault();
         void reorderQueued(job.id);
       }}
-      className={`animate-fade-in rounded-md border border-l-2 bg-black/20 p-2.5 text-sm transition ${
-        draggedId === job.id ? "border-accent/60 opacity-60" : `border-white/10 ${statusBorder[job.status]}`
+      className={`animate-fade-in rounded-md border border-l-2 bg-control p-2.5 text-sm transition ${
+        draggedId === job.id ? "border-accent/60 opacity-60" : `border-line ${statusBorder[job.status]}`
       } ${job.status === "queued" ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Badge color="bg-accent/80 text-white">{job.type}</Badge>
-          <span className="min-w-0 truncate font-mono text-xs text-white/55" title={job.model_id}>{job.model_id}</span>
+          <Badge color="border-accent/40 bg-accent/15 text-accent-fg">{job.type}</Badge>
+          <span className="min-w-0 truncate font-mono text-xs text-ui-muted" title={job.model_id}>{job.model_id}</span>
         </div>
         <span className={`shrink-0 text-xs ${statusColor[job.status]}`}>{job.status}</span>
       </div>
 
       {prompt ? (
-        <div className="mt-1.5 line-clamp-2 text-xs leading-4 text-white/45" title={prompt}>{prompt}</div>
+        <div className="mt-1.5 line-clamp-2 text-xs leading-4 text-ui-subtle" title={prompt}>{prompt}</div>
       ) : null}
 
       {note ? (
-        <div className="mt-1.5 truncate text-[11px] text-white/35" title={note.message}>
+        <div className="mt-1.5 truncate text-[11px] text-ui-subtle" title={note.message}>
           {noteLine(note)}
         </div>
       ) : null}
@@ -194,13 +195,13 @@ function JobCard({
       {job.status === "running" ? (
         <>
           <div className="mt-2 flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded bg-white/10">
+            <div className="h-1.5 flex-1 overflow-hidden rounded bg-control-active">
               <div
                 className="h-full bg-accent transition-all"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <span className="w-8 text-right text-[11px] text-white/45">{progress}%</span>
+            <span className="w-8 text-right text-[11px] text-ui-subtle">{progress}%</span>
           </div>
           {job.type === "image" ? (
             <DenoisePreview progress={job.progress} note={job.progress_note} />
@@ -208,7 +209,7 @@ function JobCard({
           <div className="mt-2 flex justify-end">
             <button
               onClick={() => api.cancelJob(job.id).then(onChanged).catch(() => {})}
-              className="rounded-md border border-red-400/30 px-2.5 py-1 text-xs text-red-300 hover:bg-red-400/10"
+              className="rounded-md border border-error-border px-2.5 py-1 text-xs text-error-fg hover:bg-error-bg"
             >
               Stop
             </button>
@@ -217,20 +218,20 @@ function JobCard({
       ) : null}
 
       {job.status === "error" ? (
-        <div className="mt-1.5 line-clamp-2 text-xs text-red-400/85" title={job.error ?? ""}>{job.error}</div>
+        <div className="mt-1.5 line-clamp-2 text-xs text-error-fg" title={job.error ?? ""}>{job.error}</div>
       ) : null}
 
       {job.status === "queued" ? (
         <div className="mt-2 flex items-center justify-between gap-2">
           <button
             onClick={() => api.setPriority(job.id, job.priority + 1).then(onChanged)}
-            className="text-xs text-white/45 hover:text-white/90"
+            className="text-xs text-ui-subtle hover:text-ui-strong"
           >
             Priority {job.priority}
           </button>
           <button
             onClick={() => api.cancelJob(job.id).then(onChanged)}
-            className="text-xs text-red-400/75 hover:text-red-300"
+            className="text-xs text-error-fg hover:text-error"
           >
             Cancel
           </button>
@@ -243,18 +244,18 @@ function JobCard({
 function QueuePlanPreview({ plan }: { plan: QueuePlan | null }) {
   if (!plan || plan.queued === 0) return null;
   return (
-    <div className="mt-2 rounded-md border border-white/10 bg-black/20 px-2.5 py-2">
-      <div className="mb-1 text-[10px] uppercase tracking-wide text-white/30">
+    <div className="mt-2 rounded-md border border-line bg-control px-2.5 py-2">
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-ui-subtle">
         Plan: {plan.queued} queued / {plan.swaps} swap{plan.swaps === 1 ? "" : "s"}
       </div>
       <div className="flex flex-wrap items-center gap-1 text-[11px]">
-        <span className="max-w-[110px] truncate text-white/35" title={plan.current_model ?? "idle"}>
+        <span className="max-w-[110px] truncate text-ui-subtle" title={plan.current_model ?? "idle"}>
           {plan.current_model ?? "idle"}
         </span>
         {plan.steps.map((step, i) => (
           <span key={`${step.model_id}-${i}`} className="inline-flex min-w-0 items-center gap-1">
-            <span className="text-white/20">-&gt;</span>
-            <span className="max-w-[120px] truncate rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-white/60" title={step.model_id}>
+            <span className="text-ui-subtle">-&gt;</span>
+            <span className="max-w-[120px] truncate rounded border border-line bg-raised px-1.5 py-0.5 text-ui-muted" title={step.model_id}>
               {step.model}{step.count > 1 ? ` x${step.count}` : ""}
             </span>
           </span>
@@ -283,6 +284,9 @@ function noteLine(note: ArbiterNote): string {
   if (note.reason === "warm_evict") {
     return `waiting: evict warm ${note.model ?? "model"} for RAM`;
   }
+  if (note.reason === "resident_pinned") {
+    return "waiting: resident LLM API is pinned";
+  }
   return note.message;
 }
 
@@ -292,8 +296,8 @@ function DenoisePreview({ progress, note }: { progress: number; note?: string | 
   const pct = Math.round(clamped * 100);
 
   return (
-    <div className="mt-2 flex min-h-16 gap-2 rounded-md border border-white/10 bg-black/20 p-2">
-      <div className="relative grid h-14 w-14 shrink-0 grid-cols-4 gap-px overflow-hidden rounded border border-white/10 bg-black/40 p-1">
+    <div className="mt-2 flex min-h-16 gap-2 rounded-md border border-line bg-control p-2">
+      <div className="relative grid h-14 w-14 shrink-0 grid-cols-4 gap-px overflow-hidden rounded border border-line bg-sunken p-1">
         {previewCells.map((_, i) => (
           <span
             key={i}
@@ -301,13 +305,13 @@ function DenoisePreview({ progress, note }: { progress: number; note?: string | 
             style={{ opacity: i < noiseCells ? 0.85 : 0.12 }}
           />
         ))}
-        <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-white drop-shadow">
+        <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-ui-inverse drop-shadow">
           {pct}%
         </span>
       </div>
       <div className="min-w-0 flex-1 self-center">
-        <div className="truncate text-xs text-white/70">{note ?? "denoising"}</div>
-        <div className="mt-1 text-[10px] uppercase tracking-wide text-white/35">preview</div>
+        <div className="truncate text-xs text-ui">{note ?? "denoising"}</div>
+        <div className="mt-1 text-[10px] uppercase tracking-wide text-ui-subtle">preview</div>
       </div>
     </div>
   );

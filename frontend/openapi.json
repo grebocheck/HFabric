@@ -993,6 +993,20 @@
             ],
             "title": "Model Id"
           },
+          "pin": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pin"
+          },
           "resident": {
             "anyOf": [
               {
@@ -1393,6 +1407,126 @@
         ],
         "title": "JobType",
         "type": "string"
+      },
+      "LlmApiServerStatus": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "chat_completions_url": {
+            "title": "Chat Completions Url",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "loaded": {
+            "title": "Loaded",
+            "type": "boolean"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "models_url": {
+            "title": "Models Url",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "pinned": {
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "protocol": {
+            "title": "Protocol",
+            "type": "string"
+          },
+          "stub": {
+            "title": "Stub",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "available",
+          "protocol",
+          "base_url",
+          "chat_completions_url",
+          "models_url",
+          "host",
+          "port",
+          "loaded",
+          "pinned",
+          "stub"
+        ],
+        "title": "LlmApiServerStatus",
+        "type": "object"
+      },
+      "LlmApiServerUpdate": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "LlmApiServerUpdate",
+        "type": "object"
       },
       "LlmConfigUpdate": {
         "properties": {
@@ -5089,6 +5223,66 @@
           }
         },
         "summary": "Set Config",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/server": {
+      "get": {
+        "operationId": "get_api_server_api_llm_server_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmApiServerStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Api Server",
+        "tags": [
+          "llm"
+        ]
+      },
+      "post": {
+        "operationId": "set_api_server_api_llm_server_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmApiServerUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmApiServerStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Api Server",
         "tags": [
           "llm"
         ]

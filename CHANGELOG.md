@@ -16,12 +16,43 @@ include breaking changes — this is pre-release software.
 ### Removed
 
 ### Fixed
+
+### Security
+
+## [0.3.0] — 2026-06-19
+
+### Added
+- **OpenAI-compatible LLM API server toggle** in the Chat workspace:
+  `/api/llm/server` can pin a selected GGUF model in VRAM, expose the local
+  llama endpoint metadata, and show/copy the `/v1` base URL for external clients.
+- **Resident GPU pinning for long-lived serving**: the arbiter now reports a
+  resident pin in GPU status, keeps the pinned LLM loaded until explicitly
+  released, and makes queued work for other models wait with a clear queue note.
+
+### Changed
+- **First-class Studio light theme polish**: semantic UI tokens now drive common
+  surfaces, controls, popovers, badges, telemetry, chat, gallery, model, voice, and
+  system panels so light mode reads as an intentional design instead of a patched
+  dark theme.
+- **Shared micro-control styling** is applied across selects, toggles, sliders,
+  model settings, command palette, prompt library, result previews, and diagnostics
+  surfaces for more consistent hover, focus, disabled, and state colors.
+- **LLM launch settings are protected while API serving is pinned**: context/backend
+  changes now return a conflict until the API server is turned off, preventing
+  hidden resident-model swaps.
+
+### Deprecated
+
+### Removed
+
+### Fixed
 - **LoRA generation no longer fails with "PEFT backend is required"** after a
   real-mode setup: `peft` is now installed with every accelerator profile, the
   launchers detect older half-upgraded environments, and runtime LoRA errors point
   users back to setup/update instead of surfacing a raw Diffusers exception.
 
 ### Security
+
 
 ## [0.2.0] — 2026-06-18
 
@@ -145,6 +176,7 @@ CPU-first) — together with everything below.
   now degrades to an empty device list (warned once in the log) so the endpoint stays
   healthy and the Voice tab simply shows no devices.
 
-[Unreleased]: https://github.com/grebocheck/HFabric/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/grebocheck/HFabric/compare/v0.3.0...HEAD
 [0.1.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.1.0
 [0.2.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.2.0
+[0.3.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.3.0

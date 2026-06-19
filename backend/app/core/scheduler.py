@@ -130,6 +130,7 @@ class Worker:
         self._current_job_id: str | None = None
         self._cancel_current = False
         self._voice_parked = False
+        self._resident_pin_parked = False
 
     # ----------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -222,7 +223,38 @@ class Worker:
                 .order_by(Job.priority.desc(), Job.created_at.asc())
             )).scalars().all()
             if not rows:
+                self._resident_pin_parked = False
                 return None
+
+            pin = self._arbiter.resident_pin
+            if pin is not None:
+                pinned_model_id = pin.get("model_id")
+                runnable = [j for j in rows if j.model_id == pinned_model_id]
+                if not runnable:
+                    if not self._resident_pin_parked:
+                        self._resident_pin_parked = True
+                        await self._bus.publish(Event(
+                            EventType.ARBITER_NOTE,
+                            reason="resident_pinned",
+                            message=(
+                                f"{pin.get('label', 'Resident pin')} is keeping "
+                                f"{pin.get('model', pinned_model_id)} in VRAM — queued jobs "
+                                "for other models will wait."
+                            ),
+                            model_id=pinned_model_id,
+                            model=pin.get("model"),
+                            family=pin.get("family"),
+                        ))
+                    return None
+                rows = runnable
+                self._resident_pin_parked = False
+            elif self._resident_pin_parked:
+                self._resident_pin_parked = False
+                await self._bus.publish(Event(
+                    EventType.ARBITER_NOTE,
+                    reason="idle",
+                    message="Resident pin released — resuming the queue.",
+                ))
 
             top_priority = rows[0].priority
             tier = [j for j in rows if j.priority == top_priority]

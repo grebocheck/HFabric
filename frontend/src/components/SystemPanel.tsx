@@ -169,10 +169,10 @@ export function SystemPanel({
 
 function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-white/10 bg-surface p-4">
+    <section className="rounded-lg border border-line bg-surface p-4 shadow-panel">
       <div className="mb-3 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-white/75">{title}</h3>
-        {subtitle && <span className="text-xs text-white/35">{subtitle}</span>}
+        <h3 className="text-sm font-semibold text-ui">{title}</h3>
+        {subtitle && <span className="text-xs text-ui-subtle">{subtitle}</span>}
       </div>
       {children}
     </section>
@@ -182,7 +182,7 @@ function Card({ title, subtitle, children }: { title: string; subtitle?: string;
 function Gauge({ used, total, color }: { used: number; total: number; color: string }) {
   const pct = total > 0 ? Math.min(100, Math.max(0, (used / total) * 100)) : 0;
   return (
-    <div className="mb-3 h-2.5 overflow-hidden rounded bg-white/10">
+    <div className="mb-3 h-2.5 overflow-hidden rounded bg-control-active">
       <div className={`h-full ${color} transition-all`} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -193,8 +193,8 @@ function Rows({ rows }: { rows: Record<string, string> }) {
     <dl className="space-y-1.5 text-sm">
       {Object.entries(rows).map(([k, v]) => (
         <div key={k} className="flex items-center justify-between gap-2">
-          <dt className="text-white/40">{k}</dt>
-          <dd className="min-w-0 truncate text-white/80" title={v}>{v}</dd>
+          <dt className="text-ui-subtle">{k}</dt>
+          <dd className="min-w-0 truncate text-ui" title={v}>{v}</dd>
         </div>
       ))}
     </dl>
@@ -208,10 +208,10 @@ function ModelCounts({ rows }: { rows: ImageStats["by_model"] }) {
       {rows.map((row) => (
         <div key={row.model} className="min-w-0">
           <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
-            <span className="min-w-0 truncate text-white/45" title={row.model}>{row.model}</span>
-            <span className="shrink-0 font-mono text-white/55">{row.count}</span>
+            <span className="min-w-0 truncate text-ui-subtle" title={row.model}>{row.model}</span>
+            <span className="shrink-0 font-mono text-ui-muted">{row.count}</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded bg-white/10">
+          <div className="h-1.5 overflow-hidden rounded bg-control-active">
             <div className="h-full rounded bg-accent/75" style={{ width: `${Math.max(6, (row.count / max) * 100)}%` }} />
           </div>
         </div>
@@ -227,10 +227,10 @@ function providerLabel(provider?: VoiceProviderHealth | null): string {
 }
 
 const NOTE_TONES: Record<string, string> = {
-  ram_budget: "border-red-400/30 bg-red-500/10 text-red-200",
-  voice_lane: "border-sky-400/30 bg-sky-500/10 text-sky-200",
+  ram_budget: "border-error-border bg-error-bg text-error-fg",
+  voice_lane: "border-info-border bg-info-bg text-info-fg",
   swap: "border-accent/30 bg-accent/10 text-accent-fg",
-  idle: "border-white/10 bg-white/5 text-white/55",
+  idle: "border-line bg-control text-ui-muted",
 };
 
 function ArbiterStatus({ note }: { note?: ArbiterNote | null }) {
@@ -270,11 +270,11 @@ function Diagnostics() {
   };
 
   return (
-    <section className="rounded-lg border border-white/10 bg-surface p-4">
+    <section className="rounded-lg border border-line bg-surface p-4 shadow-panel">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-white/75">Diagnostics</h3>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-white/35">
+          <h3 className="text-sm font-semibold text-ui">Diagnostics</h3>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-ui-subtle">
             Bundle the logs, the hardware/capability report, and version stamps into a zip to attach to a
             bug report. Secrets (the API token) are scrubbed; the file is produced locally and never uploaded.
           </p>
@@ -282,7 +282,7 @@ function Diagnostics() {
         <button
           onClick={exportBundle}
           disabled={busy}
-          className="shrink-0 rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/80 hover:bg-white/10 disabled:opacity-30"
+          className="ui-button shrink-0 rounded-md px-2.5 py-1 text-xs disabled:opacity-30"
         >
           {busy ? "Exporting…" : "Export diagnostics"}
         </button>
@@ -315,11 +315,11 @@ function LearnedProfiles({ profiles, onRefresh }: { profiles: ModelProfile[]; on
   };
 
   return (
-    <section className="rounded-lg border border-white/10 bg-surface p-4">
+    <section className="rounded-lg border border-line bg-surface p-4 shadow-panel">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-white/75">Learned memory profiles</h3>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-white/35">
+          <h3 className="text-sm font-semibold text-ui">Learned memory profiles</h3>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-ui-subtle">
             Image models record measured RAM/VRAM after real loads. LLM VRAM is not measured here because
             llama-server reports no load_report; subprocess VRAM capture is out of scope.
           </p>
@@ -327,20 +327,20 @@ function LearnedProfiles({ profiles, onRefresh }: { profiles: ModelProfile[]; on
         <button
           onClick={resetAll}
           disabled={!profiles.length || Boolean(busy)}
-          className="shrink-0 rounded-md border border-red-400/25 px-2.5 py-1 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-30"
+          className="shrink-0 rounded-md border border-error-border px-2.5 py-1 text-xs text-error-fg hover:bg-error-bg disabled:opacity-30"
         >
           Reset all
         </button>
       </div>
       {profiles.length === 0 ? (
-        <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-white/30">
+        <div className="rounded-md border border-dashed border-line px-3 py-4 text-sm text-ui-subtle">
           No learned profiles yet.
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="text-white/35">
-              <tr className="border-b border-white/10">
+            <thead className="text-ui-subtle">
+              <tr className="border-b border-line">
                 <th className="py-2 pr-3 font-medium">Model</th>
                 <th className="py-2 pr-3 font-medium">Family</th>
                 <th className="py-2 pr-3 font-medium">Quant</th>
@@ -351,7 +351,7 @@ function LearnedProfiles({ profiles, onRefresh }: { profiles: ModelProfile[]; on
                 <th className="py-2 text-right font-medium">Reset</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5 text-white/65">
+            <tbody className="divide-y divide-line text-ui-muted">
               {profiles.map((profile) => (
                 <tr key={profile.model_id}>
                   <td className="max-w-[240px] truncate py-2 pr-3" title={profile.model}>{profile.model}</td>
@@ -365,7 +365,7 @@ function LearnedProfiles({ profiles, onRefresh }: { profiles: ModelProfile[]; on
                     <button
                       onClick={() => resetOne(profile.model_id)}
                       disabled={Boolean(busy)}
-                      className="rounded border border-white/15 px-2 py-0.5 text-[11px] text-white/55 hover:bg-white/10 hover:text-white/80 disabled:opacity-30"
+                      className="ui-button rounded px-2 py-0.5 text-[11px] disabled:opacity-30"
                     >
                       {busy === profile.model_id ? "Resetting" : "Reset"}
                     </button>
@@ -383,25 +383,25 @@ function LearnedProfiles({ profiles, onRefresh }: { profiles: ModelProfile[]; on
 function SwapPlan({ plan }: { plan: QueuePlan | null }) {
   const typeColor = (t: string) => (t === "image" ? "bg-accent/20 text-accent-fg border-accent/30" : "bg-emerald-500/20 text-emerald-200 border-emerald-400/30");
   return (
-    <section className="rounded-lg border border-white/10 bg-surface p-4">
+    <section className="rounded-lg border border-line bg-surface p-4 shadow-panel">
       <div className="mb-3 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-white/75">Queue plan</h3>
-        <span className="text-xs text-white/35">
+        <h3 className="text-sm font-semibold text-ui">Queue plan</h3>
+        <span className="text-xs text-ui-subtle">
           {plan && plan.queued > 0
             ? `${plan.queued} queued · ${plan.swaps} swap${plan.swaps === 1 ? "" : "s"}`
             : "queue empty"}
         </span>
       </div>
       {!plan || plan.queued === 0 ? (
-        <div className="text-sm text-white/30">Nothing queued — no model swaps planned.</div>
+        <div className="text-sm text-ui-subtle">Nothing queued — no model swaps planned.</div>
       ) : (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 text-white/45">
+          <span className="rounded-md border border-line bg-control px-2 py-1 text-ui-subtle">
             now: {plan.current_model ?? "idle"}
           </span>
           {plan.steps.map((step, i) => (
             <span key={i} className="flex items-center gap-1.5">
-              <span className="text-white/25">→</span>
+              <span className="text-ui-subtle">→</span>
               <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${typeColor(step.type)}`} title={step.model_id}>
                 <span className="max-w-[150px] truncate">{step.model}</span>
                 {step.count > 1 && <span className="opacity-70">×{step.count}</span>}
@@ -411,7 +411,7 @@ function SwapPlan({ plan }: { plan: QueuePlan | null }) {
         </div>
       )}
       {plan && plan.queued > 0 && (
-        <p className="mt-2 text-[11px] text-white/35">
+        <p className="mt-2 text-[11px] text-ui-subtle">
           The scheduler drains same-model jobs together to minimize swaps; this is the predicted order.
         </p>
       )}
@@ -455,11 +455,11 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
   const hoverLeft = hoverIndex != null && points.length > 1 ? `${(hoverIndex / (points.length - 1)) * 100}%` : "0%";
 
   return (
-    <section className="rounded-lg border border-white/10 bg-surface p-4">
+    <section className="rounded-lg border border-line bg-surface p-4 shadow-panel">
       <div className="mb-3 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-white/75">Memory pressure</h3>
+        <h3 className="text-sm font-semibold text-ui">Memory pressure</h3>
         <div className="flex items-center gap-3">
-          <label className="inline-flex items-center gap-1.5 text-xs text-white/45">
+          <label className="inline-flex items-center gap-1.5 text-xs text-ui-subtle">
             <input
               type="checkbox"
               checked={showRss}
@@ -468,13 +468,13 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
             />
             App RSS
           </label>
-          <span className="text-xs text-white/35">
+          <span className="text-xs text-ui-subtle">
             {points.length ? `${points.length} samples / ${swaps.length} swap${swaps.length === 1 ? "" : "s"}` : "collecting telemetry..."}
           </span>
         </div>
       </div>
       {points.length < 2 ? (
-        <div className="flex h-20 items-center justify-center text-sm text-white/30">collecting telemetry...</div>
+        <div className="flex h-20 items-center justify-center text-sm text-ui-subtle">collecting telemetry...</div>
       ) : (
         <>
           <div
@@ -488,7 +488,7 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
           >
             <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
               {swaps.map((x, i) => (
-                <line key={i} x1={x} y1={0} x2={x} y2={H} stroke="rgb(248 250 252 / 0.18)" strokeWidth={0.4} strokeDasharray="1.5 1.5" />
+                <line key={i} x1={x} y1={0} x2={x} y2={H} stroke="color-mix(in oklab, var(--color-ui-subtle) 35%, transparent)" strokeWidth={0.4} strokeDasharray="1.5 1.5" />
               ))}
               {ramPath && <polyline points={ramPath} fill="none" stroke="rgb(16 185 129 / 0.85)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
               {vramPath && <polyline points={vramPath} fill="none" stroke="rgb(139 92 246 / 0.95)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
@@ -496,15 +496,15 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
             </svg>
             {hover ? (
               <>
-                <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-white/25" style={{ left: hoverLeft }} />
+                <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-ui-subtle/40" style={{ left: hoverLeft }} />
                 <div
-                  className="pointer-events-none absolute top-1 z-10 min-w-44 rounded-md border border-white/10 bg-black/80 px-2 py-1.5 text-[11px] text-white/70 shadow-lg shadow-black/40"
+                  className="pointer-events-none absolute top-1 z-10 min-w-44 rounded-md border border-line bg-surface-2 px-2 py-1.5 text-[11px] text-ui shadow-popover"
                   style={{
                     left: hoverLeft,
                     transform: hoverIndex != null && hoverIndex > points.length * 0.65 ? "translateX(-100%)" : "translateX(0)",
                   }}
                 >
-                  <div className="font-mono text-white/45">{new Date(hover.ts * 1000).toLocaleTimeString()}</div>
+                  <div className="font-mono text-ui-subtle">{new Date(hover.ts * 1000).toLocaleTimeString()}</div>
                   <div>RAM: {hover.ram ? `${hover.ram.percent.toFixed(0)}% / ${gb(hover.ram.used_gb)} used` : "-"}</div>
                   <div>VRAM: {hover.vram ? `${gb(hover.vram.used_gb)} / ${gb(hover.vram.total_gb)}` : "-"}</div>
                   <div>RSS: {hover.ram ? gb(hover.ram.process_rss_gb) : "-"}</div>
@@ -512,11 +512,11 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
               </>
             ) : null}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/45">
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ui-subtle">
             <Legend color="bg-accent" label={`VRAM used${last?.vram ? ` / ${last.vram.used_gb.toFixed(1)}/${last.vram.total_gb.toFixed(0)} GB` : ""}`} />
             <Legend color="bg-emerald-500" label={`RAM %${last?.ram ? ` / ${last.ram.percent.toFixed(0)}%` : ""}`} />
             {showRss ? <Legend color="bg-info" label={`App RSS${last?.ram ? ` / ${gb(last.ram.process_rss_gb)}` : ""}`} /> : null}
-            <Legend color="bg-white/30" label="model swap" dashed />
+            <Legend color="bg-ui-subtle/40" label="model swap" dashed />
           </div>
         </>
       )}
@@ -527,7 +527,7 @@ function MemoryTimeline({ history }: { history: MemPoint[] }) {
 function Legend({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className={`inline-block h-2 ${dashed ? "w-3 border-t border-dashed border-white/40" : `w-3 rounded ${color}`}`} />
+      <span className={`inline-block h-2 ${dashed ? "w-3 border-t border-dashed border-ui-subtle/50" : `w-3 rounded ${color}`}`} />
       {label}
     </span>
   );

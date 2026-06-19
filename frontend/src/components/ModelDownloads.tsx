@@ -7,11 +7,11 @@ import { toast } from "./Toast";
 import type { CustomDownloadItem, ModelDownloadState } from "../types";
 
 const subtleButton =
-  "rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
+  "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
 const primaryButton =
-  "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition hover:bg-accent-hover disabled:opacity-35";
+  "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-ui-inverse transition hover:bg-accent-hover disabled:opacity-35";
 const field =
-  "w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-white/25 focus:border-accent";
+  "ui-field w-full rounded-md px-2.5 py-1.5 text-[13px]";
 
 // The model kinds the custom downloader can target (mirrors the backend folders).
 const KIND_OPTIONS = [
@@ -192,7 +192,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
         ) : (
           <>
             {!data.available ? (
-              <div className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-white/75">
+              <div className="rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-warn-fg">
                 In-app downloads need <span className="font-mono">huggingface_hub</span>, which is not
                 installed in this environment. Run the accelerator setup (<span className="font-mono">setup … real</span>)
                 or <span className="font-mono">pip install huggingface_hub</span>.
@@ -200,20 +200,20 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
             ) : null}
 
             {downloading ? (
-              <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-white/75">
+              <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-accent-fg">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="truncate">{status?.message ?? "Downloading…"}</span>
-                  {pct != null ? <span className="font-mono text-white/55">{pct}%</span> : null}
+                  {pct != null ? <span className="font-mono text-ui-muted">{pct}%</span> : null}
                 </div>
                 {pct != null ? (
-                  <div className="h-1.5 overflow-hidden rounded bg-white/10">
+                  <div className="h-1.5 overflow-hidden rounded bg-control-active">
                     <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 ) : null}
               </div>
             ) : null}
 
-            <div className="flex items-center justify-between text-[11px] text-white/40">
+            <div className="flex items-center justify-between text-[11px] text-ui-subtle">
               <span>
                 {freeMb != null ? `${fmtMb(freeMb)} free on ${data.disk.models_root}/` : "disk space unknown"}
               </span>
@@ -232,7 +232,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                 <li
                   key={item.key}
                   className={`flex items-start gap-2.5 rounded-md border px-3 py-2 ${
-                    item.present ? "border-emerald-500/25 bg-emerald-500/5" : "border-white/10 bg-black/20"
+                    item.present ? "border-success-border bg-success-bg" : "border-line bg-control"
                   }`}
                 >
                   <input
@@ -245,25 +245,25 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-white/85">{item.label}</span>
-                      <span className="text-white/35">{fmtMb(item.approx_size_mb)}</span>
+                      <span className="text-ui-strong">{item.label}</span>
+                      <span className="text-ui-subtle">{fmtMb(item.approx_size_mb)}</span>
                       {item.present ? (
-                        <span className="rounded bg-emerald-600/35 px-1.5 py-0.5 text-[10px] text-emerald-100">downloaded</span>
+                        <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg">downloaded</span>
                       ) : item.recommended ? (
-                        <span className="rounded bg-accent/30 px-1.5 py-0.5 text-[10px] text-white/80">recommended</span>
+                        <span className="rounded border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent-fg">recommended</span>
                       ) : (
-                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">advanced</span>
+                        <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">advanced</span>
                       )}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-white/40">{item.reason}</div>
-                    <div className="mt-0.5 text-[11px] text-white/30">
+                    <div className="mt-0.5 text-[11px] text-ui-subtle">{item.reason}</div>
+                    <div className="mt-0.5 text-[11px] text-ui-subtle">
                       <span className="font-mono">{item.dest}/</span>
                       {" · "}
                       <a
                         href={item.repo_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-white/45 underline decoration-dotted hover:text-white/70"
+                        className="text-ui-subtle underline decoration-dotted hover:text-ui"
                       >
                         {item.license} — verify on model card
                       </a>
@@ -279,22 +279,22 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
               </button>
             ) : null}
 
-            <div className="rounded-md border border-white/10 bg-black/15">
+            <div className="rounded-md border border-line bg-control">
               <button
                 onClick={() => setCustomOpen((v) => !v)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] text-white/70 hover:text-white"
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] text-ui-muted hover:text-ui"
               >
                 <span>Hugging Face catalog and direct URL</span>
-                <span className="text-white/35">{customOpen ? "–" : "+"}</span>
+                <span className="text-ui-subtle">{customOpen ? "–" : "+"}</span>
               </button>
               {customOpen ? (
-                <div className="space-y-2 border-t border-white/10 p-3">
-                  <div className="flex rounded-md border border-white/10 p-0.5 text-xs">
+                <div className="space-y-2 border-t border-line p-3">
+                  <div className="flex rounded-md border border-line bg-raised p-0.5 text-xs">
                     {(["hf", "url"] as const).map((s) => (
                       <button
                         key={s}
                         onClick={() => setSource(s)}
-                        className={`rounded px-2.5 py-1 transition ${source === s ? "bg-white/15 text-white" : "text-white/50 hover:text-white/80"}`}
+                        className={`rounded px-2.5 py-1 transition ${source === s ? "bg-accent/15 text-accent-fg" : "text-ui-muted hover:bg-control-hover hover:text-ui"}`}
                       >
                         {s === "hf" ? "Hugging Face catalog" : "Direct URL"}
                       </button>
@@ -311,7 +311,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                   ) : (
                     <div className="space-y-2">
                       <div className="flex items-center gap-3">
-                        <span className="text-[11px] text-white/40">Save to</span>
+                        <span className="text-[11px] text-ui-subtle">Save to</span>
                         <div className="w-44"><Select value={kind} onChange={setKind} options={KIND_OPTIONS} /></div>
                       </div>
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -319,7 +319,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                         <input className={field} placeholder="save as (optional)" value={filename} onChange={(e) => setFilename(e.target.value)} />
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-white/30">
+                        <span className="text-[11px] text-ui-subtle">
                           Lands in <span className="font-mono">models/{kind}/</span>. Review the license first.
                         </span>
                         <button onClick={() => void addCustom()} className={primaryButton} disabled={busy || downloading}>
@@ -332,7 +332,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
               ) : null}
             </div>
 
-            <p className="text-[11px] text-white/30">
+            <p className="text-[11px] text-ui-subtle">
               Sizes are approximate. Model files are user-supplied and keep their own provider licenses —
               review each model card before use. See MODEL_NOTICE.md.
             </p>

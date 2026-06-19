@@ -13,11 +13,11 @@ import type {
 } from "../types";
 
 const control =
-  "w-full rounded-md border border-white/10 bg-black/25 px-2.5 py-1.5 text-sm text-white/80 outline-none transition placeholder:text-white/25 focus:border-accent";
+  "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 const subtleButton =
-  "rounded-md border border-white/15 px-3 py-1.5 text-sm text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-30";
+  "ui-button rounded-md px-3 py-1.5 text-sm disabled:opacity-30";
 const primaryButton =
-  "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent-hover disabled:opacity-35";
+  "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ui-inverse transition hover:bg-accent-hover disabled:opacity-35";
 
 export function SettingsPanel() {
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
@@ -157,7 +157,7 @@ export function SettingsPanel() {
       <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_300px] gap-4 max-[1180px]:grid-cols-[230px_minmax(0,1fr)] max-[860px]:block max-[860px]:overflow-y-auto">
         <Panel className="min-h-0 overflow-hidden max-[860px]:mb-4">
           <SectionTitle title="Groups" subtitle={changedKeys.length ? `${changedKeys.length} pending changes` : "No pending changes"} />
-          <div className="border-b border-white/10 p-3">
+          <div className="border-b border-line p-3">
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -176,12 +176,12 @@ export function SettingsPanel() {
                   onClick={() => setActiveGroup(group.id)}
                   className={`mb-1 flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition ${
                     activeGroup === group.id
-                      ? "bg-accent/20 text-white"
-                      : "text-white/55 hover:bg-white/10 hover:text-white/85"
+                      ? "bg-accent/15 text-accent-fg"
+                      : "text-ui-muted hover:bg-control-hover hover:text-ui"
                   }`}
                 >
                   <span className="min-w-0 truncate">{group.label}</span>
-                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${dirty ? "bg-warn/20 text-warn-fg" : "bg-white/10 text-white/45"}`}>
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${dirty ? "bg-warn-bg text-warn-fg" : "bg-control text-ui-subtle"}`}>
                     {count || specs.filter((spec) => spec.group === group.id).length}
                   </span>
                 </button>
@@ -212,7 +212,7 @@ export function SettingsPanel() {
               </div>
             ) : null}
             {draft && !activeSpecs.length ? (
-              <div className="flex h-40 items-center justify-center rounded-md border border-dashed border-white/10 text-sm text-white/35">
+              <div className="flex h-40 items-center justify-center rounded-md border border-dashed border-line text-sm text-ui-subtle">
                 No matching settings
               </div>
             ) : null}
@@ -235,7 +235,7 @@ export function SettingsPanel() {
           <Panel>
             <SectionTitle title="Persistence" subtitle="Local override file" />
             <div className="p-3 text-xs">
-              <div className="truncate rounded-md border border-white/10 bg-black/25 px-2 py-1.5 font-mono text-white/55" title={overrides?.path ?? ""}>
+              <div className="truncate rounded-md border border-line bg-control px-2 py-1.5 font-mono text-ui-muted" title={overrides?.path ?? ""}>
                 {overrides?.path ?? "loading..."}
               </div>
               {restartChanged.length ? (
@@ -263,11 +263,11 @@ function SettingField({
   onChange: (value: SettingsValue) => void;
 }) {
   return (
-    <label className={`block rounded-md border bg-black/20 p-3 ${dirty ? "border-warn/35" : "border-white/10"}`}>
+    <label className={`block rounded-md border bg-control p-3 ${dirty ? "border-warn-border" : "border-line"}`}>
       <div className="mb-2 flex min-h-6 items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-white/80" title={spec.label}>{spec.label}</div>
-          {spec.description ? <div className="mt-0.5 max-h-8 overflow-hidden text-xs leading-4 text-white/35">{spec.description}</div> : null}
+          <div className="truncate text-sm font-medium text-ui" title={spec.label}>{spec.label}</div>
+          {spec.description ? <div className="mt-0.5 max-h-8 overflow-hidden text-xs leading-4 text-ui-subtle">{spec.description}</div> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {dirty ? <MiniPill tone="warn">edited</MiniPill> : null}
@@ -276,7 +276,7 @@ function SettingField({
       </div>
       <Control spec={spec} value={value} onChange={onChange} />
       {spec.min != null || spec.max != null || spec.multiple_of ? (
-        <div className="mt-1.5 truncate text-[11px] text-white/30">
+        <div className="mt-1.5 truncate text-[11px] text-ui-subtle">
           {[spec.min != null ? `min ${formatValue(spec.min)}` : "", spec.max != null ? `max ${formatValue(spec.max)}` : "", spec.multiple_of ? `step ${spec.multiple_of}` : ""]
             .filter(Boolean)
             .join(" / ")}
@@ -297,8 +297,8 @@ function Control({
 }) {
   if (spec.kind === "boolean") {
     return (
-      <div className="flex h-9 items-center justify-between rounded-md border border-white/10 bg-black/25 px-2.5">
-        <span className="text-sm text-white/50">{value ? "On" : "Off"}</span>
+      <div className="flex h-9 items-center justify-between rounded-md border border-line bg-raised px-2.5">
+        <span className="text-sm text-ui-muted">{value ? "On" : "Off"}</span>
         <Toggle checked={Boolean(value)} onChange={onChange} ariaLabel={spec.label} />
       </div>
     );
@@ -387,11 +387,11 @@ function RuntimeSummary({ settings }: { settings: RuntimeSettings | null }) {
 
 function SummaryRows({ rows }: { rows: Record<string, string> }) {
   return (
-    <dl className="space-y-1.5 rounded-md border border-white/10 bg-black/20 p-3">
+    <dl className="space-y-1.5 rounded-md border border-line bg-control p-3">
       {Object.entries(rows).map(([key, value]) => (
         <div key={key} className="grid min-w-0 grid-cols-[110px_minmax(0,1fr)] gap-2">
-          <dt className="text-white/35">{key}</dt>
-          <dd className="truncate text-white/65" title={value}>{value}</dd>
+          <dt className="text-ui-subtle">{key}</dt>
+          <dd className="truncate text-ui-muted" title={value}>{value}</dd>
         </div>
       ))}
     </dl>
@@ -400,16 +400,16 @@ function SummaryRows({ rows }: { rows: Record<string, string> }) {
 
 function EnvOnly({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-2 rounded-md border border-white/10 bg-black/20 px-2 py-1.5">
-      <span className="text-white/35">{label}</span>
-      <span className="truncate font-mono text-white/65" title={value}>{value}</span>
+    <div className="grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-2 rounded-md border border-line bg-control px-2 py-1.5">
+      <span className="text-ui-subtle">{label}</span>
+      <span className="truncate font-mono text-ui-muted" title={value}>{value}</span>
     </div>
   );
 }
 
 function MiniPill({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "warn" }) {
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] ${tone === "warn" ? "bg-warn/20 text-warn-fg" : "bg-white/10 text-white/45"}`}>
+    <span className={`rounded px-1.5 py-0.5 text-[10px] ${tone === "warn" ? "bg-warn-bg text-warn-fg" : "bg-control text-ui-subtle"}`}>
       {children}
     </span>
   );

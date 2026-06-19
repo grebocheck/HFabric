@@ -101,6 +101,14 @@ export interface GpuStatus {
   family: string | null;
   warm?: WarmModel[];
   lanes?: GpuLane[];
+  pin?: {
+    id: string;
+    label: string;
+    resident: string;
+    model_id: string;
+    model: string;
+    family: string;
+  } | null;
 }
 
 export interface RamStats {
@@ -528,6 +536,23 @@ export interface LlmConfig {
   loaded: boolean;
   model_id: string | null;
   defaults: { temperature: number; max_tokens: number };
+}
+
+export interface LlmApiServerStatus {
+  enabled: boolean;
+  available: boolean;
+  protocol: string;
+  base_url: string;
+  chat_completions_url: string;
+  models_url: string;
+  host: string;
+  port: number;
+  model_id: string | null;
+  model: string | null;
+  loaded: boolean;
+  pinned: boolean;
+  stub: boolean;
+  note: string | null;
 }
 
 export type PresetImportItem = Omit<Api["PresetImportItem"], "params"> & { params: JsonRecord };

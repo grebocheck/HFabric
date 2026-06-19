@@ -36,9 +36,9 @@ export function MessageList({
     <div ref={scrollRef} onScroll={onScroll} className="flex-1 space-y-4 overflow-y-auto p-4">
       {messages.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-          <p className="text-sm text-white/40">Start a conversation with the local model.</p>
-          <p className="max-w-sm text-xs leading-5 text-white/25">
-            Ask anything, attach an image or document, or type <span className="text-white/40">/image</span> to generate a picture.
+          <p className="text-sm text-ui-muted">Start a conversation with the local model.</p>
+          <p className="max-w-sm text-xs leading-5 text-ui-subtle">
+            Ask anything, attach an image or document, or type <span className="text-ui-muted">/image</span> to generate a picture.
           </p>
         </div>
       ) : (
@@ -139,7 +139,7 @@ export function MessageComposer({
   };
   return (
     <div
-      className="border-t border-white/10 p-3"
+      className="border-t border-line p-3"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -197,7 +197,7 @@ export function MessageComposer({
         ) : null}
       </div>
       <AttachmentTray attachments={attachments} onRemove={onRemoveAttachment} />
-      {attachmentNote ? <div className="mb-2 text-xs text-amber-200/80">{attachmentNote}</div> : null}
+      {attachmentNote ? <div className="mb-2 text-xs text-warn-fg">{attachmentNote}</div> : null}
       <textarea
         ref={inputRef}
         value={input}
@@ -210,13 +210,13 @@ export function MessageComposer({
         className={`${fieldClass} max-h-[200px] resize-none`}
       />
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs text-white/35">
+        <span className="text-xs text-ui-subtle">
           ~{approxTokens} / {cfg?.ctx ?? "?"} tokens
-          <span className="ml-2 text-white/25">/image &lt;prompt&gt; to generate</span>
-          {imageTool && <span className="ml-2 text-white/25">image tool on</span>}
-          {documentTool && <span className="ml-2 text-white/25">document tool on</span>}
-          {attachmentsUploading && <span className="ml-2 text-white/30">uploading attachment...</span>}
-          {stats && <span className="ml-2 text-white/30">{stats.tps.toFixed(1)} tok/s / TTFT {Math.round(stats.ttft)}ms</span>}
+          <span className="ml-2 text-ui-subtle">/image &lt;prompt&gt; to generate</span>
+          {imageTool && <span className="ml-2 text-ui-subtle">image tool on</span>}
+          {documentTool && <span className="ml-2 text-ui-subtle">document tool on</span>}
+          {attachmentsUploading && <span className="ml-2 text-ui-subtle">uploading attachment...</span>}
+          {stats && <span className="ml-2 text-ui-subtle">{stats.tps.toFixed(1)} tok/s / TTFT {Math.round(stats.ttft)}ms</span>}
         </span>
         <div className="flex items-center gap-2">
           <input
@@ -229,33 +229,33 @@ export function MessageComposer({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={busy || attachmentsUploading}
-            className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/10 disabled:opacity-30"
+            className="ui-button rounded-md px-2.5 py-1.5 text-xs disabled:opacity-30"
           >
             Attach
           </button>
           <button
             onClick={onPromptLibrary}
             disabled={busy}
-            className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/10 disabled:opacity-30"
+            className="ui-button rounded-md px-2.5 py-1.5 text-xs disabled:opacity-30"
           >
             Library
           </button>
           <button
             onClick={onRegenerate}
             disabled={busy || !messages.some((message) => message.role === "assistant")}
-            className="rounded-md border border-white/15 px-2.5 py-1.5 text-xs hover:bg-white/10 disabled:opacity-30"
+            className="ui-button rounded-md px-2.5 py-1.5 text-xs disabled:opacity-30"
           >
             Regenerate
           </button>
           {busy ? (
-            <button onClick={onStop} className="rounded-md border border-red-400/40 px-4 py-1.5 text-sm font-medium text-red-200 hover:bg-red-400/10">
+            <button onClick={onStop} className="rounded-md border border-error-border px-4 py-1.5 text-sm font-medium text-error-fg hover:bg-error-bg">
               Stop
             </button>
           ) : (
             <button
               onClick={onSend}
               disabled={(!input.trim() && attachments.length === 0) || !modelId || attachmentsUploading}
-              className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
+              className="rounded-md bg-success px-4 py-1.5 text-sm font-medium text-ui-inverse hover:bg-success disabled:opacity-40"
             >
               Send
             </button>
@@ -269,7 +269,7 @@ export function MessageComposer({
 function QuickRail({ label: railLabel, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="w-12 shrink-0 text-[10px] uppercase tracking-wide text-white/30">{railLabel}</span>
+      <span className="w-12 shrink-0 text-[10px] uppercase tracking-wide text-ui-subtle">{railLabel}</span>
       <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">{children}</div>
     </div>
   );
@@ -323,7 +323,7 @@ function AttachmentChip({
   const isImage = attachment.kind === "image";
   return (
     <span
-      className="flex max-w-full items-center gap-2 rounded-md border border-white/10 bg-black/25 px-2 py-1 text-xs text-white/65"
+      className="flex max-w-full items-center gap-2 rounded-md border border-line bg-control px-2 py-1 text-xs text-ui-muted"
       title={attachment.notice ?? attachment.filename}
     >
       {isImage && attachment.url ? (
@@ -333,13 +333,13 @@ function AttachmentChip({
           className="h-7 w-7 shrink-0 rounded object-cover"
         />
       ) : (
-        <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-white/45">
+        <span className="shrink-0 rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] uppercase text-ui-subtle">
           {attachment.kind}
         </span>
       )}
       <span className="min-w-0">
         <span className="block max-w-64 truncate">{attachment.filename}</span>
-        <span className="block truncate text-[10px] text-white/35">
+        <span className="block truncate text-[10px] text-ui-subtle">
           {formatSize(attachment.size_bytes)}
           {attachment.notice ? ` · ${attachment.notice}` : ""}
         </span>
@@ -348,7 +348,7 @@ function AttachmentChip({
         <button
           type="button"
           onClick={onRemove}
-          className="shrink-0 rounded px-1 text-white/35 hover:bg-white/10 hover:text-white/80"
+          className="shrink-0 rounded px-1 text-ui-subtle hover:bg-control-hover hover:text-ui"
           title="remove attachment"
         >
           x
@@ -376,8 +376,8 @@ function QuickChip({
       title={title ?? children}
       className={`max-w-44 shrink-0 truncate rounded-md border px-2 py-1 text-xs transition ${
         active
-          ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
-          : "border-white/10 bg-black/20 text-white/55 hover:border-white/20 hover:bg-white/10 hover:text-white/85"
+          ? "border-success-border bg-success-bg text-success-fg"
+          : "border-line bg-control text-ui-muted hover:border-border-strong hover:bg-control-hover hover:text-ui"
       }`}
     >
       {children}
@@ -412,8 +412,8 @@ function Bubble({
         <div className="w-[80%]">
           <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={3} className={`${fieldClass} resize-none`} />
           <div className="mt-1 flex justify-end gap-2">
-            <button onClick={onCancelEdit} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10">Cancel</button>
-            <button onClick={onSaveEdit} className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium hover:bg-emerald-500">Save &amp; resend</button>
+            <button onClick={onCancelEdit} className="ui-button rounded px-2 py-1 text-xs">Cancel</button>
+            <button onClick={onSaveEdit} className="rounded bg-success px-2.5 py-1 text-xs font-medium text-ui-inverse">Save &amp; resend</button>
           </div>
         </div>
       </div>
@@ -423,9 +423,9 @@ function Bubble({
   return (
     <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[80%] rounded-lg px-3 py-2 ${
-        isUser ? "bg-accent/30 text-white"
-          : msg.error ? "border border-red-400/30 bg-red-400/10 text-red-200"
-          : "border border-white/10 bg-white/[0.04]"
+        isUser ? "border border-accent/25 bg-accent/10 text-accent-fg"
+          : msg.error ? "border border-error-border bg-error-bg text-error-fg"
+          : "border border-line bg-control"
       }`}>
         {isUser ? (
           <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
@@ -434,9 +434,9 @@ function Bubble({
         )}
         <AttachmentList attachments={msg.attachments} />
         <div className="mt-1 flex gap-2 opacity-0 transition group-hover:opacity-100">
-          <button onClick={copy} className="text-[11px] text-white/40 hover:text-white/80">{copied ? "copied" : "copy"}</button>
+          <button onClick={copy} className="text-[11px] text-ui-subtle hover:text-ui">{copied ? "copied" : "copy"}</button>
           {isUser && !msg.id.startsWith("tmp") && (
-            <button onClick={onStartEdit} className="text-[11px] text-white/40 hover:text-white/80">edit</button>
+            <button onClick={onStartEdit} className="text-[11px] text-ui-subtle hover:text-ui">edit</button>
           )}
         </div>
       </div>

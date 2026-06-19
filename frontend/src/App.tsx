@@ -32,7 +32,7 @@ const THEMES: AppTheme[] = ["dark", "dim", "light"];
 const THEME_META: Record<AppTheme, string> = {
   dark: "#000000",
   dim: "#12151b",
-  light: "#f5f7fb",
+  light: "#eef2f7",
 };
 
 // A workspace is one top-level tab. Adding a tab = one entry here (label drives
@@ -505,13 +505,13 @@ export default function App() {
       />
 
       {health?.security.exposed && !health.security.token_required && !securityWarningDismissed ? (
-        <div className="flex items-center gap-3 border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-100">
+        <div className="flex items-center gap-3 border-b border-error-border bg-error-bg px-4 py-2 text-sm text-error-fg">
           <span className="min-w-0 flex-1">
             Security warning: backend is bound to a non-loopback host without HFAB_API_TOKEN.
           </span>
           <button
             onClick={dismissSecurityWarning}
-            className="rounded border border-red-200/25 px-2 py-1 text-xs text-red-100 hover:bg-red-500/15"
+            className="rounded border border-error-border px-2 py-1 text-xs text-error-fg hover:bg-error-bg"
           >
             Dismiss
           </button>
@@ -519,13 +519,13 @@ export default function App() {
       ) : null}
 
       {health?.stub_mode && !stubBannerDismissed ? (
-        <div className="flex items-center gap-3 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2 text-sm text-amber-100/90">
+        <div className="flex items-center gap-3 border-b border-warn-border bg-warn-bg px-4 py-2 text-sm text-warn-fg">
           <span className="min-w-0 flex-1">
             STUB mode — results are mock placeholders. Install the GPU dependencies and restart for real generation.
           </span>
           <button
             onClick={dismissStubBanner}
-            className="rounded border border-amber-200/25 px-2 py-1 text-xs text-amber-100 hover:bg-amber-400/15"
+            className="rounded border border-warn-border px-2 py-1 text-xs text-warn-fg hover:bg-warn-bg"
           >
             Dismiss
           </button>
@@ -572,33 +572,33 @@ function AuthLockScreen({
           event.preventDefault();
           onSubmit();
         }}
-        className="w-full max-w-sm rounded-lg border border-white/12 bg-surface p-4 shadow-2xl shadow-black/50"
+        className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-popover"
       >
-        <h2 className="text-base font-semibold text-white/85">API token required</h2>
-        <p className="mt-1 text-sm leading-5 text-white/55">
+        <h2 className="text-base font-semibold text-ui-strong">API token required</h2>
+        <p className="mt-1 text-sm leading-5 text-ui-muted">
           Enter the HFAB_API_TOKEN configured for this backend.
         </p>
-        {unauthorized ? <p className="mt-2 text-xs text-red-300">The last request was rejected with 401.</p> : null}
+        {unauthorized ? <p className="mt-2 text-xs text-error-fg">The last request was rejected with 401.</p> : null}
         <input
           type="password"
           value={token}
           onChange={(event) => onToken(event.target.value)}
           autoFocus
-          className="mt-4 w-full rounded-md border border-white/10 bg-black/35 px-3 py-2 text-sm text-white/85 outline-none focus:border-accent"
+          className="ui-field mt-4 w-full rounded-md px-3 py-2 text-sm"
           placeholder="Bearer token"
         />
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClear}
-            className="rounded-md border border-white/15 px-3 py-1.5 text-sm text-white/60 hover:bg-white/10"
+            className="ui-button rounded-md px-3 py-1.5 text-sm"
           >
             Clear
           </button>
           <button
             type="submit"
             disabled={!token.trim()}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ui-inverse hover:bg-accent-hover disabled:opacity-40"
           >
             Unlock
           </button>

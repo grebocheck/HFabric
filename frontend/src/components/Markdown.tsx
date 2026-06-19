@@ -16,25 +16,25 @@ const components: Components = {
   h3: ({ children }) => <h3 className="mb-1 mt-3 text-sm font-semibold">{children}</h3>,
   ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
   ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
-  li: ({ children }) => <li className="marker:text-white/40">{children}</li>,
+  li: ({ children }) => <li className="marker:text-ui-subtle">{children}</li>,
   a: ({ children, href }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-sky-400 underline hover:text-sky-300">
+    <a href={href} target="_blank" rel="noreferrer" className="text-info underline hover:text-info-fg">
       {children}
     </a>
   ),
   img: ({ src, alt }) => (
-    <img src={src as string} alt={(alt as string) ?? ""} loading="lazy" className="my-2 max-h-[28rem] w-auto rounded-md border border-white/10" />
+    <img src={src as string} alt={(alt as string) ?? ""} loading="lazy" className="my-2 max-h-[28rem] w-auto rounded-md border border-line" />
   ),
   blockquote: ({ children }) => (
-    <blockquote className="my-2 border-l-2 border-white/20 pl-3 text-white/70">{children}</blockquote>
+    <blockquote className="my-2 border-l-2 border-line pl-3 text-ui-muted">{children}</blockquote>
   ),
   table: ({ children }) => (
     <div className="my-2 overflow-x-auto">
       <table className="w-full border-collapse text-xs">{children}</table>
     </div>
   ),
-  th: ({ children }) => <th className="border border-white/15 px-2 py-1 text-left font-semibold">{children}</th>,
-  td: ({ children }) => <td className="border border-white/10 px-2 py-1">{children}</td>,
+  th: ({ children }) => <th className="border border-line px-2 py-1 text-left font-semibold">{children}</th>,
+  td: ({ children }) => <td className="border border-line px-2 py-1">{children}</td>,
   pre: PreBlock,
   code: InlineOrBlockCode,
 };
@@ -45,7 +45,7 @@ const components: Components = {
 // bails out entirely and never touches the DOM, preserving text selection.
 export const Markdown = memo(function Markdown({ content }: { content: string }) {
   return (
-    <div className="text-sm leading-relaxed text-white/90">
+    <div className="text-sm leading-relaxed text-ui">
       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={components}>
         {content}
       </ReactMarkdown>
@@ -82,7 +82,7 @@ function CopyableInlineCode({ children }: { children?: ReactNode }) {
       onClick={copy}
       title={copied ? "copied" : "click to copy"}
       className={`cursor-copy rounded px-1 py-0.5 text-[0.85em] transition ${
-        copied ? "bg-emerald-500/20 text-emerald-100" : "bg-white/10 hover:bg-white/15"
+        copied ? "bg-success-bg text-success-fg" : "bg-control hover:bg-control-hover"
       }`}
     >
       {children}
