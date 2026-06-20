@@ -29,12 +29,48 @@ _EXE = ".exe" if sys.platform == "win32" else ""
 # a TurboQuant-patched llama.cpp build, NOT in upstream, so they are flagged
 # experimental and the UI warns about the required binary.
 CONTEXT_TYPES: dict[str, dict] = {
-    "f16":    {"label": "F16 (default, full precision)", "k": "f16",    "v": "f16",    "flash_attn": False, "experimental": False},
-    "q8_0":   {"label": "Q8_0 (~2x smaller cache)",      "k": "q8_0",   "v": "q8_0",   "flash_attn": True,  "experimental": False},
-    "q4_0":   {"label": "Q4_0 (~4x smaller cache)",      "k": "q4_0",   "v": "q4_0",   "flash_attn": True,  "experimental": False},
-    "turbo2": {"label": "TurboQuant turbo2 (experimental)", "k": "turbo2", "v": "turbo2", "flash_attn": True,  "experimental": True},
-    "turbo3": {"label": "TurboQuant turbo3 (experimental)", "k": "turbo3", "v": "turbo3", "flash_attn": True,  "experimental": True},
-    "turbo4": {"label": "TurboQuant turbo4 (experimental)", "k": "turbo4", "v": "turbo4", "flash_attn": True,  "experimental": True},
+    "f16": {
+        "label": "F16 (default, full precision)",
+        "k": "f16",
+        "v": "f16",
+        "flash_attn": False,
+        "experimental": False,
+    },
+    "q8_0": {
+        "label": "Q8_0 (~2x smaller cache)",
+        "k": "q8_0",
+        "v": "q8_0",
+        "flash_attn": True,
+        "experimental": False,
+    },
+    "q4_0": {
+        "label": "Q4_0 (~4x smaller cache)",
+        "k": "q4_0",
+        "v": "q4_0",
+        "flash_attn": True,
+        "experimental": False,
+    },
+    "turbo2": {
+        "label": "TurboQuant turbo2 (experimental)",
+        "k": "turbo2",
+        "v": "turbo2",
+        "flash_attn": True,
+        "experimental": True,
+    },
+    "turbo3": {
+        "label": "TurboQuant turbo3 (experimental)",
+        "k": "turbo3",
+        "v": "turbo3",
+        "flash_attn": True,
+        "experimental": True,
+    },
+    "turbo4": {
+        "label": "TurboQuant turbo4 (experimental)",
+        "k": "turbo4",
+        "v": "turbo4",
+        "flash_attn": True,
+        "experimental": True,
+    },
 }
 DEFAULT_CONTEXT_TYPE = "f16"
 
@@ -196,6 +232,28 @@ class Settings(BaseSettings):
     # and avoids reading the local 16 GB fp8 file just to borrow its encoders).
     flux_t5_nunchaku: str = "nunchaku-tech/nunchaku-t5/awq-int4-flux.1-t5xxl.safetensors"
 
+    # --- Anima (Cosmos-Predict2 2B derivative) ---
+    # A single Anima checkpoint contains the DiT + its LLM adapter, while the
+    # Qwen3 0.6B encoder/tokenizers and Qwen-Image VAE are companion assets.
+    anima_support_dir: Path = ROOT / "models" / "image" / "anima-support"
+    anima_text_encoder_path: Path = (
+        ROOT
+        / "models"
+        / "image"
+        / "anima-support"
+        / "split_files"
+        / "text_encoders"
+        / "qwen_3_06b_base.safetensors"
+    )
+    anima_qwen_config_dir: Path = ROOT / "models" / "image" / "anima-support" / "qwen3-0.6b"
+    anima_t5_tokenizer_dir: Path = ROOT / "models" / "image" / "anima-support" / "t5-tokenizer"
+    # Reuse the identical Qwen-Image VAE already installed for Qwen-Image-2512.
+    anima_vae_dir: Path = ROOT / "models" / "image" / "qwen-image-2512" / "vae"
+    anima_default_steps: int = 30
+    anima_default_guidance: float = 4.0
+    anima_default_width: int = 1024
+    anima_default_height: int = 1024
+
     # --- FLUX.2 [klein] (diffusers-native + optional nunchaku transformer) ---
     # klein uses a small Qwen3 text encoder (not FLUX.2 [dev]'s 24 GB Mistral),
     # so 9B in 4-bit + offload fits 16 GB. Drop the klein repo into a FOLDER
@@ -204,9 +262,9 @@ class Settings(BaseSettings):
     # intentionally NOT supported — it blows the RAM/VRAM budget. The nunchaku
     # FLUX.2 transformer path is experimental until the upstream PR lands; the
     # sidecar code + SVDQuant weights live under flux2_nunchaku_dir.
-    flux2_quant: str = "bnb-nf4"          # bnb-nf4 | bnb-fp4 | none (bf16)
-    flux2_offload: str = "model"          # model | sequential | none
-    flux2_default_steps: int = 6          # klein is distilled -> few steps
+    flux2_quant: str = "bnb-nf4"  # bnb-nf4 | bnb-fp4 | none (bf16)
+    flux2_offload: str = "model"  # model | sequential | none
+    flux2_default_steps: int = 6  # klein is distilled -> few steps
     flux2_default_guidance: float = 4.0
     flux2_default_width: int = 768
     flux2_default_height: int = 768
@@ -216,20 +274,23 @@ class Settings(BaseSettings):
     # tokenizer and config come from this (license-gated) repo.
     flux2_klein_repo: str = "black-forest-labs/FLUX.2-klein-9B"
 
-    # --- Qwen-Image-2512 / Z-Image-Turbo (multi-file Diffusers repos) ---
+    # --- Qwen-Image-2512 / Z-Image (multi-file Diffusers repos) ---
     # Qwen-Image-2512 is large (~54 GB of bf16 shards), so default to
     # bitsandbytes 4-bit for the transformer + text encoder and model offload.
-    # Z-Image-Turbo is an 8-step distilled model; the official recipe uses
-    # guidance 0.0 and 1024^2 output.
-    qwen_image_quant: str = "bnb-nf4"     # bnb-nf4 | bnb-fp4 | none (bf16)
-    qwen_image_offload: str = "model"     # model | sequential | none
+    # Z-Image base uses the same full Diffusers repo path and defaults to bnb-fp4;
+    # Z-Image-Turbo/Nunchaku keeps its distilled 9-step, CFG-off defaults.
+    qwen_image_quant: str = "bnb-nf4"  # bnb-nf4 | bnb-fp4 | none (bf16)
+    qwen_image_offload: str = "model"  # model | sequential | none
     qwen_image_default_steps: int = 50
     qwen_image_default_guidance: float = 4.0  # sent as true_cfg_scale
     qwen_image_default_width: int = 1328
     qwen_image_default_height: int = 1328
-    z_image_offload: str = "model"        # model | sequential | none
-    z_image_default_steps: int = 9
+    z_image_quant: str = "bnb-fp4"  # bnb-nf4 | bnb-fp4 | none (bf16)
+    z_image_offload: str = "model"  # model | sequential | none
+    z_image_default_steps: int = 9  # Turbo / Nunchaku defaults
     z_image_default_guidance: float = 0.0  # Turbo model wants CFG off
+    z_image_base_default_steps: int = 50
+    z_image_base_default_guidance: float = 4.0
     z_image_default_width: int = 1024
     z_image_default_height: int = 1024
 
@@ -240,6 +301,8 @@ class Settings(BaseSettings):
     # repo folder below. Drop the fp4 .safetensors into models/image/ and the
     # registry auto-detects it (name contains "nunchaku"/"svdq" + the family).
     qwen_image_base_repo: Path = ROOT / "models" / "image" / "qwen-image-2512"
+    # Current public Nunchaku Z-Image fp4 weights target Turbo, so this base repo
+    # intentionally points at the local Turbo Diffusers folder.
     z_image_base_repo: Path = ROOT / "models" / "image" / "z-image-turbo"
     # On <18 GB cards Nunchaku Qwen-Image needs per-layer transformer offload
     # (transformer.set_offload) + sequential CPU offload for the bf16 Qwen2.5-VL

@@ -31,6 +31,11 @@ def classify_image_model(path: Path) -> ModelFamily:
         return ModelFamily.UNKNOWN
 
     joined = "\n".join(keys)
+    # CircleStone Anima checkpoints are Cosmos-derived DiTs with a bundled LLM
+    # adapter. They are neither SDXL nor directly loadable by Diffusers' SDXL
+    # single-file path, despite their similar ~4 GB checkpoint size.
+    if "net.llm_adapter" in joined and "net.blocks" in joined and "net.x_embedder" in joined:
+        return ModelFamily.ANIMA
     # FLUX.2 uses a new modulation scheme (double_stream_modulation_*) on top of
     # the double/single block layout — check it first to tell klein from FLUX.1.
     if "double_stream_modulation" in joined or "single_stream_modulation" in joined:

@@ -47,21 +47,29 @@ async def list_models(
             profile=profile,
             estimated_vram_gb=estimated_vram,
         )
-        out.append(ModelOut(
-            id=d.id, name=d.name, family=d.family, job_type=d.job_type,
-            size_bytes=d.size_bytes, loaded=loaded, warm=warm, quant=d.quant,
-            multimodal=d.multimodal,
-            mmproj_path=str(d.mmproj_path) if d.mmproj_path else None,
-            mmproj_size_bytes=d.mmproj_size_bytes,
-            estimated_vram_gb=estimated_vram,
-            vram_measured=bool(prof and prof.get("vram_gb")),
-            slow=slow,
-            available=compat["available"],
-            runtime_mode=compat["runtime_mode"],
-            unavailable_reason=compat["unavailable_reason"],
-            compatibility_warnings=compat["compatibility_warnings"],
-            recommendation=compat.get("recommendation", "neutral"),
-        ))
+        out.append(
+            ModelOut(
+                id=d.id,
+                name=d.name,
+                family=d.family,
+                job_type=d.job_type,
+                size_bytes=d.size_bytes,
+                loaded=loaded,
+                warm=warm,
+                quant=d.quant,
+                multimodal=d.multimodal,
+                mmproj_path=str(d.mmproj_path) if d.mmproj_path else None,
+                mmproj_size_bytes=d.mmproj_size_bytes,
+                estimated_vram_gb=estimated_vram,
+                vram_measured=bool(prof and prof.get("vram_gb")),
+                slow=slow,
+                available=compat["available"],
+                runtime_mode=compat["runtime_mode"],
+                unavailable_reason=compat["unavailable_reason"],
+                compatibility_warnings=compat["compatibility_warnings"],
+                recommendation=compat.get("recommendation", "neutral"),
+            )
+        )
     return out
 
 
@@ -210,6 +218,10 @@ async def runtime_settings(
             "default_height": settings.default_height,
             "keep_warm_models": settings.keep_warm_models,
             "keep_warm_max_models": settings.keep_warm_max_models,
+            "anima_steps": settings.anima_default_steps,
+            "anima_guidance": settings.anima_default_guidance,
+            "anima_width": settings.anima_default_width,
+            "anima_height": settings.anima_default_height,
         },
         "acceleration": {
             "attention_backend": settings.attention_backend,
@@ -224,9 +236,12 @@ async def runtime_settings(
             "qwen_image_default_guidance": settings.qwen_image_default_guidance,
             "qwen_image_default_width": settings.qwen_image_default_width,
             "qwen_image_default_height": settings.qwen_image_default_height,
+            "z_image_quant": settings.z_image_quant,
             "z_image_offload": settings.z_image_offload,
             "z_image_default_steps": settings.z_image_default_steps,
             "z_image_default_guidance": settings.z_image_default_guidance,
+            "z_image_base_default_steps": settings.z_image_base_default_steps,
+            "z_image_base_default_guidance": settings.z_image_base_default_guidance,
             "z_image_default_width": settings.z_image_default_width,
             "z_image_default_height": settings.z_image_default_height,
             "sdxl_turbo_lora": settings.sdxl_turbo_lora,
@@ -248,15 +263,16 @@ async def runtime_settings(
             "models": len(descriptors),
             "image_models": sum(1 for d in descriptors if d.job_type.value == "image"),
             "llm_models": sum(1 for d in descriptors if d.job_type.value == "llm"),
-            "multimodal_llm_models": sum(1 for d in descriptors if d.job_type.value == "llm" and d.multimodal),
+            "multimodal_llm_models": sum(
+                1 for d in descriptors if d.job_type.value == "llm" and d.multimodal
+            ),
             "loras": len(registry.loras()),
             "tts_models": len(list(settings.tts_models_dir.glob("*.gguf")))
             if settings.tts_models_dir.exists()
             else 0,
-            "transcription_models": len([
-                p for p in settings.transcription_models_dir.iterdir()
-                if not p.name.startswith(".")
-            ])
+            "transcription_models": len(
+                [p for p in settings.transcription_models_dir.iterdir() if not p.name.startswith(".")]
+            )
             if settings.transcription_models_dir.exists()
             else 0,
             "embed_models": len(list(settings.embed_models_dir.glob("*.gguf")))

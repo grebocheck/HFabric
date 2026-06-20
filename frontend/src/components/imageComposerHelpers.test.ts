@@ -12,6 +12,7 @@ import {
   isLoraCompatible,
   isModelAvailable,
   isNunchaku,
+  isZImageTurbo,
   numberParam,
   pickDefaultImageModel,
   readSaved,
@@ -53,6 +54,13 @@ describe("model ranking & selection", () => {
     expect(isNunchaku(undefined)).toBe(false);
   });
 
+  it("isZImageTurbo detects turbo names and Nunchaku Z-Image fast paths", () => {
+    expect(isZImageTurbo(model({ family: "z-image", name: "Z-Image-Turbo" }))).toBe(true);
+    expect(isZImageTurbo(model({ family: "z-image", quant: "nunchaku-fp4" }))).toBe(true);
+    expect(isZImageTurbo(model({ family: "z-image", name: "Z-Image" }))).toBe(false);
+    expect(isZImageTurbo(model({ family: "sdxl", name: "Z-Image-Turbo" }))).toBe(false);
+  });
+
   it("isModelAvailable treats only explicit false as unavailable", () => {
     expect(isModelAvailable(model())).toBe(true);
     expect(isModelAvailable(model({ available: true }))).toBe(true);
@@ -89,11 +97,15 @@ describe("model ranking & selection", () => {
     expect(isLoraCompatible(sdxlLora, undefined)).toBe(true);
   });
 
-  it("exposes family defaults for Qwen and Z-Image", () => {
+  it("exposes family defaults for Anima, Qwen and Z-Image", () => {
+    expect(imageFamilyDefaults("anima")).toMatchObject({ steps: 30, guidance: 4, width: 1024 });
     expect(imageFamilyDefaults("qwen-image")).toMatchObject({ steps: 50, guidance: 4, width: 1328 });
     expect(imageFamilyDefaults("z-image")).toMatchObject({ steps: 9, guidance: 0, width: 1024 });
+    expect(imageFamilyDefaults("z-image", model({ family: "z-image", name: "Z-Image" }))).toMatchObject({ steps: 50, guidance: 4, width: 1024 });
+    expect(imageFamilyDefaults("z-image", model({ family: "z-image", name: "Z-Image-Turbo" }))).toMatchObject({ steps: 9, guidance: 0, width: 1024 });
     expect(imageFamilyDefaults("sdxl")).toBeUndefined();
     expect(isKnownStepDefault(9)).toBe(true);
+    expect(isKnownStepDefault(30)).toBe(true);
     expect(isKnownGuidanceDefault(0)).toBe(true);
     expect(isKnownSizeDefault(1328)).toBe(true);
   });

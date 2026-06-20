@@ -202,11 +202,12 @@ class QwenZLoaderMixin:
         cls._hfab_forward_patched = True
 
     def _load_z_image(self, torch) -> Any:
-        """Z-Image-Turbo multi-file Diffusers repo.
+        """Z-Image / Z-Image-Turbo multi-file Diffusers repo.
 
-        A Nunchaku SVDQuant fp4 transformer (~4 GB) takes the place of the bf16
-        transformer when the descriptor is a Nunchaku checkpoint, borrowing the
-        Qwen3 text encoder / VAE from the local base repo folder.
+        The full base repo uses Diffusers' bitsandbytes 4-bit loader by default.
+        A Nunchaku SVDQuant fp4 transformer (~4 GB) takes the place of the Turbo
+        bf16 transformer when the descriptor is a Nunchaku checkpoint, borrowing
+        the Qwen3 text encoder / VAE from the local Turbo repo folder.
         """
         from diffusers import ZImagePipeline  # noqa: PLC0415
 
@@ -230,24 +231,39 @@ class QwenZLoaderMixin:
             else:  # "model": frugal — fp4 transformer is small, encoders idle in RAM
                 self._runtime().enable_model_cpu_offload(pipe)
             self._active_features["z_image"] = {
+                "variant": "turbo",
                 "quant": self.descriptor.quant,
                 "offload": offload or "none",
-                "default_steps": settings.z_image_default_steps,
-                "default_guidance": settings.z_image_default_guidance,
+                "default_steps": self._z_image_default_steps(),
+                "default_guidance": self._z_image_default_guidance(),
             }
             return pipe
 
-        pipe = ZImagePipeline.from_pretrained(
-            str(self.descriptor.path),
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=False,
+        kwargs = self._quantized_repo_kwargs(
+            torch,
+            settings.z_image_quant,
+            "HFAB_Z_IMAGE_QUANT",
+            ["transformer", "text_encoder"],
         )
+        quant = settings.z_image_quant.lower().strip()
+        if quant not in ("bnb-nf4", "bnb-fp4"):
+            kwargs["low_cpu_mem_usage"] = False
+        pipe = ZImagePipeline.from_pretrained(str(self.descriptor.path), **kwargs)
         if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
             pipe.vae.enable_tiling()
-        self._place_repo_pipeline(pipe, settings.z_image_offload, "HFAB_Z_IMAGE_OFFLOAD")
+        if quant in ("bnb-nf4", "bnb-fp4"):
+            if hasattr(getattr(pipe, "vae", None), "to"):
+                self._runtime().move(pipe.vae)
+            placement = "bnb-loader"
+        else:
+            self._place_repo_pipeline(pipe, settings.z_image_offload, "HFAB_Z_IMAGE_OFFLOAD")
+            placement = settings.z_image_offload
         self._active_features["z_image"] = {
+            "variant": "turbo" if self._is_z_image_turbo() else "base",
+            "quant": settings.z_image_quant,
             "offload": settings.z_image_offload,
-            "default_steps": settings.z_image_default_steps,
-            "default_guidance": settings.z_image_default_guidance,
+            "placement": placement,
+            "default_steps": self._z_image_default_steps(),
+            "default_guidance": self._z_image_default_guidance(),
         }
         return pipe

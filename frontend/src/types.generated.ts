@@ -1989,7 +1989,7 @@ export interface components {
             /** Id */
             id: string;
             /** Job Id */
-            job_id: string;
+            job_id: string | null;
             /** Params */
             params: Record<string, never>;
             /** Seed */
@@ -2166,7 +2166,7 @@ export interface components {
          * ModelFamily
          * @enum {string}
          */
-        ModelFamily: "flux" | "flux2" | "qwen-image" | "z-image" | "sdxl" | "gguf" | "upscaler" | "unknown";
+        ModelFamily: "anima" | "flux" | "flux2" | "qwen-image" | "z-image" | "sdxl" | "gguf" | "upscaler" | "unknown";
         /** ModelOut */
         ModelOut: {
             /**

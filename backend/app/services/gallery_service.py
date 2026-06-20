@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ from sqlalchemy import String, and_, cast, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Image
+
+_KNOWN_FAMILIES = {"anima", "flux", "flux2", "qwen-image", "z-image", "sdxl", "upscaler", "unknown"}
 
 # JSON path into the persisted param snapshot. Older rows may not have dedicated
 # columns for these values, so the service keeps fallbacks for compatibility.
@@ -106,6 +109,58 @@ async def list_images(
 
 async def get_image(session: AsyncSession, image_id: str) -> Image | None:
     return await session.get(Image, image_id)
+
+
+async def recover_output_history(session: AsyncSession, outputs_dir: Path) -> int:
+    """Restore generated files missing from the History table.
+
+    Every generated PNG has a same-name JSON sidecar. Queue clearing used to
+    cascade-delete its Image rows while leaving those files intact, so the
+    sidecar is the durable source for a one-time, lossless-enough rebuild.
+    Existing paths are never touched, making this safe to run at every startup.
+    """
+    if not outputs_dir.exists():
+        return 0
+
+    stored_paths = (await session.execute(select(Image.path))).scalars().all()
+    existing = {_normalized_path(Path(path)) for path in stored_paths}
+    recovered = 0
+
+    for png_path in sorted(outputs_dir.rglob("*.png")):
+        sidecar = png_path.with_suffix(".json")
+        normalized = _normalized_path(png_path)
+        if normalized in existing or not sidecar.is_file():
+            continue
+        try:
+            params = json.loads(sidecar.read_text(encoding="utf-8"))
+            stat = png_path.stat()
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(params, dict):
+            continue
+
+        thumb_path = png_path.with_suffix(".thumb.webp")
+        family = params.get("family")
+        if family not in _KNOWN_FAMILIES:
+            family = None
+        image = Image(
+            job_id=None,
+            path=str(png_path),
+            thumb_path=str(thumb_path) if thumb_path.is_file() else None,
+            seed=_metadata_int(params.get("seed")),
+            width=_metadata_int(params.get("width"), positive=True),
+            height=_metadata_int(params.get("height"), positive=True),
+            family=family,
+            favorite=bool(params.get("favorite", False)),
+            tags=_tag_entries(params.get("tags")),
+            params=params,
+            created_at=datetime.fromtimestamp(stat.st_mtime, UTC),
+        )
+        session.add(image)
+        existing.add(normalized)
+        recovered += 1
+
+    return recovered
 
 
 async def get_images(session: AsyncSession, image_ids: list[str]) -> list[Image]:
@@ -239,6 +294,22 @@ def _normalize_tags(tags: list[str]) -> list[str]:
         if len(out) >= 32:
             break
     return out
+
+
+def _normalized_path(path: Path) -> str:
+    return str(path.resolve(strict=False)).casefold()
+
+
+def _metadata_int(value: Any, *, positive: bool = False) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    if positive and number <= 0:
+        return None
+    return number
 
 
 def to_out_dict(img: Image) -> dict:

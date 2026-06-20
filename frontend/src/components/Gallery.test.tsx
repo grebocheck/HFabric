@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,7 +20,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../api/client", () => ({ api: mocks.api }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const MODELS: Model[] = [
   {
@@ -124,5 +127,54 @@ describe("Gallery", () => {
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByText("first prompt")).toBeNull());
+  });
+
+  it("groups history images into local calendar dates", async () => {
+    mocks.api.queryImages.mockResolvedValue([
+      image({ id: "new-a", created_at: "2026-06-12T10:00:00Z" }),
+      image({ id: "new-b", created_at: "2026-06-12T08:00:00Z" }),
+      image({ id: "old", created_at: "2026-06-11T10:00:00Z" }),
+    ]);
+
+    const { container } = render(<Gallery models={MODELS} reloadSignal={0} onReproduce={() => {}} onUpscale={() => {}} />);
+    await waitFor(() => expect(mocks.api.queryImages).toHaveBeenCalled());
+
+    expect(container.querySelectorAll('section[data-history-date="2026-06-12"]')).toHaveLength(1);
+    expect(container.querySelector('section[data-history-date="2026-06-12"]')?.querySelectorAll('button[title]').length).toBe(2);
+    expect(container.querySelectorAll('section[data-history-date="2026-06-11"]')).toHaveLength(1);
+  });
+
+  it("loads the next history page automatically near the bottom", async () => {
+    const firstPage = Array.from({ length: 60 }, (_, index) => image({
+      id: `img${index}`,
+      params: { prompt: `prompt ${index}`, model: "SDXL base" },
+    }));
+    const nextImage = image({ id: "img-next", params: { prompt: "next prompt", model: "SDXL base" } });
+    mocks.api.queryImages.mockImplementation(async ({ offset }: { offset?: number }) => (
+      offset === 60 ? [nextImage] : firstPage
+    ));
+
+    let intersect = () => {};
+    class ObserverStub {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () => callback(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        );
+      }
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", ObserverStub);
+
+    const { container } = render(<Gallery models={MODELS} reloadSignal={0} onReproduce={() => {}} onUpscale={() => {}} />);
+    await screen.findByText("more images load automatically");
+
+    act(() => intersect());
+
+    await waitFor(() => expect(mocks.api.queryImages).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 60, offset: 60 }),
+    ));
+    expect(container.querySelector('button[title="next prompt"]')).toBeTruthy();
   });
 });

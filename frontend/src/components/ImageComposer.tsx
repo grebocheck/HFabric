@@ -16,6 +16,7 @@ import {
   isLoraCompatible,
   isModelAvailable,
   isNunchaku,
+  isZImageTurbo,
   loadPromptHistory,
   numberParam,
   pickDefaultImageModel,
@@ -160,7 +161,7 @@ export function ImageComposer({
   // server-configured writable default. Touched fields are left alone so a user's
   // choice survives remounts (tab switches), family switches, and default changes.
   useEffect(() => {
-    const fam = imageFamilyDefaults(selectedFamily);
+    const fam = imageFamilyDefaults(selectedFamily, selectedImgModel);
     const effective = fam ?? {
       steps: serverDefaults.default_steps,
       guidance: serverDefaults.default_guidance,
@@ -171,7 +172,7 @@ export function ImageComposer({
     if (!touched.guidance) setGuidance(effective.guidance);
     if (!touched.width) setWidth(effective.width);
     if (!touched.height) setHeight(effective.height);
-  }, [selectedFamily, serverDefaults, touched]);
+  }, [selectedFamily, selectedImgModel, serverDefaults, touched]);
 
   // Field editors that record the user's intent. Editing a field marks it
   // touched so it stops tracking defaults and survives the next remount.
@@ -262,7 +263,7 @@ export function ImageComposer({
   };
 
   const applyRatio = (rw: number, rh: number) => {
-    const base = imageFamilyDefaults(selectedFamily)?.width ?? serverDefaults.default_width;
+    const base = imageFamilyDefaults(selectedFamily, selectedImgModel)?.width ?? serverDefaults.default_width;
     const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
     if (rw >= rh) {
       editWidth(round64(base));
@@ -506,9 +507,13 @@ export function ImageComposer({
             <Notice tone="sky">
               Qwen-Image-2512 is tuned here for 1328x1328, 50 steps, true CFG 4.0. The backend defaults to bnb-nf4.
             </Notice>
-          ) : selectedFamily === "z-image" ? (
+          ) : selectedFamily === "z-image" && isZImageTurbo(selectedImgModel) ? (
             <Notice tone="sky">
               Z-Image-Turbo is tuned here for 1024x1024, 9 steps, guidance 0.0.
+            </Notice>
+          ) : selectedFamily === "z-image" ? (
+            <Notice tone="sky">
+              Z-Image base is tuned here for 1024x1024, 50 steps, guidance 4.0. The backend defaults to bnb-fp4.
             </Notice>
           ) : null}
         </section>

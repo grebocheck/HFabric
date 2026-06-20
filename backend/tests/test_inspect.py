@@ -35,6 +35,15 @@ def test_classify_flux2_by_modulation_keys(tmp_path):
     assert classify_image_model(p) is ModelFamily.FLUX2
 
 
+def test_classify_anima_by_native_dit_and_llm_adapter_keys(tmp_path):
+    p = _safetensors(tmp_path / "anima.safetensors", [
+        "net.blocks.0.self_attn.q_proj.weight",
+        "net.llm_adapter.embed.weight",
+        "net.x_embedder.proj.1.weight",
+    ])
+    assert classify_image_model(p) is ModelFamily.ANIMA
+
+
 def test_classify_flux_by_block_keys(tmp_path):
     p = _safetensors(tmp_path / "m.safetensors", ["double_blocks.0.img_attn.qkv.weight"])
     assert classify_image_model(p) is ModelFamily.FLUX

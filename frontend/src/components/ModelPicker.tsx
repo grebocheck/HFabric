@@ -36,6 +36,7 @@ export function ModelPicker({
       options={options}
       onChange={onChange}
       placeholder={placeholder}
+      optionsClassName="max-h-[min(32rem,70vh)]"
       renderOption={(o) => {
         const m = byId.get(o.value);
         if (!m) return <span className="truncate">{o.label}</span>;

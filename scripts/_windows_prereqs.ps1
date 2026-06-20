@@ -348,12 +348,55 @@ sys.exit(1 if missing else 0)
     return ($LASTEXITCODE -eq 0)
 }
 
+function Get-NunchakuCudaWheelUrl {
+    return "https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-win_amd64.whl"
+}
+
+function Test-NunchakuReady {
+    param([string]$VenvPy)
+    if (-not (Test-Path $VenvPy)) { return $false }
+    $code = @"
+import importlib.util, sys
+sys.exit(0 if importlib.util.find_spec('nunchaku') is not None else 1)
+"@
+    & $VenvPy -c $code 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Test-NunchakuModelPresent {
+    param([string]$ModelsDir = (Join-Path (Get-Location) "models\image"))
+    if (-not (Test-Path $ModelsDir)) { return $false }
+    $files = Get-ChildItem -LiteralPath $ModelsDir -Recurse -File -Include *.safetensors -ErrorAction SilentlyContinue
+    foreach ($file in $files) {
+        $name = $file.Name.ToLowerInvariant()
+        if (($name.Contains("svdq") -or $name.Contains("nunchaku")) -and (
+            $name.Contains("flux") -or
+            $name.Contains("qwen") -or
+            $name.Contains("z-image") -or
+            $name.Contains("z_image")
+        )) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Install-NunchakuCuda {
+    param([string]$VenvPy)
+    if (Test-NunchakuReady $VenvPy) { return $true }
+    Write-Host "[setup] installing Nunchaku (FLUX/Qwen/Z-Image SVDQuant fp4)..." -ForegroundColor Cyan
+    Write-Host "[setup] matching cu12.8 + torch2.11 + Python 3.12 wheel (~300 MB)" -ForegroundColor DarkGray
+    & $VenvPy -m pip install (Get-NunchakuCudaWheelUrl)
+    if ($LASTEXITCODE -ne 0) { return $false }
+    return (Test-NunchakuReady $VenvPy)
+}
+
 function Install-AcceleratorStack {
     # The full REAL-mode stack for the detected profile: PyTorch (profile-specific
     # index), the profile's backend requirements (diffusers, sounddevice, etc.), and
     # the managed llama.cpp runtime. This is what makes "double-click and it works"
     # true — both run.ps1 (first run) and setup.ps1 install through here so they
-    # behave identically. Optional Nunchaku acceleration stays explicitly opt-in.
+    # behave identically. Optional Nunchaku acceleration is handled separately.
     param(
         [string]$VenvPy,
         $Profile

@@ -25,10 +25,15 @@ async def test_legacy_db_without_image_metadata_columns_upgrades(isolated_runtim
     assert response.status_code == 200
     assert response.json()[0]["favorite"] is False
     with sqlite3.connect(isolated_runtime["db_path"]) as conn:
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(images)")}
+        column_rows = list(conn.execute("PRAGMA table_info(images)"))
+        columns = {row[1] for row in column_rows}
+        job_id = next(row for row in column_rows if row[1] == "job_id")
+        image_foreign_keys = list(conn.execute("PRAGMA foreign_key_list(images)"))
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     assert {"family", "favorite", "tags"} <= columns
-    assert version == "0003_message_attachments"
+    assert job_id[3] == 0  # nullable: recovered images have no queue row
+    assert not any(row[3] == "job_id" for row in image_foreign_keys)
+    assert version == "0004_detach_history_from_queue"
 
 
 def _create_legacy_db(path) -> None:

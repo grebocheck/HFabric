@@ -106,6 +106,16 @@ export default function App() {
       setLorasLoading(false);
     }
   }, []);
+  const refreshModelCatalog = useCallback(async () => {
+    // A browser refresh doubles as a filesystem rescan, so checkpoints copied
+    // into models/* while the backend is running appear without a server restart.
+    try {
+      await api.rescanModels();
+    } catch {
+      // Still show the last in-memory registry if a rescan fails transiently.
+    }
+    await Promise.all([refreshModels(), refreshLoras()]);
+  }, [refreshLoras, refreshModels]);
   const refreshPresets = useCallback(async () => {
     setPresetsLoading(true);
     try {
@@ -145,12 +155,11 @@ export default function App() {
   }), []);
 
   useEffect(() => {
-    void refreshModels();
-    void refreshLoras();
+    void refreshModelCatalog();
     refreshJobs();
     refreshImages();
     refreshPresets();
-  }, [refreshModels, refreshLoras, refreshJobs, refreshImages, refreshPresets, authRevision]);
+  }, [refreshModelCatalog, refreshJobs, refreshImages, refreshPresets, authRevision]);
 
   const onEvent = useCallback(
     (e: BusEvent) => {

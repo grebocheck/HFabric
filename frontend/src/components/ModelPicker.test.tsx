@@ -33,6 +33,7 @@ describe("ModelPicker", () => {
     expect(screen.getByText("flux")).toBeTruthy();
     expect(screen.getByText("fast")).toBeTruthy();
     expect(screen.getByText("~9.8 GB")).toBeTruthy();
+    expect(screen.getByTestId("select-options").className).toContain("max-h-[min(32rem,70vh)]");
   });
 
   it("calls onChange with the chosen model id", async () => {

@@ -101,7 +101,7 @@ class PriorityUpdate(BaseModel):
 # --------------------------------------------------------------------- images
 class ImageOut(BaseModel):
     id: str
-    job_id: str
+    job_id: str | None
     seed: int | None = None
     width: int | None = None
     height: int | None = None

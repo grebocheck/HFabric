@@ -10,7 +10,7 @@ license and provider terms. See [`../MODEL_NOTICE.md`](../MODEL_NOTICE.md).
 
 ```text
 models/
-|- image/   *.safetensors or model folders (FLUX, FLUX.2, Qwen, Z-Image, SDXL)
+|- image/   *.safetensors or model folders (Anima, FLUX, FLUX.2, Qwen, Z-Image, SDXL)
 |- lora/    *.safetensors/.pt/.bin        (SDXL/FLUX LoRA adapters, SDXL turbo)
 |- llm/     *.gguf                        (llama.cpp GGUF models)
 |- tts/     *.gguf                        (llama-tts voice/acoustic models)
@@ -24,7 +24,7 @@ The backend scans these folders on startup:
 
 | Folder | Extensions / marker | Detected families |
 |--------|---------------------|-------------------|
-| `image/` | `.safetensors` | `flux`, `sdxl` |
+| `image/` | `.safetensors` | `anima`, `flux`, `sdxl` |
 | `image/<repo>/` | `model_index.json` | `flux2`, `qwen-image`, `z-image` |
 | `lora/` | `.safetensors`, `.pt`, `.bin` | `flux`, `sdxl`, or unknown |
 | `llm/` | `.gguf` | `gguf` (llama.cpp) |
@@ -52,7 +52,7 @@ an AMD/MPS plan from another machine without installing or downloading anything.
 The in-app **Models** tab also exposes larger whole-repo image downloads under
 **Advanced**. These are not part of the starter set because they are large and
 may have provider-specific terms, but the downloader can place them directly:
-`FLUX.2-klein-9b/`, `z-image-turbo/`, and `qwen-image-2512/`.
+`FLUX.2-klein-9b/`, `z-image/`, `z-image-turbo/`, and `qwen-image-2512/`.
 
 FLUX.2 klein is a multi-file diffusers repo, not a single `.safetensors`; put the
 downloaded folder under `models/image/`, for example:
@@ -95,16 +95,42 @@ On Blackwell GPUs, FLUX.2 nunchaku int4 is kept as a local file if downloaded
 but is hidden from the runtime model list because nunchaku requires fp4 for this
 GPU family.
 
-Qwen-Image-2512 and Z-Image-Turbo are also multi-file Diffusers repos. Put them
-under `models/image/` so HFabric can auto-detect their `model_index.json`:
+Anima checkpoints are single `.safetensors` files containing the Cosmos-Predict2
+2B DiT and Anima LLM adapter. Put the checkpoint directly in `models/image/`.
+The native CUDA runtime also needs a Qwen3 0.6B encoder/tokenizer, T5 tokenizer,
+and Qwen-Image VAE; fetch only those shared companion assets with:
+
+```powershell
+python scripts/fetch_anima_support.py
+```
+
+The resulting layout is:
+
+```text
+models/image/
+|- miaomiaoHarem_anima13.safetensors
+|- anima-support/
+|  |- split_files/text_encoders/qwen_3_06b_base.safetensors
+|  |- qwen3-0.6b/
+|  `- t5-tokenizer/
+`- qwen-image-2512/vae/
+```
+
+HFabric defaults Anima to 1024x1024, 30 steps, and guidance 4.0. Supported
+dimensions are 512 through 1536 pixels in multiples of 64. The upstream Anima
+weights and derivatives are non-commercial; consult the model card before
+redistributing or fine-tuning them. Generated outputs have separate terms.
+
+Qwen-Image-2512, Z-Image, and Z-Image-Turbo are also multi-file Diffusers repos.
+Put them under `models/image/` so HFabric can auto-detect their `model_index.json`:
 
 ```powershell
 huggingface-cli download Qwen/Qwen-Image-2512 --local-dir models/image/qwen-image-2512
+huggingface-cli download Tongyi-MAI/Z-Image --local-dir models/image/z-image --exclude "assets/*"
 huggingface-cli download Tongyi-MAI/Z-Image-Turbo --local-dir models/image/z-image-turbo --exclude "assets/*"
 ```
 
-Or run `python scripts/fetch_qwen_z_image.py` from the repository root to fetch
-both public repos.
+Or use the in-app **Models** tab to fetch a selected advanced repo.
 
 ### Voice changer pretrain assets
 
@@ -145,8 +171,9 @@ python scripts/fetch_dtln.py
 The DTLN weights are from `breizhn/DTLN` and keep their upstream MIT license.
 
 Qwen-Image-2512 defaults to the backend's bitsandbytes 4-bit path
-(`HFAB_QWEN_IMAGE_QUANT=bnb-nf4`) because the bf16 repo is large. Z-Image-Turbo
-defaults to 1024x1024, 9 steps, and guidance 0.0.
+(`HFAB_QWEN_IMAGE_QUANT=bnb-nf4`) because the bf16 repo is large. Z-Image base
+defaults to `HFAB_Z_IMAGE_QUANT=bnb-fp4`, 1024x1024, 50 steps, and guidance 4.0.
+Z-Image-Turbo defaults to 1024x1024, 9 steps, and guidance 0.0.
 
 Environment variables like `HFAB_IMAGE_MODELS_DIR`, `HFAB_LORA_MODELS_DIR`,
 `HFAB_LLM_MODELS_DIR`, and `HFAB_TTS_MODELS_DIR` exist for development, but

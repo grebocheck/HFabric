@@ -152,6 +152,8 @@ class ModelRegistry:
                 quant = settings.flux2_quant
             elif family is ModelFamily.QWEN_IMAGE:
                 quant = settings.qwen_image_quant
+            elif family is ModelFamily.Z_IMAGE:
+                quant = settings.z_image_quant
             else:
                 quant = None
             self._add(sub, family, quant=quant)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.backends.base import ModelDescriptor
+from app.config import settings
 from app.core.enums import ModelFamily
 from app.services import model_compatibility
 
@@ -61,6 +62,67 @@ def test_nunchaku_requires_cuda_feature_in_real_mode():
 
     assert compat["available"] is False
     assert "Nunchaku" in compat["unavailable_reason"]
+
+
+def test_anima_requires_its_companion_assets(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "anima_text_encoder_path", tmp_path / "missing-te.safetensors")
+    monkeypatch.setattr(settings, "anima_qwen_config_dir", tmp_path / "missing-qwen")
+    monkeypatch.setattr(settings, "anima_t5_tokenizer_dir", tmp_path / "missing-t5")
+    monkeypatch.setattr(settings, "anima_vae_dir", tmp_path / "missing-vae")
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.ANIMA),
+        profile=profile(backend="cuda"),
+        estimated_vram_gb=None,
+    )
+
+    assert compat["available"] is False
+    assert compat["runtime_mode"] == "disabled"
+    assert "support assets" in compat["unavailable_reason"]
+    assert "fetch_anima_support.py" in compat["unavailable_reason"]
+
+
+def test_anima_is_available_with_native_support_assets(monkeypatch, tmp_path):
+    text_encoder = tmp_path / "qwen.safetensors"
+    qwen_dir = tmp_path / "qwen"
+    t5_dir = tmp_path / "t5"
+    vae_dir = tmp_path / "vae"
+    for path in (
+        qwen_dir / "config.json",
+        t5_dir / "tokenizer_config.json",
+        vae_dir / "config.json",
+        vae_dir / "diffusion_pytorch_model.safetensors",
+        text_encoder,
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(settings, "anima_text_encoder_path", text_encoder)
+    monkeypatch.setattr(settings, "anima_qwen_config_dir", qwen_dir)
+    monkeypatch.setattr(settings, "anima_t5_tokenizer_dir", t5_dir)
+    monkeypatch.setattr(settings, "anima_vae_dir", vae_dir)
+    monkeypatch.setattr(model_compatibility.sysmon, "ram_stats", lambda: {"total_gb": 32.0})
+
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.ANIMA, size_bytes=4_182_218_328),
+        profile=profile(backend="cuda"),
+        estimated_vram_gb=12.0,
+    )
+
+    assert compat["available"] is True
+    assert compat["runtime_mode"] == "real"
+    assert any("non-commercial" in warning for warning in compat["compatibility_warnings"])
+
+
+def test_nunchaku_requires_python_package_in_real_mode(monkeypatch):
+    monkeypatch.setattr(model_compatibility, "_nunchaku_runtime_available", lambda: False)
+
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.Z_IMAGE, quant="nunchaku-fp4"),
+        profile=profile(backend="cuda"),
+        estimated_vram_gb=8,
+    )
+
+    assert compat["available"] is False
+    assert "Nunchaku Python package" in compat["unavailable_reason"]
 
 
 def test_rocm_blocks_bitsandbytes_quantized_image_models():
@@ -140,15 +202,20 @@ def test_blocks_only_when_even_ram_offload_cannot_hold_the_model(monkeypatch):
     assert "RAM" in compat["unavailable_reason"]
 
 
-def test_recommendation_reflects_model_policy_buckets():
+def test_recommendation_reflects_model_policy_buckets(monkeypatch):
+    monkeypatch.setattr(model_compatibility, "_nunchaku_runtime_available", lambda: True)
     policy = {"image": {"recommended": ["sdxl"], "advanced": ["flux"], "hidden": []}}
     rec = profile(backend="cuda", model_policy=policy)
 
     sdxl = model_compatibility.compatibility_for_model(
-        desc(ModelFamily.SDXL), profile=rec, estimated_vram_gb=8,
+        desc(ModelFamily.SDXL),
+        profile=rec,
+        estimated_vram_gb=8,
     )
     flux = model_compatibility.compatibility_for_model(
-        desc(ModelFamily.FLUX, quant="nunchaku-fp4"), profile=rec, estimated_vram_gb=10,
+        desc(ModelFamily.FLUX, quant="nunchaku-fp4"),
+        profile=rec,
+        estimated_vram_gb=10,
     )
     assert sdxl["recommendation"] == "recommended"
     assert flux["recommendation"] == "advanced"
@@ -157,10 +224,12 @@ def test_recommendation_reflects_model_policy_buckets():
 def test_recommendation_is_neutral_for_llm_and_stub():
     policy = {"image": {"recommended": ["sdxl"], "advanced": [], "hidden": []}}
     llm = model_compatibility.compatibility_for_model(
-        desc(ModelFamily.GGUF), profile=profile(backend="cuda", model_policy=policy),
+        desc(ModelFamily.GGUF),
+        profile=profile(backend="cuda", model_policy=policy),
     )
     stub = model_compatibility.compatibility_for_model(
-        desc(ModelFamily.SDXL), profile=profile(effective_stub=True, model_policy=policy),
+        desc(ModelFamily.SDXL),
+        profile=profile(effective_stub=True, model_policy=policy),
     )
     assert llm["recommendation"] == "neutral"
     assert stub["recommendation"] == "neutral"
@@ -176,11 +245,13 @@ async def test_create_jobs_rejects_unavailable_model(monkeypatch, app_client):
 
     response = await app_client.post(
         "/api/jobs",
-        json=[{
-            "type": "image",
-            "model_id": img["id"],
-            "params": {"prompt": "blocked", "steps": 1},
-        }],
+        json=[
+            {
+                "type": "image",
+                "model_id": img["id"],
+                "params": {"prompt": "blocked", "steps": 1},
+            }
+        ],
     )
 
     assert response.status_code == 409

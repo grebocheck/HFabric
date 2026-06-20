@@ -98,6 +98,7 @@ export function formatComputeCapability(tuple: number[] | undefined | null): str
 }
 
 const FAMILY_LABELS: Record<ModelFamily, string> = {
+  anima: "Anima",
   flux: "FLUX",
   flux2: "FLUX.2",
   "qwen-image": "Qwen-Image",

@@ -247,6 +247,18 @@ if (-not $isStubMode -and -not (Test-AcceleratorStackReady $venvPy)) {
     Write-Host "[setup] REAL mode needs the accelerator stack -> installing it now (one-time, large)..." -ForegroundColor Cyan
     Install-AcceleratorStack $venvPy $selectedProfile
 }
+if (-not $isStubMode -and (Test-NunchakuModelPresent) -and -not (Test-NunchakuReady $venvPy)) {
+    if (-not $selectedProfile) { $selectedProfile = Resolve-InstallProfile }
+    $canInstallNunchaku = @($selectedProfile.optional_features) -contains "nunchaku_cuda"
+    if ($canInstallNunchaku) {
+        Write-Host "[setup] local Nunchaku fp4 image model found -> repairing missing Nunchaku runtime..." -ForegroundColor Cyan
+        if (-not (Install-NunchakuCuda $venvPy)) {
+            Write-Host "[setup] Nunchaku install failed; fp4 Nunchaku image models will stay unavailable until setup.bat -Nunchaku succeeds." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "[setup] local Nunchaku fp4 model found, but this hardware profile does not offer Nunchaku CUDA." -ForegroundColor Yellow
+    }
+}
 if (-not $isStubMode -and -not (Test-VoiceAssetsReady $venvPy)) {
     Write-Host "[setup] REAL mode needs shared voice changer assets -> downloading them now..." -ForegroundColor Cyan
     if (-not (Install-VoiceAssets $venvPy)) {

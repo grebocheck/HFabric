@@ -46,16 +46,14 @@ class Job(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    images: Mapped[list[Image]] = relationship(
-        back_populates="job", cascade="all, delete-orphan"
-    )
-
-
 class Image(Base):
     __tablename__ = "images"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    # History is a durable result archive, not a child collection of the queue.
+    # Keep the originating id when it exists, but do not tie the image lifetime
+    # to a Job row: clearing finished queue entries must never clear History.
+    job_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     path: Mapped[str] = mapped_column(String(512))
     thumb_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -68,9 +66,6 @@ class Image(Base):
     # Full param snapshot for reproducibility (prompt, sampler, cfg, model, ...).
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
-
-    job: Mapped[Job] = relationship(back_populates="images")
-
 
 class Conversation(Base):
     __tablename__ = "conversations"

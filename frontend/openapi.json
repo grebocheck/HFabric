@@ -1175,8 +1175,15 @@
             "type": "string"
           },
           "job_id": {
-            "title": "Job Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           },
           "params": {
             "title": "Params",
@@ -1708,6 +1715,7 @@
       },
       "ModelFamily": {
         "enum": [
+          "anima",
           "flux",
           "flux2",
           "qwen-image",
@@ -3953,7 +3961,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "pattern": "^(flux|flux2|qwen-image|z-image|sdxl|upscaler|unknown)$",
+                  "pattern": "^(anima|flux|flux2|qwen-image|z-image|sdxl|upscaler|unknown)$",
                   "type": "string"
                 },
                 {

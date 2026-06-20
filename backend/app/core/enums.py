@@ -20,6 +20,7 @@ class JobStatus(str, Enum):
 
 
 class ModelFamily(str, Enum):
+    ANIMA = "anima"
     FLUX = "flux"
     FLUX2 = "flux2"
     QWEN_IMAGE = "qwen-image"

@@ -67,7 +67,7 @@ they never collide.
 The full pipeline (model discovery → queue → arbiter swap → live progress over
 WebSocket → gallery with reproducible metadata) is validated on the GPU today:
 
-- **Image:** SDXL, FLUX (Nunchaku fp4), FLUX.2 [klein], Qwen-Image, Z-Image.
+- **Image:** SDXL, FLUX (Nunchaku fp4), FLUX.2 [klein], Anima, Qwen-Image, Z-Image.
 - **Chat LLM:** any GGUF model via `llama-server`, with streaming, personas,
   sampling control, stop/regenerate/edit, attachments, native multimodal
   `mmproj` vision, and a `/image` bridge.
@@ -241,7 +241,7 @@ when supported.
 CPU-safe/STUB downloads nothing.
 
 For the full curated list, folder layout, and per-family notes (FLUX.2 klein,
-Qwen-Image, Z-Image, voice/DTLN assets), see **[models/README.md](models/README.md)**.
+Anima, Qwen-Image, Z-Image, voice/DTLN assets), see **[models/README.md](models/README.md)**.
 
 ## Running the app
 

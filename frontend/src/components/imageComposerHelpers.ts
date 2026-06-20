@@ -12,19 +12,29 @@ export const promptHistoryLimit = 14;
 export const DEFAULT_STEPS = 28;
 export const DEFAULT_GUIDANCE = 3.5;
 export const DEFAULT_SIZE = 1024;
+export const ANIMA_STEPS = 30;
+export const ANIMA_GUIDANCE = 4.0;
+export const ANIMA_SIZE = 1024;
 export const FLUX2_STEPS = 6;
 export const FLUX2_GUIDANCE = 4.0;
 export const FLUX2_SIZE = 768;
 export const QWEN_IMAGE_STEPS = 50;
 export const QWEN_IMAGE_GUIDANCE = 4.0;
 export const QWEN_IMAGE_SIZE = 1328;
-export const Z_IMAGE_STEPS = 9;
-export const Z_IMAGE_GUIDANCE = 0.0;
+export const Z_IMAGE_TURBO_STEPS = 9;
+export const Z_IMAGE_TURBO_GUIDANCE = 0.0;
+export const Z_IMAGE_BASE_STEPS = 50;
+export const Z_IMAGE_BASE_GUIDANCE = 4.0;
+export const Z_IMAGE_STEPS = Z_IMAGE_TURBO_STEPS;
+export const Z_IMAGE_GUIDANCE = Z_IMAGE_TURBO_GUIDANCE;
 export const Z_IMAGE_SIZE = 1024;
 
 export type ImageFamilyDefaults = { steps: number; guidance: number; width: number; height: number };
 
-export function imageFamilyDefaults(family: string | undefined): ImageFamilyDefaults | undefined {
+export function imageFamilyDefaults(family: string | undefined, model?: Model): ImageFamilyDefaults | undefined {
+  if (family === "anima") {
+    return { steps: ANIMA_STEPS, guidance: ANIMA_GUIDANCE, width: ANIMA_SIZE, height: ANIMA_SIZE };
+  }
   if (family === "flux2") {
     return { steps: FLUX2_STEPS, guidance: FLUX2_GUIDANCE, width: FLUX2_SIZE, height: FLUX2_SIZE };
   }
@@ -32,14 +42,17 @@ export function imageFamilyDefaults(family: string | undefined): ImageFamilyDefa
     return { steps: QWEN_IMAGE_STEPS, guidance: QWEN_IMAGE_GUIDANCE, width: QWEN_IMAGE_SIZE, height: QWEN_IMAGE_SIZE };
   }
   if (family === "z-image") {
-    return { steps: Z_IMAGE_STEPS, guidance: Z_IMAGE_GUIDANCE, width: Z_IMAGE_SIZE, height: Z_IMAGE_SIZE };
+    if (model && !isZImageTurbo(model)) {
+      return { steps: Z_IMAGE_BASE_STEPS, guidance: Z_IMAGE_BASE_GUIDANCE, width: Z_IMAGE_SIZE, height: Z_IMAGE_SIZE };
+    }
+    return { steps: Z_IMAGE_TURBO_STEPS, guidance: Z_IMAGE_TURBO_GUIDANCE, width: Z_IMAGE_SIZE, height: Z_IMAGE_SIZE };
   }
   return undefined;
 }
 
-const knownStepDefaults = [DEFAULT_STEPS, FLUX2_STEPS, QWEN_IMAGE_STEPS, Z_IMAGE_STEPS];
-const knownGuidanceDefaults = [DEFAULT_GUIDANCE, FLUX2_GUIDANCE, QWEN_IMAGE_GUIDANCE, Z_IMAGE_GUIDANCE];
-const knownSizeDefaults = [DEFAULT_SIZE, FLUX2_SIZE, QWEN_IMAGE_SIZE, Z_IMAGE_SIZE];
+const knownStepDefaults = [DEFAULT_STEPS, ANIMA_STEPS, FLUX2_STEPS, QWEN_IMAGE_STEPS, Z_IMAGE_TURBO_STEPS, Z_IMAGE_BASE_STEPS];
+const knownGuidanceDefaults = [DEFAULT_GUIDANCE, ANIMA_GUIDANCE, FLUX2_GUIDANCE, QWEN_IMAGE_GUIDANCE, Z_IMAGE_TURBO_GUIDANCE, Z_IMAGE_BASE_GUIDANCE];
+const knownSizeDefaults = [DEFAULT_SIZE, ANIMA_SIZE, FLUX2_SIZE, QWEN_IMAGE_SIZE, Z_IMAGE_SIZE];
 
 export const isKnownStepDefault = (value: number): boolean => knownStepDefaults.includes(value);
 export const isKnownGuidanceDefault = (value: number): boolean => knownGuidanceDefaults.includes(value);
@@ -108,6 +121,12 @@ export function isNunchaku(model: Model | undefined): boolean {
   return Boolean(model?.quant?.startsWith("nunchaku"));
 }
 
+export function isZImageTurbo(model: Model | undefined): boolean {
+  if (model?.family !== "z-image") return false;
+  const text = `${model.id} ${model.name}`.toLowerCase();
+  return isNunchaku(model) || text.includes("turbo");
+}
+
 export function isModelAvailable(model: Model | undefined): boolean {
   return Boolean(model && model.available !== false);
 }
@@ -129,6 +148,7 @@ export function formatVram(model: Model): string {
 }
 
 export function familyColor(family: string): string {
+  if (family === "anima") return "bg-fuchsia-700/50 text-fuchsia-100";
   if (family === "flux2") return "bg-sky-700/50 text-sky-100";
   if (family === "qwen-image") return "bg-violet-700/50 text-violet-100";
   if (family === "z-image") return "bg-cyan-700/50 text-cyan-100";

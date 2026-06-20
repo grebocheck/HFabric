@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Select, type SelectOption } from "./Select";
 import { toast } from "./Toast";
@@ -35,6 +35,29 @@ function rangeStart(id: string): string | undefined {
   return undefined;
 }
 
+function localDateKey(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function dateGroupLabel(value: string, now = new Date()): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  if (localDateKey(date) === localDateKey(now)) return "Today";
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (localDateKey(date) === localDateKey(yesterday)) return "Yesterday";
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  }).format(date);
+}
+
 export function Gallery({
   models,
   reloadSignal,
@@ -53,10 +76,15 @@ export function Gallery({
   const [stats, setStats] = useState<ImageStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const loadSentinelRef = useRef<HTMLDivElement>(null);
+  const requestVersionRef = useRef(0);
+  const loadingRef = useRef(false);
 
   const refreshStats = useCallback(() => {
     api.imageStats().then(setStats).catch(() => {});
@@ -80,16 +108,25 @@ export function Gallery({
   );
 
   const reload = useCallback(async () => {
+    const requestVersion = ++requestVersionRef.current;
+    loadingRef.current = true;
     setLoading(true);
+    setLoadError(false);
     try {
       const rows = await fetchPage(0);
+      if (requestVersion !== requestVersionRef.current) return;
       setItems(rows);
       setHasMore(rows.length === PAGE);
     } catch {
+      if (requestVersion !== requestVersionRef.current) return;
       setItems([]);
       setHasMore(false);
+      setLoadError(true);
     } finally {
-      setLoading(false);
+      if (requestVersion === requestVersionRef.current) {
+        loadingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [fetchPage]);
 
@@ -101,16 +138,56 @@ export function Gallery({
     refreshStats();
   }, [refreshStats, reloadSignal]);
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async (): Promise<ImageItem[]> => {
+    if (loadingRef.current || !hasMore) return [];
+    const requestVersion = requestVersionRef.current;
+    loadingRef.current = true;
     setLoading(true);
+    setLoadError(false);
     try {
       const rows = await fetchPage(items.length);
-      setItems((prev) => [...prev, ...rows]);
+      if (requestVersion !== requestVersionRef.current) return [];
+      setItems((prev) => {
+        const known = new Set(prev.map((item) => item.id));
+        return [...prev, ...rows.filter((item) => !known.has(item.id))];
+      });
       setHasMore(rows.length === PAGE);
+      return rows;
+    } catch {
+      if (requestVersion === requestVersionRef.current) setLoadError(true);
+      return [];
     } finally {
-      setLoading(false);
+      if (requestVersion === requestVersionRef.current) {
+        loadingRef.current = false;
+        setLoading(false);
+      }
     }
-  };
+  }, [fetchPage, hasMore, items.length]);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const target = loadSentinelRef.current;
+    if (!root || !target || !hasMore || loadError || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+      },
+      { root, rootMargin: "0px 0px 480px 0px", threshold: 0.01 },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, loadError, loadMore]);
+
+  const dateGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; items: ImageItem[] }>();
+    for (const item of items) {
+      const key = localDateKey(item.created_at);
+      const group = groups.get(key);
+      if (group) group.items.push(item);
+      else groups.set(key, { label: dateGroupLabel(item.created_at), items: [item] });
+    }
+    return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
+  }, [items]);
 
   const open = useMemo(() => items.find((i) => i.id === openId) ?? null, [items, openId]);
   const openIndex = useMemo(() => (openId ? items.findIndex((i) => i.id === openId) : -1), [items, openId]);
@@ -118,8 +195,14 @@ export function Gallery({
     if (openIndex > 0) setOpenId(items[openIndex - 1].id);
   }, [openIndex, items]);
   const goNext = useCallback(() => {
-    if (openIndex >= 0 && openIndex < items.length - 1) setOpenId(items[openIndex + 1].id);
-  }, [openIndex, items]);
+    if (openIndex >= 0 && openIndex < items.length - 1) {
+      setOpenId(items[openIndex + 1].id);
+    } else if (openIndex >= 0 && hasMore) {
+      void loadMore().then((rows) => {
+        if (rows[0]) setOpenId(rows[0].id);
+      });
+    }
+  }, [hasMore, loadMore, openIndex, items]);
 
   // Arrow keys page through the open image; Escape closes. Guarded so typing in
   // the tag / search inputs keeps normal caret movement.
@@ -341,56 +424,69 @@ export function Gallery({
       )}
 
       {/* --- grid --- */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-ui-subtle">
-            {loading ? "loading…" : "no images match"}
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-ui-subtle">
+            {loading ? "loading…" : loadError ? "could not load history" : "no images match"}
+            {loadError && !loading && (
+              <button onClick={() => void reload()} className="ui-button rounded-md px-3 py-1 text-xs">
+                Retry
+              </button>
+            )}
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
-              {items.map((img) => {
-                const isSel = selected.has(img.id);
-                return (
-                  <button
-                    key={img.id}
-                    onClick={() => (selectMode ? toggleSelected(img.id) : setOpenId(img.id))}
-                    title={String(img.params?.prompt ?? "")}
-                    className={`group relative aspect-square animate-fade-in overflow-hidden rounded-md border transition ${
-                      isSel ? "border-accent ring-2 ring-accent/40" : "border-line hover:border-border-strong"
-                    }`}
-                  >
-                    <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />
-                    {img.favorite && (
-                      <span className="absolute right-1.5 top-1.5 rounded border border-amber-200/30 bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-100">
-                        Fav
-                      </span>
-                    )}
-                    {selectMode && (
-                      <span className={`absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded border text-[11px] ${
-                        isSel ? "border-accent/80 bg-accent text-ui-inverse" : "border-white/60 bg-black/40 text-transparent"
-                      }`}>
-                        ✓
-                      </span>
-                    )}
-                    {!selectMode && (
-                      <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-4 text-left text-[10px] text-white/70 opacity-0 transition group-hover:opacity-100">
-                        {String(img.params?.model ?? "")}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            <div className="flex flex-col gap-5">
+              {dateGroups.map((group) => (
+                <section key={group.key} data-history-date={group.key}>
+                  <div className="sticky top-0 z-10 mb-2 flex items-center gap-2 border-b border-line bg-surface/95 py-1.5 backdrop-blur">
+                    <h3 className="text-xs font-semibold text-ui-strong">{group.label}</h3>
+                    <span className="text-[11px] text-ui-subtle">{group.items.length}</span>
+                  </div>
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
+                    {group.items.map((img) => {
+                      const isSel = selected.has(img.id);
+                      return (
+                        <button
+                          key={img.id}
+                          onClick={() => (selectMode ? toggleSelected(img.id) : setOpenId(img.id))}
+                          title={String(img.params?.prompt ?? "")}
+                          className={`group relative aspect-square animate-fade-in overflow-hidden rounded-md border transition ${
+                            isSel ? "border-accent ring-2 ring-accent/40" : "border-line hover:border-border-strong"
+                          }`}
+                        >
+                          <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          {img.favorite && (
+                            <span className="absolute right-1.5 top-1.5 rounded border border-amber-200/30 bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-100">
+                              Fav
+                            </span>
+                          )}
+                          {selectMode && (
+                            <span className={`absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded border text-[11px] ${
+                              isSel ? "border-accent/80 bg-accent text-ui-inverse" : "border-white/60 bg-black/40 text-transparent"
+                            }`}>
+                              ✓
+                            </span>
+                          )}
+                          {!selectMode && (
+                            <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-4 text-left text-[10px] text-white/70 opacity-0 transition group-hover:opacity-100">
+                              {String(img.params?.model ?? "")}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
             </div>
-            {hasMore && (
-              <div className="mt-3 flex justify-center">
-                <button
-                  onClick={loadMore}
-                  disabled={loading}
-                  className="ui-button rounded-md px-4 py-1.5 text-xs disabled:opacity-40"
-                >
-                  {loading ? "loading…" : "Load more"}
-                </button>
+            {(hasMore || loading || loadError) && (
+              <div ref={loadSentinelRef} className="mt-3 flex min-h-10 items-center justify-center text-xs text-ui-subtle" role="status">
+                {loading ? "loading more…" : loadError ? (
+                  <button onClick={() => void loadMore()} className="ui-button rounded-md px-3 py-1 text-xs">
+                    Retry loading
+                  </button>
+                ) : "more images load automatically"}
               </div>
             )}
           </>
@@ -409,7 +505,7 @@ export function Gallery({
           onPrev={goPrev}
           onNext={goNext}
           hasPrev={openIndex > 0}
-          hasNext={openIndex >= 0 && openIndex < items.length - 1}
+          hasNext={openIndex >= 0 && (openIndex < items.length - 1 || hasMore)}
         />
       )}
     </div>

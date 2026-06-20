@@ -5,7 +5,7 @@
     .\setup.ps1 -Stub        # STUB mode only (no GPU/ML stack)
     .\setup.ps1 -Real        # Force accelerator profile when available
     .\setup.ps1 -DownloadAll # Accelerator profile + starter models
-    .\setup.ps1 -Nunchaku    # Also install optional CUDA FLUX acceleration
+    .\setup.ps1 -Nunchaku    # Also install optional CUDA fp4 acceleration
 
   This script:
   1. Uses local managed Python/Node on Windows (downloads them into .tools if needed)
@@ -22,7 +22,7 @@ param(
     [switch]$SkipPrerequiteCheck,   # Skip Python/Node.js/NVIDIA checks
     [switch]$NoOptionalPrompts,     # Compatibility flag: setup is non-interactive by default
     [switch]$PromptOptional,        # Ask about optional packages such as Nunchaku
-    [switch]$Nunchaku,              # Explicitly install optional Nunchaku acceleration when supported
+    [switch]$Nunchaku,              # Explicitly install optional Nunchaku fp4 acceleration when supported
     [switch]$Force                  # Force reinstall even if venv exists
 )
 
@@ -210,7 +210,7 @@ if ($Real) {
     Install-AcceleratorStack $venvPy $profile
     Write-Success "Accelerated backend packages + llama.cpp runtime installed"
     
-    # Optional: Nunchaku for FLUX (CUDA-only for now).
+    # Optional: Nunchaku fp4 fast paths (CUDA-only for now).
     $installNunchaku = $false
     $canInstallNunchaku = @($profile.optional_features) -contains "nunchaku_cuda"
     if ($canInstallNunchaku) {
@@ -218,20 +218,16 @@ if ($Real) {
             $installNunchaku = $true
         } elseif ($PromptOptional -and -not $NoOptionalPrompts) {
             Write-Host ""
-            $nChoice = Read-Host "Install Nunchaku acceleration for FLUX? (y/n, default: n)"
+            $nChoice = Read-Host "Install Nunchaku fp4 acceleration for FLUX/Qwen/Z-Image? (y/n, default: n)"
             if ($nChoice -eq "y") { $installNunchaku = $true }
         }
     }
 
     if ($installNunchaku) {
-        Write-Host "`n  Installing Nunchaku (FLUX acceleration)..." -ForegroundColor Cyan
-        Write-Host "  (Matching cu12.8+torch2.11+cp312 wheel, ~300 MB)" -ForegroundColor DarkGray
-        $nunchakuUrl = "https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-win_amd64.whl"
-        & $venvPip install $nunchakuUrl 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning-Text "Nunchaku wheel install failed; continuing without FLUX acceleration."
-        } else {
+        if (Install-NunchakuCuda $venvPy) {
             Write-Success "Nunchaku installed"
+        } else {
+            Write-Warning-Text "Nunchaku wheel install failed; continuing without CUDA fp4 acceleration."
         }
     }
 

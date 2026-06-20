@@ -119,6 +119,20 @@ missing = [m for m in mods if importlib.util.find_spec(m) is None]
 raise SystemExit(1 if missing else 0)
 PY
 }
+nunchaku_ready() {
+  [ -x "$PYBIN" ] || return 1
+  "$PYBIN" - <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+
+raise SystemExit(0 if importlib.util.find_spec("nunchaku") is not None else 1)
+PY
+}
+nunchaku_model_present() {
+  [ -d "$ROOT/models/image" ] || return 1
+  find "$ROOT/models/image" -type f -name '*.safetensors' 2>/dev/null |
+    grep -Eiq '(svdq|nunchaku).*(flux|qwen|z[-_]image)|(flux|qwen|z[-_]image).*(svdq|nunchaku)'
+}
 voice_assets_ready() {
   [ -x "$PYBIN" ] || return 1
   "$PYBIN" - <<'PY' >/dev/null 2>&1
@@ -173,6 +187,14 @@ install_accelerator_stack() {
 
   printf '%s[setup] installing the matching llama.cpp runtime...%s\n' "$C_CYAN" "$C_RST"
   "$PYBIN" scripts/fetch_llama.py || true
+}
+
+install_nunchaku_cuda() {
+  if nunchaku_ready; then return 0; fi
+  local url="https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-linux_x86_64.whl"
+  printf '%s[setup] installing Nunchaku (FLUX/Qwen/Z-Image SVDQuant fp4)...%s\n' "$C_CYAN" "$C_RST"
+  "$PYBIN" -m pip install "$url"
+  nunchaku_ready
 }
 
 PYHOST=""
@@ -345,6 +367,17 @@ fi
 if [ "${HFAB_STUB_MODE}" = "false" ] && ! accelerator_stack_ready; then
   printf '%s[setup] REAL mode needs the accelerator stack -> installing it now.%s\n' "$C_CYAN" "$C_RST"
   install_accelerator_stack
+fi
+if [ "${HFAB_STUB_MODE}" = "false" ] && nunchaku_model_present && ! nunchaku_ready; then
+  [ -n "$PROFILE_JSON" ] || resolve_profile
+  if profile_list optional_features | grep -qx "nunchaku_cuda"; then
+    printf '%s[setup] local Nunchaku fp4 image model found -> repairing missing Nunchaku runtime...%s\n' "$C_CYAN" "$C_RST"
+    install_nunchaku_cuda || {
+      printf '%s[setup] Nunchaku install failed; fp4 Nunchaku image models will stay unavailable until ./setup.sh --nunchaku succeeds.%s\n' "$C_YELLOW" "$C_RST"
+    }
+  else
+    printf '%s[setup] local Nunchaku fp4 model found, but this hardware profile does not offer Nunchaku CUDA.%s\n' "$C_YELLOW" "$C_RST"
+  fi
 fi
 if [ "${HFAB_STUB_MODE}" = "false" ] && ! voice_assets_ready; then
   printf '%s[setup] REAL mode needs shared voice changer assets -> downloading them now.%s\n' "$C_CYAN" "$C_RST"

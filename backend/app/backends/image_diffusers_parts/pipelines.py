@@ -24,6 +24,11 @@ class DiffusersPipelineMixin:
             raise RuntimeError("CPU-safe profile cannot load real image models; use STUB mode.")
         if self._is_nunchaku_quant() and not runtime.cuda_family:
             raise RuntimeError("Nunchaku image models require the NVIDIA CUDA/Nunchaku profile.")
+        if self._is_nunchaku_quant() and find_spec("nunchaku") is None:
+            raise RuntimeError(
+                "Nunchaku Python package is not installed. Re-run setup.bat -Nunchaku "
+                "or restart through run.bat to repair the CUDA fp4 runtime."
+            )
         if runtime.backend == "mps" and self.descriptor.family is not ModelFamily.SDXL:
             raise RuntimeError("Apple MPS image loading is currently enabled only for SDXL models.")
         if runtime.backend == "rocm" and self.descriptor.family is not ModelFamily.SDXL:

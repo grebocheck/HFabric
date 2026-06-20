@@ -20,6 +20,16 @@ Before downloading, storing, running, fine-tuning, sharing, or publishing output
 from a model, users are responsible for reviewing and complying with that
 model's own license and terms from its provider.
 
+Anima-specific note:
+
+- Anima checkpoints and derivatives use CircleStone Labs' non-commercial model
+  license. The upstream model card separately permits commercial use of generated
+  outputs. Review the current terms at `https://huggingface.co/circlestone-labs/Anima`
+  before using, modifying, or distributing the weights.
+- The companion Qwen3 encoder, T5 tokenizer, and Qwen-Image VAE downloaded by
+  `scripts/fetch_anima_support.py` remain governed by their respective upstream
+  licenses and are not redistributed by HFabric.
+
 Native voice engine (P6R):
 
 - RVC synthesizer interface code is vendored from

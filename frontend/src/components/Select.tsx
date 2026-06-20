@@ -8,6 +8,7 @@ export function Select({
   onChange,
   placeholder = "select...",
   className = "",
+  optionsClassName = "max-h-56",
   renderOption,
 }: {
   value: string;
@@ -15,6 +16,7 @@ export function Select({
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  optionsClassName?: string;
   // Optional rich renderer for the option body (the row keeps its selection
   // highlight, keyboard nav and click handling). Falls back to label + hint.
   renderOption?: (option: SelectOption) => ReactNode;
@@ -141,7 +143,7 @@ export function Select({
               />
             </div>
           ) : null}
-          <div className="max-h-56 overflow-y-auto py-1">
+          <div data-testid="select-options" className={`${optionsClassName} overflow-y-auto py-1`}>
             {filteredOptions.length === 0 ? <div className="px-2.5 py-1.5 text-sm text-ui-subtle">no options</div> : null}
             {filteredOptions.map((o, i) => (
               <button

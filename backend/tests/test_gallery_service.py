@@ -12,6 +12,7 @@ from app.core.enums import JobStatus, JobType
 from app.db.models import Image, Job
 from app.db.session import init_db, session_scope
 from app.services import gallery_service as gs
+from app.services import queue_service
 
 # --------------------------------------------------------------- pure helpers
 
@@ -119,3 +120,31 @@ async def test_stats_counts(seeded):
     assert {f["family"]: f["count"] for f in st["by_family"]} == {"sdxl": 2, "flux": 1}
     assert {t["tag"]: t["count"] for t in st["by_tag"]}["portrait"] == 1
     assert st["by_lora"] == [{"id": "lora-x", "name": "X", "count": 1}]
+
+
+async def test_clearing_finished_queue_keeps_history(seeded):
+    async with session_scope() as s:
+        assert await queue_service.clear_finished(s) == 1
+    assert await _ids() == {"sq", "land", "port"}
+
+
+async def test_recovers_disk_outputs_missing_from_history(seeded, tmp_path):
+    output = tmp_path / "outputs" / "2026-06-20" / "123_4567.png"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"png")
+    output.with_suffix(".json").write_text(
+        '{"prompt":"recovered prompt","seed":123,"width":640,"height":480,"family":"sdxl"}',
+        encoding="utf-8",
+    )
+    output.with_suffix(".thumb.webp").write_bytes(b"webp")
+
+    async with session_scope() as s:
+        assert await gs.recover_output_history(s, tmp_path / "outputs") == 1
+    async with session_scope() as s:
+        assert await gs.recover_output_history(s, tmp_path / "outputs") == 0
+        row = (await gs.list_images(s, q="recovered prompt"))[0]
+
+    assert row.job_id is None
+    assert row.seed == 123
+    assert (row.width, row.height, row.family) == (640, 480, "sdxl")
+    assert row.thumb_path and row.thumb_path.endswith("123_4567.thumb.webp")

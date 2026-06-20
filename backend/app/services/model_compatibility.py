@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import importlib.util
 from typing import Any
 
 from ..backends.base import ModelDescriptor
+from ..config import settings
 from ..core.enums import JobType, ModelFamily
 from ..util import sysmon
 from . import capability_profile
@@ -18,9 +20,7 @@ def compatibility_for_model(
 ) -> dict[str, Any]:
     """Return queue/UI compatibility metadata for one discovered model."""
     if estimated_vram_gb is None:
-        estimated_vram_gb = sysmon.estimate_vram_need_gb(
-            desc.family, desc.size_bytes, desc.quant, desc.id
-        )
+        estimated_vram_gb = sysmon.estimate_vram_need_gb(desc.family, desc.size_bytes, desc.quant, desc.id)
 
     profile = profile or capability_profile.get_capability_profile()
     if profile.get("effective_stub_mode"):
@@ -46,6 +46,11 @@ def compatibility_for_model(
                 "compatibility_warnings": warnings,
                 "recommendation": "hidden",
             }
+        if desc.family is ModelFamily.ANIMA:
+            warnings.append(
+                "Anima model weights and derivatives are non-commercial; the model card permits "
+                "commercial use of generated outputs."
+            )
         # VRAM alone no longer blocks an image model: every diffusers family streams
         # weights from RAM via CPU offload, so exceeding the card's VRAM means
         # "slower", not "impossible". Surface it as a warning and let it run.
@@ -65,7 +70,9 @@ def compatibility_for_model(
             warnings.append("This image family is not fully validated on ROCm yet.")
 
     if desc.job_type is JobType.LLM and backend == "rocm" and "cuda_llama_binaries" in disabled:
-        warnings.append("ROCm disables CUDA llama binaries; use a CPU/ROCm-safe llama build or lower GPU layers.")
+        warnings.append(
+            "ROCm disables CUDA llama binaries; use a CPU/ROCm-safe llama build or lower GPU layers."
+        )
 
     return {
         "available": True,
@@ -93,6 +100,10 @@ def _recommendation(desc: ModelDescriptor, profile: dict[str, Any]) -> str:
     return "neutral"
 
 
+def _nunchaku_runtime_available() -> bool:
+    return importlib.util.find_spec("nunchaku") is not None
+
+
 def require_model_available(desc: ModelDescriptor) -> None:
     """Raise ``ValueError`` when a model should not be queued in this runtime."""
     compat = compatibility_for_model(desc)
@@ -107,8 +118,29 @@ def _image_unavailable_reason(
     disabled: set[str],
 ) -> str | None:
     quant = desc.quant or ""
-    if quant.startswith("nunchaku") and "nunchaku_cuda" in disabled:
+    if desc.family is ModelFamily.ANIMA:
+        if backend != "cuda":
+            return "The native Anima runtime currently requires an NVIDIA CUDA profile."
+        required = {
+            "Qwen3 0.6B text encoder": settings.anima_text_encoder_path,
+            "Qwen3 config/tokenizer": settings.anima_qwen_config_dir / "config.json",
+            "T5 tokenizer": settings.anima_t5_tokenizer_dir / "tokenizer_config.json",
+            "Qwen-Image VAE": settings.anima_vae_dir / "diffusion_pytorch_model.safetensors",
+            "Qwen-Image VAE config": settings.anima_vae_dir / "config.json",
+        }
+        missing = [label for label, path in required.items() if not path.is_file()]
+        if missing:
+            return (
+                f"Anima support assets are missing: {', '.join(missing)}. "
+                "Run: python scripts/fetch_anima_support.py"
+            )
+    if quant.startswith("nunchaku") and (backend != "cuda" or "nunchaku_cuda" in disabled):
         return "Nunchaku image models require the NVIDIA CUDA/Nunchaku profile."
+    if quant.startswith("nunchaku") and not _nunchaku_runtime_available():
+        return (
+            "Nunchaku Python package is not installed. Re-run setup.bat -Nunchaku "
+            "or restart through run.bat to repair the CUDA fp4 runtime."
+        )
 
     if backend == "rocm" and quant.startswith("bnb-"):
         return "bitsandbytes-quantized image models are not enabled for the ROCm profile yet."

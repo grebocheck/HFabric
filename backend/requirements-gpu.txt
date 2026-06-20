@@ -90,15 +90,26 @@ torchcrepe>=0.0.24
 #     --include svdq-fp4_r32-FLUX.2-klein-9B-Nunchaku.safetensors \
 #     --include transformer_flux2.py --include torch_transfer_utils.py
 
-# --- Qwen-Image-2512 / Z-Image-Turbo: multi-file diffusers repos ---
+# --- Anima: native Cosmos-Predict2 2B + Qwen3 adapter path ---
+# Put the Anima .safetensors checkpoint directly in models/image/. Its Qwen3
+# 0.6B text encoder/tokenizers and Qwen-Image VAE are shared companion assets:
+#   python scripts/fetch_anima_support.py
+# HFabric then auto-detects the checkpoint and uses staged CUDA offload with
+# 1024x1024, 30 steps, guidance 4.0 defaults. Supported dimensions: 512..1536,
+# multiples of 64. The upstream model weights/derivatives are non-commercial.
+
+# --- Qwen-Image-2512 / Z-Image / Z-Image-Turbo: multi-file diffusers repos ---
 # diffusers 0.38 already exposes QwenImagePipeline and ZImagePipeline in the
 # local GPU stack. Drop the repos as folders under models/image/:
 #   huggingface-cli download Qwen/Qwen-Image-2512 \
 #     --local-dir models/image/qwen-image-2512
+#   huggingface-cli download Tongyi-MAI/Z-Image \
+#     --local-dir models/image/z-image --exclude "assets/*"
 #   huggingface-cli download Tongyi-MAI/Z-Image-Turbo \
 #     --local-dir models/image/z-image-turbo --exclude "assets/*"
 # HFabric auto-detects model_index.json and applies family defaults:
 # - Qwen: HFAB_QWEN_IMAGE_QUANT=bnb-nf4, 1328x1328, 50 steps, true CFG 4.0
+# - Z-Image base: HFAB_Z_IMAGE_QUANT=bnb-fp4, 1024x1024, 50 steps, guidance 4.0
 # - Z-Image-Turbo: 1024x1024, 9 steps, guidance 0.0
 
 # LLM (llama.cpp): we run the `llama-server` binary as a subprocess.

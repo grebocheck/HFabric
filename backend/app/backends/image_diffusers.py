@@ -24,6 +24,7 @@ from ..services import accelerator_runtime
 from ..util import imaging
 from .base import GenerationCancelled, ImageBackend, ModelDescriptor, ProgressCb
 from .image_diffusers_parts import (
+    AnimaLoaderMixin,
     DiffusersMemoryMixin,
     DiffusersPipelineMixin,
     Flux2LoaderMixin,
@@ -34,6 +35,7 @@ from .image_diffusers_parts import (
 
 
 class DiffusersImageBackend(
+    AnimaLoaderMixin,
     QwenZLoaderMixin,
     Flux2LoaderMixin,
     FluxLoaderMixin,
@@ -65,6 +67,22 @@ class DiffusersImageBackend(
             "Run setup/update again, or install the accelerator requirements for your "
             "profile, then restart HFabric."
         )
+
+    def _is_z_image_turbo(self) -> bool:
+        if self.descriptor.family is not ModelFamily.Z_IMAGE:
+            return False
+        text = f"{self.descriptor.id} {self.descriptor.name} {self.descriptor.path}".lower()
+        return self._is_nunchaku_quant() or "turbo" in text
+
+    def _z_image_default_steps(self) -> int:
+        if self._is_z_image_turbo():
+            return settings.z_image_default_steps
+        return settings.z_image_base_default_steps
+
+    def _z_image_default_guidance(self) -> float:
+        if self._is_z_image_turbo():
+            return settings.z_image_default_guidance
+        return settings.z_image_base_default_guidance
 
     def request_stop(self) -> None:
         """Ask the denoise loop to abort at the next step (see step callbacks)."""
@@ -117,7 +135,9 @@ class DiffusersImageBackend(
             "memory": {"start": self._memory_snapshot(torch)},
         }
 
-        if self.descriptor.family is ModelFamily.FLUX2 and self._is_nunchaku_quant():
+        if self.descriptor.family is ModelFamily.ANIMA:
+            pipe = self._load_anima(torch)
+        elif self.descriptor.family is ModelFamily.FLUX2 and self._is_nunchaku_quant():
             pipe = self._load_nunchaku_flux2_klein(torch)
         elif self.descriptor.family is ModelFamily.FLUX2:
             pipe = self._load_flux2_klein(torch)
@@ -431,6 +451,8 @@ class DiffusersImageBackend(
 
     def _dimension(self, params: dict[str, Any], key: str, default: int, flux2_default: int) -> int:
         if key not in params:
+            if self.descriptor.family is ModelFamily.ANIMA:
+                return settings.anima_default_width if key == "width" else settings.anima_default_height
             if self.descriptor.family is ModelFamily.FLUX2:
                 return flux2_default
             if self.descriptor.family is ModelFamily.QWEN_IMAGE:
@@ -452,12 +474,14 @@ class DiffusersImageBackend(
         untouched = "steps" not in params or steps == settings.default_steps
         if self._is_sdxl_lightning_checkpoint() and untouched:
             return 4
+        if self.descriptor.family is ModelFamily.ANIMA and untouched:
+            return settings.anima_default_steps
         if self.descriptor.family is ModelFamily.FLUX2 and untouched:
             return settings.flux2_default_steps
         if self.descriptor.family is ModelFamily.QWEN_IMAGE and untouched:
             return settings.qwen_image_default_steps
         if self.descriptor.family is ModelFamily.Z_IMAGE and untouched:
-            return settings.z_image_default_steps
+            return self._z_image_default_steps()
         if self._active_features.get("sdxl_turbo_lora") and params.get("turbo", True):
             if untouched:
                 return settings.sdxl_turbo_steps
@@ -468,12 +492,14 @@ class DiffusersImageBackend(
         untouched = "guidance" not in params or guidance == settings.default_guidance
         if self._is_sdxl_lightning_checkpoint() and untouched:
             return 1.0
+        if self.descriptor.family is ModelFamily.ANIMA and untouched:
+            return settings.anima_default_guidance
         if self.descriptor.family is ModelFamily.FLUX2 and untouched:
             return settings.flux2_default_guidance
         if self.descriptor.family is ModelFamily.QWEN_IMAGE and untouched:
             return settings.qwen_image_default_guidance
         if self.descriptor.family is ModelFamily.Z_IMAGE and untouched:
-            return settings.z_image_default_guidance
+            return self._z_image_default_guidance()
         if self._active_features.get("sdxl_turbo_lora") and params.get("turbo", True):
             if untouched:
                 return settings.sdxl_turbo_guidance

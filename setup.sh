@@ -215,11 +215,11 @@ if [ "$REAL" -eq 1 ]; then
   fi
   if [ "$WANT_NUNCHAKU" -eq 1 ]; then
     NUNCHAKU_URL="https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu12.8torch2.11-cp312-cp312-linux_x86_64.whl"
-    echo "  installing Nunchaku (FLUX SVDQuant fp4)..."
+    echo "  installing Nunchaku (FLUX/Qwen/Z-Image SVDQuant fp4)..."
     if "$PIPBIN" install "$NUNCHAKU_URL" >/dev/null 2>&1; then
       ok "Nunchaku installed"
     else
-      warn "Nunchaku wheel install failed (needs Python 3.12 + Linux x86_64). Skipping — FLUX still works via the slower fp8 path."
+      warn "Nunchaku wheel install failed (needs Python 3.12 + Linux x86_64). Skipping CUDA fp4 acceleration."
     fi
   fi
 

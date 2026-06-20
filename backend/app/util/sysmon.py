@@ -130,6 +130,10 @@ def estimate_ram_need_gb(
     gb = size_bytes / _GB
     if family is ModelFamily.GGUF:
         return 2.0  # llama-server mmaps the gguf (disk-backed) -> low RSS
+    if family is ModelFamily.ANIMA:
+        # 2B DiT + bundled adapter + Qwen3 0.6B + Qwen VAE, all bf16. The
+        # runtime stages GPU placement but keeps the complete pipeline warm in RAM.
+        return max(8.0, gb * 1.7)
     if family is ModelFamily.FLUX2 and _is_nunchaku_quant(quant):
         # fp4 transformer + bnb Qwen3 encoder; measured peak RSS ~12.8 GB
         # (ROADMAP P3.3). size_bytes here sums every .safetensors in the folder
@@ -167,6 +171,8 @@ def estimate_vram_need_gb(
         return 9.8  # M0 measured SVDQuant fp4 on RTX 5070 Ti
     if family is ModelFamily.FLUX:
         return max(16.0, round(gb, 1))  # raw fp8 path can overflow 16 GB cards
+    if family is ModelFamily.ANIMA:
+        return 12.0  # staged encoder -> 2B DiT -> VAE on the validated 16 GB path
     if family is ModelFamily.FLUX2 and _is_nunchaku_quant(quant):
         return 8.0  # SVDQuant transformer + bnb Qwen3 text encoder (target)
     if family is ModelFamily.FLUX2:
@@ -182,9 +188,7 @@ def estimate_vram_need_gb(
     return None
 
 
-def ram_budget(
-    family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None
-) -> dict:
+def ram_budget(family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None) -> dict:
     """Predicted-vs-available RAM decision for a load. Used both to refuse a load
     and to *explain* the refusal in the UI (arbiter transparency, ROADMAP P7.1)."""
     need = estimate_ram_need_gb(family, size_bytes, quant, model_id)
@@ -234,16 +238,11 @@ def can_keep_warm(
     available = ram_stats()["available_gb"]
     required = need + incoming_need_gb + settings.keep_warm_min_available_ram_gb
     if available < required:
-        incoming_note = (
-            f" + ~{incoming_need_gb:.1f} GB for the incoming model" if incoming_need_gb else ""
-        )
+        incoming_note = f" + ~{incoming_need_gb:.1f} GB for the incoming model" if incoming_need_gb else ""
         return (
             False,
             f"parking would need ~{need:.1f} GB RAM{incoming_note} plus "
             f"{settings.keep_warm_min_available_ram_gb:.1f} GB keep-warm headroom, "
             f"but only {available:.1f} GB is available",
         )
-    return True, (
-        f"parking allowed: needs ~{need:.1f} GB RAM, "
-        f"{available:.1f} GB available"
-    )
+    return True, (f"parking allowed: needs ~{need:.1f} GB RAM, {available:.1f} GB available")

@@ -5,6 +5,7 @@ import { ZoomableImage } from "./ZoomableImage";
 import type { ImageItem, Model } from "../types";
 
 const FAMILY_LABELS: Record<string, string> = {
+  anima: "Anima",
   flux: "FLUX",
   flux2: "FLUX.2",
   "qwen-image": "Qwen-Image",
