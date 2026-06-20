@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__
 from .api import (
     chat,
+    civitai,
     code,
     diagnostics,
     downloads,
@@ -190,6 +191,7 @@ app.include_router(jobs.router)
 app.include_router(diagnostics.router)
 app.include_router(llama.router)
 app.include_router(downloads.router)
+app.include_router(civitai.router)
 app.include_router(llm.router)
 app.include_router(chat.router)
 app.include_router(code.router)

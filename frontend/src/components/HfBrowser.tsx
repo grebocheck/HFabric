@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
 import { toast } from "./Toast";
@@ -75,12 +75,14 @@ export function HfBrowser({
   setKind,
   kindOptions,
   disabled,
+  autoLoad,
   onStarted,
 }: {
   kind: string;
   setKind: (v: string) => void;
   kindOptions: { value: string; label: string }[];
   disabled?: boolean;
+  autoLoad?: boolean;
   onStarted: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -137,6 +139,16 @@ export function HfBrowser({
       setSearching(false);
     }
   };
+
+  // Show popular weights on open so the tab is never an empty box (lazy-user UX).
+  const didAuto = useRef(false);
+  useEffect(() => {
+    if (autoLoad && !didAuto.current && results === null) {
+      didAuto.current = true;
+      void search();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLoad]);
 
   const browseRepo = async (id = repo, suggestedKind?: string | null) => {
     const clean = id.trim();

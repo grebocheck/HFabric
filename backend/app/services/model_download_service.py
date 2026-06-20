@@ -479,6 +479,19 @@ def validate_custom(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
                 "source": "url", "kind": kind, "url": url, "filename": filename,
                 "label": str(raw.get("label") or filename),
             })
+        elif source == "civitai":
+            url = str(raw.get("url") or "").strip()
+            if not (url.startswith("http://") or url.startswith("https://")):
+                return [], "A CivitAI download needs the file's download URL."
+            given = str(raw.get("filename") or "").strip()
+            filename = Path(given).name if given else Path(url.split("?")[0]).name
+            if not filename:
+                return [], "A CivitAI download needs a file name."
+            sha256 = str(raw.get("sha256") or "").strip().lower() or None
+            clean.append({
+                "source": "civitai", "kind": kind, "url": url, "filename": filename,
+                "sha256": sha256, "label": str(raw.get("label") or filename),
+            })
         else:
             return [], f"Unknown source: {source or '(none)'}."
     return clean, None
@@ -502,17 +515,32 @@ def start_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
     return get_status()
 
 
-def _download_url(url: str, dest_path: Path) -> None:
+def _download_url(url: str, dest_path: Path, headers: dict[str, str] | None = None) -> None:
     """Stream a direct URL to disk via a ``.part`` file, then atomically rename."""
     import httpx  # noqa: PLC0415
 
     tmp = dest_path.with_name(dest_path.name + ".part")
-    with httpx.stream("GET", url, follow_redirects=True, timeout=None) as response:
+    with httpx.stream("GET", url, headers=headers, follow_redirects=True, timeout=None) as response:
         response.raise_for_status()
         with tmp.open("wb") as handle:
             for chunk in response.iter_bytes(chunk_size=_MB):
                 handle.write(chunk)
     tmp.replace(dest_path)
+
+
+def _verify_sha256(path: Path, expected: str) -> None:
+    """Raise ValueError if ``path``'s SHA256 does not match ``expected`` (a download
+    that returned an HTML login/redirect page instead of weights fails here)."""
+    import hashlib  # noqa: PLC0415
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_MB), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest().lower()
+    if actual != expected.lower():
+        path.unlink(missing_ok=True)
+        raise ValueError(f"SHA256 mismatch (expected {expected[:12]}…, got {actual[:12]}…)")
 
 
 def run_blocking_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -547,6 +575,27 @@ def run_blocking_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
                 dest = kind_dir / spec["subdir"] if spec.get("subdir") else kind_dir
                 dest.mkdir(parents=True, exist_ok=True)
                 hf_hub_download(repo_id=spec["repo"], filename=spec["filename"], local_dir=str(dest))
+            elif spec["source"] == "civitai":
+                import httpx  # noqa: PLC0415
+
+                from . import civitai_auth  # noqa: PLC0415
+
+                kind_dir.mkdir(parents=True, exist_ok=True)
+                dest_path = kind_dir / spec["filename"]
+                # API key (?token=) is preferred; a saved session cookie is the fallback.
+                url, headers = civitai_auth.download_auth(spec["url"])
+                try:
+                    _download_url(url, dest_path, headers=headers)
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code in (401, 403):
+                        raise ValueError(
+                            "CivitAI requires an API key or session login to download this model "
+                            "(it now gates most downloads, even some public ones). Add your key or "
+                            "session cookie in the CivitAI account panel — it is stored locally."
+                        ) from exc
+                    raise
+                if spec.get("sha256"):
+                    _verify_sha256(dest_path, spec["sha256"])
             else:
                 kind_dir.mkdir(parents=True, exist_ok=True)
                 _download_url(spec["url"], kind_dir / spec["filename"])

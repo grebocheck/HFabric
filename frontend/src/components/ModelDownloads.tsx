@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { CivitaiBrowser } from "./CivitaiBrowser";
 import { HfBrowser } from "./HfBrowser";
 import { Select } from "./Select";
 import { Panel, SectionTitle, SkeletonRows } from "./WorkspaceChrome";
 import { toast } from "./Toast";
-import type { CustomDownloadItem, ModelDownloadState } from "../types";
+import type { CustomDownloadItem, ModelDownloadItem, ModelDownloadState } from "../types";
 
 const subtleButton =
   "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
@@ -106,8 +107,8 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
   };
 
   // --- custom (any-source) download: Hugging Face catalog (HfBrowser) or direct URL ---
-  const [customOpen, setCustomOpen] = useState(true);
-  const [source, setSource] = useState<"hf" | "url">("hf");
+  const [installedOpen, setInstalledOpen] = useState(false);
+  const [source, setSource] = useState<"hf" | "civitai" | "url">("hf");
   const [kind, setKind] = useState("llm");
   const [filename, setFilename] = useState("");
   const [url, setUrl] = useState("");
@@ -142,13 +143,55 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
     });
 
   const catalog = useMemo(() => data?.catalog ?? [], [data]);
-  const visible = useMemo(
-    () => catalog.filter((i) => showAdvanced || i.recommended || i.present),
-    [catalog, showAdvanced],
-  );
-  const advancedHidden = catalog.filter((i) => !i.recommended && !i.present).length;
+  // Three clearly-separated buckets so the page isn't one long checkbox wall:
+  // what to grab now, optional extras, and what's already on disk.
+  const recommended = useMemo(() => catalog.filter((i) => i.recommended && !i.present), [catalog]);
+  const advanced = useMemo(() => catalog.filter((i) => !i.recommended && !i.present), [catalog]);
+  const installed = useMemo(() => catalog.filter((i) => i.present), [catalog]);
+  const installedMb = installed.reduce((sum, i) => sum + i.approx_size_mb, 0);
   const selectedItems = catalog.filter((i) => selected.has(i.key) && !i.present);
   const totalMb = selectedItems.reduce((sum, i) => sum + i.approx_size_mb, 0);
+
+  const renderRow = (item: ModelDownloadItem) => (
+    <li
+      key={item.key}
+      className={`flex items-start gap-2.5 rounded-md border px-3 py-2 ${
+        item.present ? "border-success-border bg-success-bg" : "border-line bg-control"
+      }`}
+    >
+      {item.present ? (
+        <span className="mt-0.5 text-success-fg" aria-hidden>✓</span>
+      ) : (
+        <input
+          type="checkbox"
+          className="mt-0.5 accent-[var(--accent)]"
+          checked={selected.has(item.key)}
+          disabled={downloading}
+          onChange={() => toggle(item.key)}
+          aria-label={`Download ${item.label}`}
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-ui-strong">{item.label}</span>
+          <span className="text-ui-subtle">{fmtMb(item.approx_size_mb)}</span>
+        </div>
+        <div className="mt-0.5 text-[11px] text-ui-subtle">{item.reason}</div>
+        <div className="mt-0.5 text-[11px] text-ui-subtle">
+          <span className="font-mono">{item.dest}/</span>
+          {" · "}
+          <a
+            href={item.repo_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-ui-subtle underline decoration-dotted hover:text-ui"
+          >
+            {item.license} — verify on model card
+          </a>
+        </div>
+      </div>
+    </li>
+  );
 
   const start = async () => {
     const keys = selectedItems.map((i) => i.key);
@@ -227,110 +270,101 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
               </div>
             </div>
 
-            <ul className="space-y-1.5">
-              {visible.map((item) => (
-                <li
-                  key={item.key}
-                  className={`flex items-start gap-2.5 rounded-md border px-3 py-2 ${
-                    item.present ? "border-success-border bg-success-bg" : "border-line bg-control"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 accent-[var(--accent)]"
-                    checked={item.present || selected.has(item.key)}
-                    disabled={item.present || downloading}
-                    onChange={() => toggle(item.key)}
-                    aria-label={`Download ${item.label}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-ui-strong">{item.label}</span>
-                      <span className="text-ui-subtle">{fmtMb(item.approx_size_mb)}</span>
-                      {item.present ? (
-                        <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg">downloaded</span>
-                      ) : item.recommended ? (
-                        <span className="rounded border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent-fg">recommended</span>
-                      ) : (
-                        <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">advanced</span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-ui-subtle">{item.reason}</div>
-                    <div className="mt-0.5 text-[11px] text-ui-subtle">
-                      <span className="font-mono">{item.dest}/</span>
-                      {" · "}
-                      <a
-                        href={item.repo_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-ui-subtle underline decoration-dotted hover:text-ui"
-                      >
-                        {item.license} — verify on model card
-                      </a>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {advancedHidden > 0 ? (
-              <button onClick={() => setShowAdvanced((v) => !v)} className={subtleButton}>
-                {showAdvanced ? "Hide" : `Show ${advancedHidden} advanced`} model{advancedHidden === 1 ? "" : "s"}
-              </button>
-            ) : null}
-
-            <div className="rounded-md border border-line bg-control">
-              <button
-                onClick={() => setCustomOpen((v) => !v)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] text-ui-muted hover:text-ui"
-              >
-                <span>Hugging Face catalog and direct URL</span>
-                <span className="text-ui-subtle">{customOpen ? "–" : "+"}</span>
-              </button>
-              {customOpen ? (
-                <div className="space-y-2 border-t border-line p-3">
-                  <div className="flex rounded-md border border-line bg-raised p-0.5 text-xs">
-                    {(["hf", "url"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setSource(s)}
-                        className={`rounded px-2.5 py-1 transition ${source === s ? "bg-accent/15 text-accent-fg" : "text-ui-muted hover:bg-control-hover hover:text-ui"}`}
-                      >
-                        {s === "hf" ? "Hugging Face catalog" : "Direct URL"}
-                      </button>
-                    ))}
-                  </div>
-                  {source === "hf" ? (
-                    <HfBrowser
-                      kind={kind}
-                      setKind={setKind}
-                      kindOptions={KIND_OPTIONS}
-                      disabled={downloading}
-                      onStarted={() => void refresh()}
-                    />
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-[11px] text-ui-subtle">Save to</span>
-                        <div className="w-44"><Select value={kind} onChange={setKind} options={KIND_OPTIONS} /></div>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <input className={field} placeholder="https://… direct file URL" value={url} onChange={(e) => setUrl(e.target.value)} />
-                        <input className={field} placeholder="save as (optional)" value={filename} onChange={(e) => setFilename(e.target.value)} />
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-ui-subtle">
-                          Lands in <span className="font-mono">models/{kind}/</span>. Review the license first.
-                        </span>
-                        <button onClick={() => void addCustom()} className={primaryButton} disabled={busy || downloading}>
-                          {downloading ? "Downloading…" : "Download"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+            {/* 1) Recommended — the one-click path for the impatient. */}
+            <section className="space-y-1.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[12px] font-medium text-ui">Recommended for this machine</span>
+                {recommended.length ? (
+                  <span className="text-[11px] text-ui-subtle">preselected · {fmtMb(totalMb)}</span>
+                ) : null}
+              </div>
+              {recommended.length ? (
+                <ul className="space-y-1.5">{recommended.map(renderRow)}</ul>
+              ) : (
+                <div className="rounded-md border border-success-border bg-success-bg px-3 py-2 text-success-fg">
+                  You already have every recommended model. Browse below for more.
                 </div>
+              )}
+              {advanced.length ? (
+                <>
+                  <button onClick={() => setShowAdvanced((v) => !v)} className={subtleButton}>
+                    {showAdvanced
+                      ? "Hide optional curated models"
+                      : `Show ${advanced.length} optional curated model${advanced.length === 1 ? "" : "s"}`}
+                  </button>
+                  {showAdvanced ? <ul className="space-y-1.5">{advanced.map(renderRow)}</ul> : null}
+                </>
               ) : null}
-            </div>
+            </section>
+
+            {/* 2) Browse & install — promoted, always open, prefilled on open. */}
+            <section className="space-y-2 rounded-md border border-line bg-control p-3">
+              <div className="text-[12px] font-medium text-ui">Browse &amp; install from a source</div>
+              <div className="flex rounded-md border border-line bg-raised p-0.5 text-xs">
+                {(["hf", "civitai", "url"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSource(s)}
+                    className={`rounded px-2.5 py-1 transition ${source === s ? "bg-accent/15 text-accent-fg" : "text-ui-muted hover:bg-control-hover hover:text-ui"}`}
+                  >
+                    {s === "hf" ? "Hugging Face" : s === "civitai" ? "CivitAI" : "Direct URL"}
+                  </button>
+                ))}
+              </div>
+              {source === "hf" ? (
+                <HfBrowser
+                  kind={kind}
+                  setKind={setKind}
+                  kindOptions={KIND_OPTIONS}
+                  disabled={downloading}
+                  autoLoad={data.available}
+                  onStarted={() => void refresh()}
+                />
+              ) : source === "civitai" ? (
+                <CivitaiBrowser
+                  kind={kind}
+                  setKind={setKind}
+                  kindOptions={KIND_OPTIONS}
+                  disabled={downloading}
+                  onStarted={() => void refresh()}
+                />
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-ui-subtle">Save to</span>
+                    <div className="w-44"><Select value={kind} onChange={setKind} options={KIND_OPTIONS} /></div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input className={field} placeholder="https://… direct file URL" value={url} onChange={(e) => setUrl(e.target.value)} />
+                    <input className={field} placeholder="save as (optional)" value={filename} onChange={(e) => setFilename(e.target.value)} />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-ui-subtle">
+                      Lands in <span className="font-mono">models/{kind}/</span>. Review the license first.
+                    </span>
+                    <button onClick={() => void addCustom()} className={primaryButton} disabled={busy || downloading}>
+                      {downloading ? "Downloading…" : "Download"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* 3) Installed — collapsed so it isn't a wall. */}
+            {installed.length ? (
+              <div className="rounded-md border border-line bg-control">
+                <button
+                  onClick={() => setInstalledOpen((v) => !v)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] text-ui-muted hover:text-ui"
+                >
+                  <span>Installed starter models · {installed.length} · {fmtMb(installedMb)}</span>
+                  <span className="text-ui-subtle">{installedOpen ? "–" : "+"}</span>
+                </button>
+                {installedOpen ? (
+                  <ul className="space-y-1.5 border-t border-line p-3">{installed.map(renderRow)}</ul>
+                ) : null}
+              </div>
+            ) : null}
 
             <p className="text-[11px] text-ui-subtle">
               Sizes are approximate. Model files are user-supplied and keep their own provider licenses —

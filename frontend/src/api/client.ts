@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CodeFile, CodeFileContent, CustomDownloadItem, HealthStatus, HfRepoFiles, HfSearchResponse, ImageItem, ImageStats, InstalledModelsState, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmApiServerStatus, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CivitaiAuthStatus, CivitaiSearchResponse, CivitaiVersionFiles, CodeFile, CodeFileContent, CustomDownloadItem, HealthStatus, HfRepoFiles, HfSearchResponse, ImageItem, ImageStats, InstalledModelsState, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmApiServerStatus, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -135,6 +135,33 @@ export const api = {
     const qs = p.toString();
     return fetch(`/api/downloads/hf/search${qs ? `?${qs}` : ""}`).then(j<HfSearchResponse>);
   },
+  civitaiSearch: (
+    q: string,
+    opts: { types?: string; sort?: string; period?: string; baseModels?: string; nsfw?: boolean; limit?: number; page?: number } = {},
+  ) => {
+    const p = new URLSearchParams();
+    if (q.trim()) p.set("q", q.trim());
+    if (opts.types) p.set("types", opts.types);
+    if (opts.sort) p.set("sort", opts.sort);
+    if (opts.period) p.set("period", opts.period);
+    if (opts.baseModels) p.set("base_models", opts.baseModels);
+    if (opts.nsfw) p.set("nsfw", "true");
+    if (opts.limit != null) p.set("limit", String(opts.limit));
+    if (opts.page != null) p.set("page", String(opts.page));
+    const qs = p.toString();
+    return fetch(`/api/civitai/search${qs ? `?${qs}` : ""}`).then(j<CivitaiSearchResponse>);
+  },
+  civitaiVersionFiles: (versionId: number, nsfw = false) =>
+    fetch(`/api/civitai/versions/${versionId}/files${nsfw ? "?nsfw=true" : ""}`).then(j<CivitaiVersionFiles>),
+  civitaiAuthStatus: () => fetch("/api/civitai/auth").then(j<CivitaiAuthStatus>),
+  civitaiAuthSave: (apiKey: string) =>
+    fetch("/api/civitai/auth", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ api_key: apiKey }) })
+      .then(j<CivitaiAuthStatus>),
+  civitaiAuthSaveCookie: (cookie: string) =>
+    fetch("/api/civitai/auth", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ session_cookie: cookie }) })
+      .then(j<CivitaiAuthStatus>),
+  civitaiAuthClear: (target: "key" | "cookie" | "all" = "all") =>
+    fetch(`/api/civitai/auth?target=${target}`, { method: "DELETE" }).then(j<CivitaiAuthStatus>),
   installedModels: () => fetch("/api/models/installed").then(j<InstalledModelsState>),
   deleteInstalledModel: (kind: string, path: string) =>
     fetch(`/api/models/installed?kind=${encodeURIComponent(kind)}&path=${encodeURIComponent(path)}`, { method: "DELETE" })

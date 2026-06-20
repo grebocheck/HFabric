@@ -46,13 +46,89 @@ export interface InstalledModelsState {
 }
 
 export interface CustomDownloadItem {
-  source: "hf" | "hf-repo" | "url";
+  source: "hf" | "hf-repo" | "url" | "civitai";
   kind: string;
   repo?: string;
   filename?: string;
   subdir?: string;
   url?: string;
   label?: string;
+  sha256?: string;
+}
+
+export interface CivitaiPreview {
+  url: string;
+  nsfw_level?: number | null;
+  width?: number | null;
+  height?: number | null;
+  type?: string;
+}
+
+export interface CivitaiVersionSummary {
+  id: number;
+  name: string;
+  base_model?: string | null;
+}
+
+export interface CivitaiSearchResult {
+  id: number;
+  name: string;
+  type?: string | null;
+  nsfw: boolean;
+  creator?: string | null;
+  downloads: number;
+  likes: number;
+  base_model?: string | null;
+  tags: string[];
+  preview?: CivitaiPreview | null;
+  suggested_kind?: string | null;
+  version_count: number;
+  versions: CivitaiVersionSummary[];
+  url: string;
+}
+
+export interface CivitaiSearchResponse {
+  query: string;
+  sort: string;
+  nsfw: boolean;
+  limit: number;
+  page: number;
+  total_pages?: number | null;
+  next_page?: number | null;
+  results: CivitaiSearchResult[];
+}
+
+export interface CivitaiAuthStatus {
+  has_key: boolean;
+  has_cookie: boolean;
+  which?: "key" | "cookie";
+  verified?: boolean;
+  reason?: string | null;
+}
+
+export interface CivitaiFile {
+  id: number;
+  name: string;
+  size_kb: number;
+  type?: string | null;
+  format?: string | null;
+  fp?: string | null;
+  size?: string | null;
+  primary: boolean;
+  download_url?: string | null;
+  sha256?: string | null;
+}
+
+export interface CivitaiVersionFiles {
+  version_id: number;
+  name: string;
+  model_id: number;
+  model_name?: string | null;
+  model_type?: string | null;
+  base_model?: string | null;
+  trained_words: string[];
+  suggested_kind?: string | null;
+  files: CivitaiFile[];
 }
 
 export interface HfRepoFile {

@@ -3436,6 +3436,301 @@
         ]
       }
     },
+    "/api/civitai/auth": {
+      "delete": {
+        "description": "Forget the stored CivitAI key, cookie, or both (loopback-only).",
+        "operationId": "civitai_auth_clear_api_civitai_auth_delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "target",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Target",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Civitai Auth Clear Api Civitai Auth Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Civitai Auth Clear",
+        "tags": [
+          "civitai"
+        ]
+      },
+      "get": {
+        "description": "Which CivitAI credentials are stored. The secrets themselves are never returned.",
+        "operationId": "civitai_auth_status_api_civitai_auth_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Civitai Auth Status Api Civitai Auth Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Civitai Auth Status",
+        "tags": [
+          "civitai"
+        ]
+      },
+      "put": {
+        "description": "Store a CivitAI API key and/or session cookie (loopback-only) and verify it.\n\nSend exactly one of ``api_key`` / ``session_cookie`` per call; the response's\n``verified`` / ``reason`` describe the credential just saved.",
+        "operationId": "civitai_auth_save_api_civitai_auth_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Civitai Auth Save Api Civitai Auth Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Civitai Auth Save",
+        "tags": [
+          "civitai"
+        ]
+      }
+    },
+    "/api/civitai/search": {
+      "get": {
+        "operationId": "search_civitai_api_civitai_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "comma-separated CivitAI types",
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "comma-separated CivitAI types",
+              "title": "Types"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "downloads",
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "AllTime",
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "base_models",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Base Models"
+            }
+          },
+          {
+            "in": "query",
+            "name": "nsfw",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Nsfw",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Search Civitai Api Civitai Search Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Civitai",
+        "tags": [
+          "civitai"
+        ]
+      }
+    },
+    "/api/civitai/versions/{version_id}/files": {
+      "get": {
+        "operationId": "civitai_version_files_api_civitai_versions__version_id__files_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "nsfw",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Nsfw",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Civitai Version Files Api Civitai Versions  Version Id  Files Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Civitai Version Files",
+        "tags": [
+          "civitai"
+        ]
+      }
+    },
     "/api/code/file": {
       "get": {
         "operationId": "get_code_file_api_code_file_get",

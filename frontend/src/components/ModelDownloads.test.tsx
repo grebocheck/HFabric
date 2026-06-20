@@ -6,7 +6,7 @@ import { ModelDownloads } from "./ModelDownloads";
 import type { ModelDownloadItem, ModelDownloadState } from "../types";
 
 const mocks = vi.hoisted(() => ({
-  api: { downloadsState: vi.fn(), downloadsStart: vi.fn() },
+  api: { downloadsState: vi.fn(), downloadsStart: vi.fn(), hfSearch: vi.fn() },
 }));
 
 vi.mock("../api/client", () => ({ api: mocks.api }));
@@ -44,6 +44,8 @@ function state(catalog: ModelDownloadItem[]): ModelDownloadState {
 beforeEach(() => {
   mocks.api.downloadsState.mockReset();
   mocks.api.downloadsStart.mockReset();
+  mocks.api.hfSearch.mockReset();
+  mocks.api.hfSearch.mockResolvedValue({ query: "", sort: "downloads", limit: 24, filters: [], results: [] });
   mocks.api.downloadsStart.mockResolvedValue({
     state: "running", message: "", current: null, progress: { done: 0, total: 1 }, failed: [], updated_at: 0,
   });
@@ -61,10 +63,11 @@ describe("ModelDownloads", () => {
     const user = userEvent.setup();
     render(<ModelDownloads />);
 
-    // recommended present model stays out of the advanced bucket; advanced one is hidden
+    // Recommended-not-present shows in the Recommended section; installed and
+    // optional/advanced models are tucked away by default.
     expect(await screen.findByText("SDXL")).toBeTruthy();
-    expect(screen.getByText("Chat")).toBeTruthy();
-    expect(screen.queryByText("FLUX fp4")).toBeNull();
+    expect(screen.queryByText("Chat")).toBeNull(); // installed → collapsed section
+    expect(screen.queryByText("FLUX fp4")).toBeNull(); // optional → behind toggle
 
     const button = screen.getByRole("button", { name: /Download selected/ });
     await user.click(button);
@@ -72,7 +75,7 @@ describe("ModelDownloads", () => {
     await waitFor(() => expect(mocks.api.downloadsStart).toHaveBeenCalledWith(["sdxl"]));
   });
 
-  it("reveals advanced models behind the toggle", async () => {
+  it("reveals optional curated models behind the toggle", async () => {
     mocks.api.downloadsState.mockResolvedValue(
       state([
         item({ key: "sdxl", label: "SDXL", recommended: true, present: false }),
@@ -85,7 +88,24 @@ describe("ModelDownloads", () => {
     await screen.findByText("SDXL");
     expect(screen.queryByText("FLUX fp4")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /Show 1 advanced model/ }));
+    await user.click(screen.getByRole("button", { name: /Show 1 optional curated model/ }));
     expect(screen.getByText("FLUX fp4")).toBeTruthy();
+  });
+
+  it("collapses installed models into an expandable section", async () => {
+    mocks.api.downloadsState.mockResolvedValue(
+      state([
+        item({ key: "sdxl", label: "SDXL", recommended: true, present: false }),
+        item({ key: "gguf", label: "Chat", recommended: true, present: true }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<ModelDownloads />);
+
+    await screen.findByText("SDXL");
+    expect(screen.queryByText("Chat")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Installed starter models/ }));
+    expect(screen.getByText("Chat")).toBeTruthy();
   });
 });
