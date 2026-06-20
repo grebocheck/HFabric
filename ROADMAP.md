@@ -173,6 +173,25 @@ complete, then move the shipped record to `docs/history.md`.
   touching shared UI tokens includes before/after screenshots or an automated visual
   capture, plus a quick contrast pass for small text and disabled states.
 
+### P26 — img2img / image-edit coverage (research first)
+
+- [ ] **P26.1 — Extend img2img/inpaint beyond SDXL·FLUX·FLUX.2 (research, then go/no-go).**
+  Today `image_diffusers.py` gates editing to `{SDXL, FLUX, FLUX.2}` and rejects an
+  `init_image`/`mask_image` for **Qwen-Image, Z-Image, and Anima** with a hard
+  `ValueError`. Known rough edges to fold into the research: FLUX.2 [klein] takes a
+  *reference* image but exposes **no denoise-strength** knob (its `_pipe(image=…)` path
+  ignores `strength`), so it's image-conditioning, not true img2img; ControlNet is
+  SDXL-only and can't be combined with img2img/inpaint; diffusers floors
+  `steps×strength` when picking timesteps. **To research before any code:** (a) do
+  Qwen-Image / Z-Image / Anima ship diffusers Img2Img/Inpaint pipeline classes — or can
+  the base pipe accept `image`+`strength` directly? (b) memory cost of a second
+  lazily-built edit pipe under bnb-fp4 / nunchaku on the 16 GB GPU; (c) can klein expose
+  a real strength control or does it stay reference-only? (d) quality at low VRAM plus
+  sane per-family default strengths. **Output:** a support matrix + a go/no-go per family,
+  then implement only the green ones. Code anchors:
+  `backend/app/backends/image_diffusers.py` (`edit_families` gate),
+  `backend/app/backends/image_diffusers_parts/pipelines.py` (`_*_img2img_pipe`).
+
 ### P22 — Voice realtime quality (optional residual)
 
 - [ ] **P22.7 — *(optional)* High-band detail preserve + one-click A/B capture.** Only
