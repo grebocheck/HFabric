@@ -152,6 +152,13 @@ def estimate_ram_need_gb(
             return gb * 0.25 + 3.0
         return gb * 0.65 + 2.0
     if family is ModelFamily.Z_IMAGE:
+        if quant and quant.startswith("bnb-"):
+            # bnb-nf4/fp4 streams the shards and quantizes each on the fly
+            # (low_cpu_mem_usage), so the full bf16 repo never lands in RAM at
+            # once — peak RSS tracks the qwen-image bnb path, not gb * 0.8. The
+            # old quant-blind estimate over-predicted ~18 GB and caused false
+            # pre-load refusals for the bnb-fp4 default on a 32 GB box.
+            return gb * 0.25 + 3.0
         return gb * 0.8 + 2.0
     if family is ModelFamily.FLUX_KONTEXT:
         return gb * 0.3 + 2.0 if quant and quant.startswith("bnb-") else gb * 1.3

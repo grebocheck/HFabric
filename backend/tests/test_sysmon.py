@@ -57,6 +57,17 @@ def test_qwen_and_z_image_vram_estimates_are_family_specific():
 # ------------------------------------------------------ learned overrides
 
 
+def test_z_image_bnb_ram_estimate_is_lighter_than_bf16():
+    # bnb-fp4 (the default) streams + quantizes shards on the fly, so the full
+    # bf16 repo never lands in RAM at once. The quant-aware estimate must be well
+    # below the bf16 path, otherwise the default load gets falsely refused.
+    size = 20 * 1_000_000_000
+    bf16 = sysmon.estimate_ram_need_gb(ModelFamily.Z_IMAGE, size, None)
+    bnb = sysmon.estimate_ram_need_gb(ModelFamily.Z_IMAGE, size, "bnb-fp4")
+    assert bnb < bf16
+    assert bnb == pytest.approx(20 * 0.25 + 3.0)
+
+
 def test_learned_profile_overrides_static_ram_estimate():
     sysmon.set_learned_profile("flux-x", ram_gb=11.0)
     got = sysmon.estimate_ram_need_gb(ModelFamily.FLUX, 999, "nunchaku-fp4", "flux-x")

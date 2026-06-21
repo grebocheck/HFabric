@@ -62,6 +62,21 @@ def test_dimension_falls_back_to_flux2_default_when_unset():
     )
 
 
+def test_anima_dims_snap_to_64_grid_instead_of_failing():
+    b = _backend(ModelFamily.ANIMA)
+    # off-grid request -> nearest multiple of 64 (so the job runs, not errors)
+    assert b._normalize_dims(1000, 770) == (1024, 768)
+    # already valid -> untouched
+    assert b._normalize_dims(1024, 1024) == (1024, 1024)
+    # out of range -> clamped into [512, 1536]
+    assert b._normalize_dims(200, 4000) == (512, 1536)
+
+
+def test_normalize_dims_is_noop_for_non_anima_families():
+    b = _backend(ModelFamily.SDXL)
+    assert b._normalize_dims(1000, 770) == (1000, 770)
+
+
 def test_anima_uses_native_family_defaults_when_unset():
     b = _backend(ModelFamily.ANIMA)
     assert (

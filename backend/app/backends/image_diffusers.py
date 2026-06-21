@@ -208,6 +208,7 @@ class DiffusersImageBackend(
     ) -> list[dict[str, Any]]:
         width = self._dimension(params, "width", settings.default_width, settings.flux2_default_width)
         height = self._dimension(params, "height", settings.default_height, settings.flux2_default_height)
+        width, height = self._normalize_dims(width, height)
         steps = self._steps(params)
         batch = int(params.get("batch_size", 1))
         base_seed = params.get("seed")
@@ -740,6 +741,21 @@ class DiffusersImageBackend(
         return {"control_mode": {"pose": 0, "depth": 1, "scribble": 2, "canny": 3}[subtype]}
 
 
+
+    def _normalize_dims(self, width: int, height: int) -> tuple[int, int]:
+        """Snap a request onto the grid the model actually accepts.
+
+        Anima hard-requires multiples of 64 in [512, 1536]; rather than fail a
+        queued job over an off-grid size (a reproduced/preset value, a custom
+        entry, or a size carried over from another family), round to the nearest
+        valid cell so generation proceeds instead of erroring."""
+        if self.descriptor.family is not ModelFamily.ANIMA:
+            return width, height
+
+        def snap(value: int) -> int:
+            return max(512, min(1536, round(value / 64) * 64))
+
+        return snap(width), snap(height)
 
     def _dimension(self, params: dict[str, Any], key: str, default: int, flux2_default: int) -> int:
         if key not in params:
