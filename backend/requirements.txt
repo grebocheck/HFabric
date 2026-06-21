@@ -13,6 +13,8 @@ httpx==0.28.1
 huggingface-hub==0.36.2
 python-multipart==0.0.20
 Pillow==11.1.0
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
 psutil==6.1.1
 nvidia-ml-py==12.560.30   # NVML VRAM telemetry without creating a CUDA context
 numpy>=1.26

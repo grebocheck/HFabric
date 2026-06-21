@@ -119,6 +119,15 @@ def _is_nunchaku_quant(quant: str | None) -> bool:
     return bool(quant and quant.startswith("nunchaku"))
 
 
+_VIDEO_FAMILIES = {
+    ModelFamily.LTX_VIDEO,
+    ModelFamily.WAN_VIDEO,
+    ModelFamily.HUNYUAN_VIDEO,
+    ModelFamily.COGVIDEO,
+    ModelFamily.ANIMATEDIFF_VIDEO,
+}
+
+
 def estimate_ram_need_gb(
     family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None
 ) -> float:
@@ -130,6 +139,12 @@ def estimate_ram_need_gb(
     gb = size_bytes / _GB
     if family is ModelFamily.GGUF:
         return 2.0  # llama-server mmaps the gguf (disk-backed) -> low RSS
+    if family in _VIDEO_FAMILIES:
+        if quant and quant.startswith("bnb-"):
+            # Diffusers streams shards while quantizing; bf16 repo size is not
+            # the resident footprint. Include encoder/VAE and export buffers.
+            return gb * 0.25 + 3.0
+        return gb * 0.8 + 3.0
     if family is ModelFamily.ANIMA:
         # 2B DiT + bundled adapter + Qwen3 0.6B + Qwen VAE, all bf16. The
         # runtime stages GPU placement but keeps the complete pipeline warm in RAM.
@@ -196,7 +211,56 @@ def estimate_vram_need_gb(
         return round(min(12.5, max(8.0, gb * 1.65)), 1)
     if family is ModelFamily.GGUF:
         return round(max(2.0, gb + 0.75), 1)  # full offload: weights + context/KV
+    if family is ModelFamily.LTX_VIDEO:
+        return 12.0 if quant and quant.startswith("bnb-") else 16.0
+    if family is ModelFamily.WAN_VIDEO:
+        return 13.0 if quant and quant.startswith("bnb-") else 16.0
+    if family in _VIDEO_FAMILIES:
+        return 12.0 if quant and quant.startswith("bnb-") else 16.0
     return None
+
+
+def video_decode_need_gb(width: int, height: int, frames: int) -> dict[str, float]:
+    """Conservative extra peak for tiled VAE decode + CPU mp4 export buffers."""
+    raw_float_rgb = max(1, width) * max(1, height) * max(1, frames) * 3 * 4 / _GB
+    return {
+        "ram_gb": round(0.75 + raw_float_rgb * 2.0, 2),
+        "vram_gb": round(0.55 + min(raw_float_rgb * 0.8, 2.0), 2),
+    }
+
+
+def video_job_budget(
+    family: ModelFamily,
+    size_bytes: int,
+    quant: str | None,
+    model_id: str | None,
+    *,
+    width: int,
+    height: int,
+    frames: int,
+    model_loaded: bool = False,
+) -> dict:
+    """Predict the full model + latent/decode peak before a video job starts."""
+    decode = video_decode_need_gb(width, height, frames)
+    model_ram = 0.0 if model_loaded else estimate_ram_need_gb(family, size_bytes, quant, model_id)
+    model_vram = estimate_vram_need_gb(family, size_bytes, quant, model_id) or 0.0
+    ram = ram_stats()
+    vram = vram_stats()
+    ram_need = model_ram + decode["ram_gb"]
+    vram_need = model_vram + decode["vram_gb"]
+    ram_ok = ram["available_gb"] >= ram_need + settings.min_free_ram_gb
+    vram_total = float(vram["total_gb"]) if vram else None
+    vram_ok = vram_total is None or vram_need <= max(0.0, vram_total - 0.5)
+    return {
+        "ok": ram_ok and vram_ok,
+        "ram_ok": ram_ok,
+        "vram_ok": vram_ok,
+        "ram_need_gb": round(ram_need, 1),
+        "ram_available_gb": ram["available_gb"],
+        "vram_need_gb": round(vram_need, 1),
+        "vram_total_gb": vram_total,
+        "decode": decode,
+    }
 
 
 def ram_budget(family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None) -> dict:

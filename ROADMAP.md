@@ -53,6 +53,48 @@ testers) and the **P24.7** resilience audit.
 
 ## Active backlog
 
+### P27 — Video generation workspace (text-to-video / image-to-video)
+
+> **Why it's feasible now:** the REAL stack already carries it — `diffusers 0.38`
+> ships `LTXPipeline`/`WanPipeline`/`HunyuanVideoFramepackPipeline`/`CogVideoX*` +
+> `export_to_video`, on torch 2.11+cu128 / Blackwell / `nunchaku 1.3`. This is
+> integration, not new ML. **Full investigation + the 16 GB model matrix:**
+> [`docs/video-research.md`](docs/video-research.md).
+>
+> **Hardware fit (the non-negotiable):** a video model is *one heavy resident*
+> under the existing arbiter — same one-at-a-time rule, no new concurrency. The new
+> cost is **latent volume**: VAE decode of N frames spikes VRAM *and* RAM, so
+> **`vae.enable_tiling()` + chunked decode is mandatory** and the sysmon guard must
+> budget that decode peak and refuse a too-long/too-large clip up front (≤16 GB VRAM,
+> ≤26 GB RAM peak). fp8 / bnb-nf4 transformer + `enable_model_cpu_offload` is how a
+> 5B-class model fits 16 GB (fp16 ≈ 27 GB does not). Nunchaku-fp4 for video stays
+> *track-upstream / experimental*, like the FLUX.2 nunchaku sidecar.
+>
+> **Recommended model order:** LTX-Video (fast default that fits with room) →
+> Wan 2.2 TI2V-5B (quality tier, fp8/bnb + offload, minutes/clip) → FramePack
+> (memory-flat long clips). AnimateDiff-SDXL is the lightweight + non-NVIDIA fallback.
+
+- [~] **P27.1 — Plumbing + STUB end-to-end.** Shipped & tested in STUB: `JobType.VIDEO`,
+  per-architecture video `ModelFamily` entries, `video_models_dir`, a `VideoBackend`
+  (STUB writes a placeholder mp4), a `Video` DB row, `/api/videos/{id}/file` with **HTTP
+  range**, a **Video** tab (`VideoComposer` + mp4 player) and video History items.
+  *Remaining:* the real-GPU smoke before it moves to history.
+- [~] **P27.2 — First real model: LTX-Video.** T2V + I2V via `LTX{,ImageToVideo}Pipeline`,
+  `export_to_video`, `vae.enable_tiling()` + `enable_model_cpu_offload`, learned RAM/VRAM
+  profile — wired; *remaining:* GPU validation. The fast default that fits.
+- [~] **P27.3 — Quality tier: Wan 2.2 TI2V-5B** (fp8 / bnb-nf4 + offload + VAE tiling),
+  Wan 2.1 T2V-1.3B as the lightweight variant. Video families + the VAE-decode peak are in
+  `sysmon.estimate_*` and the "minutes per clip" note is in `KNOWN_ISSUES.md`;
+  *remaining:* GPU validation.
+- [ ] **P27.4 — Long video: FramePack (HunyuanVideo).** `HunyuanVideoFramepackPipeline`
+  for memory-flat I2V clips (10 s+) on 16 GB — slow but constant-VRAM. Not started.
+- [~] **P27.5 — Capability gating + non-NVIDIA.** CUDA gating shipped. *Remaining:* the
+  fp8/Blackwell fast-path gate and the CPU/ROCm/MPS lightest-path fallback
+  (AnimateDiff-SDXL / CogVideoX-2B), mirroring today's SDXL-only posture there.
+- [~] **P27.6 — Maintenance & polish.** Shipped: in-app download catalog, STUB / range /
+  classification / budget + composer/player tests, docs, History. *Remaining:* richer
+  presets + History filters.
+
 ### P24 — Release pipeline & public v0.1 beta
 
 - [~] **P24.1 — Release CI workflow (tag → GitHub pre-release).** *(P1 — load-bearing.)*
@@ -106,6 +148,16 @@ testers) and the **P24.7** resilience audit.
   Premature for a single-author local-GPU beta; the GitHub release is the one channel.
 - **Telemetry / crash phone-home — even anonymised.** The privacy promise is that
   nothing leaves the machine; diagnostics are export-on-demand (P24.5), never auto-sent.
+
+**Video generation** *(see [`docs/video-research.md`](docs/video-research.md))*
+- **fp16 of a 5B-class video model, or the Wan 2.2 14B (A14B MoE) / HunyuanVideo full
+  13B at fp16** — all overflow 16 GB at useful length/resolution. 14B is GGUF-Q4 +
+  block-swap only, and very slow; keep it experimental, never a default.
+- **Audio-coupled variants, Mochi (10B), Allegro, EasyAnimate, SkyReelsV2,
+  StableVideoDiffusion** — too heavy, too slow, or redundant with the LTX/Wan/FramePack
+  tiers we ship.
+- **Nunchaku/SVDQuant fp4 for Wan** — track upstream as experimental (like the FLUX.2
+  nunchaku sidecar); GGUF-Q4 and bnb-nf4 are the validated 16 GB quant routes for video.
 
 **LLM workspace & vision**
 - **A generic multi-tool agent / arbitrary tool plugins** — keep the two vetted tools

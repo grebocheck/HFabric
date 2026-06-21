@@ -26,7 +26,7 @@ from . import capability_profile
 
 # Custom downloads (P25.3): a user-supplied model from any source, dropped into the
 # right kind folder. Kept deliberately small — HuggingFace repo+file and direct URL.
-_CUSTOM_KINDS = ("image", "llm", "lora", "tts", "transcribe", "embed", "vision", "voice")
+_CUSTOM_KINDS = ("image", "video", "llm", "lora", "tts", "transcribe", "embed", "vision", "voice")
 
 _MB = 1024 * 1024
 # Refuse a batch unless this fraction of headroom over the estimate stays free.
@@ -81,7 +81,12 @@ def _models_root() -> Path:
 
 def _all_jobs() -> list[Any]:
     fm = capability_profile.fetch_models_module()
-    return [*fm.STARTER_IMAGE_JOBS, *getattr(fm, "ADVANCED_IMAGE_JOBS", []), *fm.COMMON_JOBS]
+    return [
+        *fm.STARTER_IMAGE_JOBS,
+        *getattr(fm, "ADVANCED_IMAGE_JOBS", []),
+        *getattr(fm, "VIDEO_JOBS", []),
+        *fm.COMMON_JOBS,
+    ]
 
 
 def _recommended_keys(*, refresh: bool = False) -> set[tuple[str, str]]:
@@ -267,6 +272,7 @@ def run_blocking(keys: list[str]) -> dict[str, Any]:
 def _kind_dir(kind: str) -> Path | None:
     mapping = {
         "image": settings.image_models_dir,
+        "video": settings.video_models_dir,
         "llm": settings.llm_models_dir,
         "lora": settings.lora_models_dir,
         "tts": settings.tts_models_dir,
@@ -354,7 +360,9 @@ def _infer_kind(repo_id: str, pipeline_tag: str | None, tags: list[str], paths: 
         return "lora"
     if "gguf" in tagset or any(path.lower().endswith(".gguf") for path in paths):
         return "llm"
-    if pipeline_tag in {"text-to-image", "image-to-image", "image-to-video"} or "diffusers" in tagset:
+    if pipeline_tag in {"text-to-video", "image-to-video"}:
+        return "video"
+    if pipeline_tag in {"text-to-image", "image-to-image"} or "diffusers" in tagset:
         return "image"
     if pipeline_tag in {"image-text-to-text", "visual-question-answering"}:
         return "vision"

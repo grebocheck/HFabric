@@ -96,7 +96,16 @@ are close to the baselines below.
      strength and edit operations are reproducible from metadata, and no job spills
      into shared VRAM or pagefile pressure.
 
-6. `python scripts/voice_engine_smoke.py`
+6. Run the P27 Video workspace matrix:
+   - LTX-Video: one 480p/49-frame T2V job and one I2V job from an uploaded frame.
+   - Wan 2.2 TI2V-5B: one 480p/49-frame T2V job, then the same prompt at 720p only
+     if `mem.status` still leaves the configured safety margin.
+   - Seek through each result in the browser (the mp4 endpoint must return HTTP 206
+     for byte ranges), cancel one running denoise, and swap Video -> LLM -> Video.
+   - Pass: one heavy resident throughout, no shared-VRAM/pagefile spill, tiled VAE
+     decode completes, poster/animated thumbnail exist, and History replays the mp4.
+
+7. `python scripts/voice_engine_smoke.py`
    - Expected:
      - Strict RVC state-dict load: `457/0/0`.
      - RMVPE median on a 220 Hz tone: about 220 Hz.
@@ -105,7 +114,7 @@ are close to the baselines below.
    - Pass: all three gates match, output is finite audio, and the script does not
      use any fake synth or silent fallback.
 
-7. `python scripts/voice_realtime_bench.py`
+8. `python scripts/voice_realtime_bench.py`
    - Expected CUDA hot-path numbers for chunk sizes 96/133/192:
      - 96: mean/p95 about 224.6/374.7 ms vs 256.0 ms chunk budget.
      - 133: mean/p95 about 129.3/140.8 ms vs 354.7 ms chunk budget.

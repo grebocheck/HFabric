@@ -33,7 +33,7 @@ async def test_legacy_db_without_image_metadata_columns_upgrades(isolated_runtim
     assert {"family", "favorite", "tags"} <= columns
     assert job_id[3] == 0  # nullable: recovered images have no queue row
     assert not any(row[3] == "job_id" for row in image_foreign_keys)
-    assert version == "0004_detach_history_from_queue"
+    assert version == "0005_video_workspace"
 
 
 def _create_legacy_db(path) -> None:

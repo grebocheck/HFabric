@@ -174,6 +174,40 @@ ADVANCED_IMAGE_JOBS = [
     ),
 ]
 
+# Optional P27 catalog entries. They are intentionally not part of setup-all:
+# together they are ~60 GB and should be an explicit Video-workspace choice.
+VIDEO_JOBS = [
+    FetchJob(
+        "Lightricks/LTX-Video",
+        "",
+        MODELS / "video",
+        "LTX-Video local Diffusers repo",
+        "fast video tier; text-to-video and image-to-video with 4-bit loading",
+        approx_size_mb=28_000,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="ltx-video",
+        include_patterns=(
+            "model_index.json", "*.json", "transformer/*", "text_encoder/*",
+            "tokenizer/*", "vae/*", "scheduler/*",
+        ),
+    ),
+    FetchJob(
+        "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+        "",
+        MODELS / "video",
+        "Wan 2.2 TI2V 5B local Diffusers repo",
+        "quality video tier; 4-bit loading, CPU offload and tiled VAE decode",
+        approx_size_mb=34_000,
+        license="Apache-2.0",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="wan2.2-ti2v-5b",
+        exclude_patterns=("media/*", "examples/*", "assets/*", "*.mp4", "*.gif", "*.png"),
+    ),
+]
+
 COMMON_JOBS = [
     FetchJob(
         "ByteDance/SDXL-Lightning",

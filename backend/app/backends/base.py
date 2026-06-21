@@ -131,6 +131,14 @@ class UpscaleBackend(GpuBackend):
         """Return produced upscaled image records in the same shape as images."""
 
 
+class VideoBackend(GpuBackend):
+    @abc.abstractmethod
+    async def generate(
+        self, params: dict[str, Any], progress: ProgressCb
+    ) -> dict[str, Any]:
+        """Return one produced video record (mp4, poster, thumbnail and metadata)."""
+
+
 class LLMBackend(GpuBackend):
     @abc.abstractmethod
     async def complete(

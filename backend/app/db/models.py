@@ -67,6 +67,25 @@ class Image(Base):
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
+
+class Video(Base):
+    __tablename__ = "videos"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    job_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    path: Mapped[str] = mapped_column(String(512))
+    poster_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    thumb_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    frames: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    family: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
 class Conversation(Base):
     __tablename__ = "conversations"
 

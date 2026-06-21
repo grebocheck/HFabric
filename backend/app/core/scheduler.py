@@ -19,9 +19,9 @@ from typing import Any
 
 from sqlalchemy import select
 
-from ..backends.base import GenerationCancelled, ImageBackend, LLMBackend, UpscaleBackend
+from ..backends.base import GenerationCancelled, ImageBackend, LLMBackend, UpscaleBackend, VideoBackend
 from ..backends.registry import ModelRegistry
-from ..db.models import Image, Job
+from ..db.models import Image, Job, Video
 from ..db.session import session_scope
 from ..services.rag_service import search_documents as run_rag_search
 from .arbiter import GpuArbiter
@@ -316,6 +316,14 @@ class Worker:
                     await self._mark_cancelled(snap)
                 else:
                     await self._finish_image(snap, records)
+            elif snap.type is JobType.VIDEO:
+                assert isinstance(backend, VideoBackend)
+                record = await backend.generate(snap.params, progress)
+                if self._cancel_current:
+                    failed = True
+                    await self._mark_cancelled(snap)
+                else:
+                    await self._finish_video(snap, record)
             else:
                 assert isinstance(backend, LLMBackend)
 
@@ -420,6 +428,42 @@ class Worker:
         if chat_md is not None:
             done = Event(EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value, text=chat_md)
         await self._bus.publish(done)
+
+    async def _finish_video(self, snap: JobSnapshot, record: dict[str, Any]) -> None:
+        async with session_scope() as s:
+            video = Video(
+                job_id=snap.id,
+                path=record["path"],
+                poster_path=record.get("poster_path"),
+                thumb_path=record.get("thumb_path"),
+                seed=record.get("seed"),
+                width=record.get("width"),
+                height=record.get("height"),
+                frames=record.get("frames"),
+                fps=record.get("fps"),
+                duration_s=record.get("duration_s"),
+                family=record.get("family"),
+                params=record.get("params", {}),
+            )
+            s.add(video)
+            await s.flush()
+            video_id = video.id
+            job = await s.get(Job, snap.id)
+            if job:
+                job.status = JobStatus.DONE
+                job.progress = 1.0
+                job.result = {"video_id": video_id}
+                job.finished_at = datetime.now(UTC)
+        await self._bus.publish(Event(
+            EventType.VIDEO_READY,
+            job_id=snap.id,
+            video_id=video_id,
+            path=record["path"],
+            poster=record.get("poster_path"),
+        ))
+        await self._bus.publish(Event(
+            EventType.JOB_DONE, job_id=snap.id, job_type=snap.type.value
+        ))
 
     @staticmethod
     def _llm_result_parts(result: str | dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:

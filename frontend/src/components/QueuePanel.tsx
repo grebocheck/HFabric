@@ -203,7 +203,7 @@ function JobCard({
             </div>
             <span className="w-8 text-right text-[11px] text-ui-subtle">{progress}%</span>
           </div>
-          {job.type === "image" ? (
+          {job.type === "image" || job.type === "video" ? (
             <DenoisePreview progress={job.progress} note={job.progress_note} />
           ) : null}
           <div className="mt-2 flex justify-end">

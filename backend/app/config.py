@@ -143,6 +143,7 @@ class Settings(BaseSettings):
     # layout is models/image, models/lora, models/llm, and models/tts.
     root: Path = ROOT
     image_models_dir: Path = ROOT / "models" / "image"
+    video_models_dir: Path = ROOT / "models" / "video"
     llm_models_dir: Path = ROOT / "models" / "llm"
     lora_models_dir: Path = ROOT / "models" / "lora"
     tts_models_dir: Path = ROOT / "models" / "tts"
@@ -361,6 +362,21 @@ class Settings(BaseSettings):
     image_recycle_cuda_growth_gb: float = 2.0
     image_recycle_min_jobs: int = 6
 
+    # --- video generation (P27) ---
+    # Large local Diffusers repos are streamed and quantized component-by-component;
+    # their full bf16 weights must never be materialized in VRAM on a 16 GB card.
+    video_quant: str = "bnb-nf4"  # bnb-nf4 | bnb-fp4 | none (bf16, advanced)
+    video_offload: str = "model"  # model | sequential | none (non-bnb path)
+    video_default_width: int = 832
+    video_default_height: int = 480
+    video_default_frames: int = 49
+    video_default_fps: int = 16
+    video_default_steps: int = 25
+    video_default_guidance: float = 4.0
+    video_max_frames: int = 161
+    video_max_width: int = 1280
+    video_max_height: int = 1280
+
     # --- optional keep-warm policy (P2.1) ---
     # OFF by default. When enabled, the arbiter may park one image pipeline in
     # CPU RAM between swaps instead of fully deleting it. It is still not a VRAM
@@ -437,6 +453,7 @@ class Settings(BaseSettings):
             self.runtime_dir,
             self.backups_dir,
             self.image_models_dir,
+            self.video_models_dir,
             self.lora_models_dir,
             self.llm_models_dir,
             self.tts_models_dir,

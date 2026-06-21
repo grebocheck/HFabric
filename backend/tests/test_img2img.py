@@ -212,7 +212,7 @@ def test_mask_grow_shrink_blur_and_invert_are_server_side():
     ],
 )
 def test_qwen_z_edit_views_reuse_resident_components(monkeypatch, method, class_name):
-    import diffusers
+    diffusers = pytest.importorskip("diffusers")
 
     calls = []
 

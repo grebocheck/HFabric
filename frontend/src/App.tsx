@@ -20,9 +20,10 @@ import { toast, ToastHost } from "./components/Toast";
 import { TranscriptionPanel } from "./components/TranscriptionPanel";
 import { TtsPanel } from "./components/TtsPanel";
 import { VoicePanel } from "./components/VoicePanel";
+import { VideoComposer, VideoHistory, VideoResult } from "./components/VideoComposer";
 import { Welcome } from "./components/Welcome";
 import { buildComposerApply } from "./components/imageComposerHelpers";
-import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, EditApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
+import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, EditApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset, VideoItem } from "./types";
 
 const MEM_HISTORY_MAX = 90; // rolling timeline points (~a few minutes at the poll rate)
 const THEME_KEY = "hfabric.theme";
@@ -50,6 +51,7 @@ export default function App() {
   const [modelsLoading, setModelsLoading] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [images, setImages] = useState<ImageItem[]>([]);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetsLoading, setPresetsLoading] = useState(true);
   const [loras, setLoras] = useState<Lora[]>([]);
@@ -87,10 +89,12 @@ export default function App() {
   // The Images tab hosts both plain generation and the edit workspace, toggled
   // in-place instead of living on a separate top-level tab.
   const [imageMode, setImageMode] = useState<"generate" | "edit">("generate");
+  const [historyMode, setHistoryMode] = useState<"images" | "videos">("images");
   const postureToastShown = useRef(false);
 
   const refreshJobs = useCallback(() => api.listJobs().then(setJobs).catch(() => {}), []);
   const refreshImages = useCallback((q?: string) => api.listImages(q).then(setImages).catch(() => {}), []);
+  const refreshVideos = useCallback(() => api.listVideos().then(setVideos).catch(() => {}), []);
   const refreshModels = useCallback(async () => {
     setModelsLoading(true);
     try {
@@ -163,8 +167,9 @@ export default function App() {
     void refreshModelCatalog();
     refreshJobs();
     refreshImages();
+    refreshVideos();
     refreshPresets();
-  }, [refreshModelCatalog, refreshJobs, refreshImages, refreshPresets, authRevision]);
+  }, [refreshModelCatalog, refreshJobs, refreshImages, refreshVideos, refreshPresets, authRevision]);
 
   const onEvent = useCallback(
     (e: BusEvent) => {
@@ -207,11 +212,17 @@ export default function App() {
             refreshImages();
             setImageEpoch((n) => n + 1);
             toast.success(e.job_type === "upscale" ? "Upscale ready" : "Image ready", { onClick: () => setView("history") });
+          } else if (e.job_type === "video") {
+            refreshVideos();
+            toast.success("Video ready", { onClick: () => { setHistoryMode("videos"); setView("history"); } });
           }
           break;
         case "image.ready":
           refreshImages();
           setImageEpoch((n) => n + 1);
+          break;
+        case "video.ready":
+          refreshVideos();
           break;
         case "mem.status": {
           const snap: MemSnapshot = {
@@ -245,7 +256,7 @@ export default function App() {
           break;
       }
     },
-    [refreshJobs, refreshImages],
+    [refreshJobs, refreshImages, refreshVideos],
   );
 
   const { connected } = useEvents(onEvent);
@@ -350,6 +361,7 @@ export default function App() {
   }, []);
 
   const imageJobs = jobs.filter((j) => j.type === "image" || j.type === "upscale");
+  const videoJobs = jobs.filter((j) => j.type === "video");
   const hasImageModels = models.some((m) => m.job_type === "image");
   const busy = jobs.some((j) => j.status === "running");
   // Changes whenever the pending queue changes, so the System tab can refetch
@@ -430,11 +442,50 @@ export default function App() {
       ),
     },
     {
+      id: "video",
+      label: "Video",
+      render: () => (
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+          <div className="grid min-h-0 flex-1 grid-cols-[390px_minmax(0,1fr)_330px] grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden max-[1240px]:grid-cols-[380px_minmax(0,1fr)] max-[1240px]:grid-rows-[minmax(0,1fr)_300px] max-[860px]:block max-[860px]:overflow-y-auto">
+            <VideoComposer
+              models={models}
+              modelsLoading={modelsLoading}
+              onQueued={refreshJobs}
+              onGetModels={() => setView("models")}
+            />
+            <VideoResult
+              videos={videos}
+              generating={videoJobs.some((job) => job.status === "running")}
+              onOpenHistory={() => { setHistoryMode("videos"); setView("history"); }}
+            />
+            <QueuePanel jobs={videoJobs} onChanged={refreshJobs} note={arbiterNote} />
+          </div>
+        </main>
+      ),
+    },
+    {
       id: "history",
       label: "History",
       render: () => (
-        <main className="flex-1 overflow-hidden p-4">
-          <Gallery models={models} reloadSignal={imageEpoch} onReproduce={onReproduce} onEdit={onEdit} onUpscale={onUpscale} />
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+          <div className="mb-3 flex shrink-0 items-center gap-1 self-start rounded-lg border border-line bg-control p-1">
+            {([ ["images", "Images"], ["videos", "Videos"] ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setHistoryMode(id)}
+                className={`rounded-md px-3 py-1 text-sm font-medium transition ${historyMode === id ? "bg-accent text-ui-inverse shadow-sm" : "text-ui-muted hover:bg-control-hover hover:text-ui"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {historyMode === "images" ? (
+              <Gallery models={models} reloadSignal={imageEpoch} onReproduce={onReproduce} onEdit={onEdit} onUpscale={onUpscale} />
+            ) : (
+              <VideoHistory videos={videos} onDeleted={refreshVideos} />
+            )}
+          </div>
         </main>
       ),
     },

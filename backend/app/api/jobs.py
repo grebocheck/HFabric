@@ -10,12 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..backends.base import ModelDescriptor
 from ..backends.registry import ModelRegistry
+from ..config import settings
 from ..core.arbiter import GpuArbiter
 from ..core.enums import EventType, JobStatus, JobType
 from ..core.events import EventBus
 from ..core.scheduler import Worker, plan_queue
 from ..schemas import JobCreate, JobOut, PriorityUpdate
 from ..services import gallery_service, model_compatibility, prompt_service, queue_service
+from ..util import sysmon
+from ..util import uploads as uploads_util
 from .deps import get_arbiter, get_bus, get_registry, get_session, get_worker
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -113,6 +116,83 @@ async def _normalize_upscale_source(session: AsyncSession, payload: JobCreate) -
     payload.params = params
 
 
+def _normalize_video_params(
+    registry: ModelRegistry, desc: ModelDescriptor, payload: JobCreate
+) -> None:
+    if payload.type is not JobType.VIDEO:
+        return
+
+    def integer(key: str, default: int, minimum: int, maximum: int) -> int:
+        try:
+            value = int(payload.params.get(key, default))
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"params.{key} must be an integer")
+        return max(minimum, min(maximum, value))
+
+    width = integer("width", settings.video_default_width, 256, settings.video_max_width)
+    height = integer("height", settings.video_default_height, 256, settings.video_max_height)
+    width = max(256, width // 32 * 32)
+    height = max(256, height // 32 * 32)
+    frames = integer("frames", settings.video_default_frames, 9, settings.video_max_frames)
+    temporal = 8 if desc.family.value == "ltx-video" else 4
+    frames = max(temporal + 1, (frames - 1) // temporal * temporal + 1)
+    fps = integer("fps", settings.video_default_fps, 4, 30)
+    steps = integer("steps", settings.video_default_steps, 1, 80)
+    mode = str(payload.params.get("mode") or ("i2v" if payload.params.get("init_image") else "t2v"))
+    if mode not in {"t2v", "i2v"}:
+        raise HTTPException(400, "params.mode must be t2v or i2v")
+    init_image = payload.params.get("init_image")
+    if mode == "i2v":
+        if not isinstance(init_image, str) or not init_image:
+            raise HTTPException(400, "params.init_image is required for image-to-video")
+        source = uploads_util.resolve_upload(init_image)
+        if source is None or not source.is_file():
+            raise HTTPException(400, "image-to-video source image was not found; upload it again")
+
+    params = dict(payload.params)
+    params.update({
+        "mode": mode,
+        "width": width,
+        "height": height,
+        "frames": frames,
+        "fps": fps,
+        "steps": steps,
+    })
+    payload.params = params
+
+    if settings.stub_mode:
+        return
+    existing = registry.peek_backend(desc.id)
+    decision = sysmon.video_job_budget(
+        desc.family,
+        desc.size_bytes,
+        desc.quant,
+        desc.id,
+        width=width,
+        height=height,
+        frames=frames,
+        model_loaded=bool(existing and existing.loaded),
+    )
+    if decision["ok"]:
+        return
+    details = []
+    if not decision["ram_ok"]:
+        details.append(
+            f"RAM peak ~{decision['ram_need_gb']:.1f} GB, "
+            f"available {decision['ram_available_gb']:.1f} GB"
+        )
+    if not decision["vram_ok"]:
+        details.append(
+            f"VRAM peak ~{decision['vram_need_gb']:.1f} GB, "
+            f"card {decision['vram_total_gb']:.1f} GB"
+        )
+    raise HTTPException(
+        409,
+        "This clip would exceed the safe decode budget (" + "; ".join(details) + "). "
+        "Use a smaller resolution or fewer frames.",
+    )
+
+
 @router.post("", response_model=list[JobOut])
 async def create_jobs(
     payloads: list[JobCreate],
@@ -129,6 +209,7 @@ async def create_jobs(
         desc = _validate_model(registry, payload)
         _normalize_loras(registry, desc, payload)
         await _normalize_upscale_source(session, payload)
+        _normalize_video_params(registry, desc, payload)
         job = await queue_service.create_job(session, payload)
         created.append(job)
     await session.commit()

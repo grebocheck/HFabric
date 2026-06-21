@@ -157,6 +157,8 @@ export function familyColor(family: string): string {
   if (family === "flux") return "bg-accent/55 text-accent-fg";
   if (family === "sdxl") return "bg-emerald-700/55 text-emerald-100";
   if (family === "gguf") return "bg-amber-700/50 text-amber-100";
+  if (family === "ltx-video") return "bg-cyan-700/50 text-cyan-100";
+  if (family === "wan-video") return "bg-violet-700/50 text-violet-100";
   return "bg-white/10 text-white/65";
 }
 

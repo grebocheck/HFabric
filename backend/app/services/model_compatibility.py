@@ -76,6 +76,19 @@ def compatibility_for_model(
             "ROCm disables CUDA llama binaries; use a CPU/ROCm-safe llama build or lower GPU layers."
         )
 
+    if desc.job_type is JobType.VIDEO:
+        if backend != "cuda":
+            return {
+                "available": False,
+                "runtime_mode": "disabled",
+                "unavailable_reason": "The installed LTX/Wan video path currently requires NVIDIA CUDA.",
+                "compatibility_warnings": warnings,
+                "recommendation": "hidden",
+            }
+        warnings.append("Video generation can take several minutes; only one heavy model stays resident.")
+        if desc.family is ModelFamily.WAN_VIDEO:
+            warnings.append("Wan 2.2 5B is the quality tier and may take roughly minutes per clip.")
+
     return {
         "available": True,
         "runtime_mode": "real",
@@ -91,6 +104,8 @@ def _recommendation(desc: ModelDescriptor, profile: dict[str, Any]) -> str:
     Derived from the capability profile's per-family `model_policy` (P20.3). LLMs
     have no per-family policy yet, so they stay neutral.
     """
+    if desc.job_type is JobType.VIDEO:
+        return "recommended" if desc.family is ModelFamily.LTX_VIDEO else "advanced"
     if desc.job_type is not JobType.IMAGE:
         return "neutral"
     image_policy = ((profile.get("model_policy") or {}).get("image")) or {}

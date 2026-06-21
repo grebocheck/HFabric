@@ -20,6 +20,8 @@ safetensors>=0.4.5
 sentencepiece>=0.2.0           # T5 tokenizer for FLUX
 protobuf>=5.0
 bitsandbytes>=0.49             # 4-bit path (Blackwell sm_120 supported)
+imageio>=2.37                  # mp4 export for real + STUB video generation
+imageio-ffmpeg>=0.6
 
 # --- Native voice engine (P6R): offline/realtime RVC audio stack ---
 sounddevice>=0.5

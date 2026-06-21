@@ -1,4 +1,4 @@
-import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CivitaiAuthStatus, CivitaiSearchResponse, CivitaiVersionFiles, CodeFile, CodeFileContent, CustomDownloadItem, HealthStatus, HfRepoFiles, HfSearchResponse, ImageItem, ImageStats, InstalledModelsState, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmApiServerStatus, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
+import type { CapabilityProfile, ChatAttachment, ChatConversation, ChatConversationDetail, ChatConversationImport, ChatImportResult, ChatSendBody, ChatSendResult, CivitaiAuthStatus, CivitaiSearchResponse, CivitaiVersionFiles, CodeFile, CodeFileContent, CustomDownloadItem, HealthStatus, HfRepoFiles, HfSearchResponse, ImageItem, ImageStats, InstalledModelsState, Job, JobCreate, JobType, LlamaInstallStatus, LlamaState, LlamaUpdateInfo, LlamaVerifyResult, LlmApiServerStatus, LlmConfig, Lora, Model, ModelDownloadState, ModelDownloadStatus, ModelProfile, Note, PromptSnippet, Preset, PresetImportItem, PresetImportResult, QueuePlan, RagDocument, RagSearchResponse, RagStatus, RuntimeSettings, SettingsOverrides, TranscriptionResult, TranscriptionStatus, TtsGenerateBody, TtsGenerateResult, TtsStatus, VideoItem, VoiceEngineConvertResult, VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const TOKEN_KEY = "hfabric.apiToken";
@@ -51,6 +51,15 @@ function withImageAuth(image: ImageItem): ImageItem {
   };
 }
 
+function withVideoAuth(video: VideoItem): VideoItem {
+  return {
+    ...video,
+    url: apiAssetUrl(video.url),
+    poster_url: video.poster_url ? apiAssetUrl(video.poster_url) : null,
+    thumb_url: video.thumb_url ? apiAssetUrl(video.thumb_url) : null,
+  };
+}
+
 function withTtsAuth(result: TtsGenerateResult): TtsGenerateResult {
   return { ...result, url: apiAssetUrl(result.url) };
 }
@@ -91,7 +100,7 @@ export const api = {
   listModels: () => fetch("/api/models").then(j<Model[]>),
   rescanModels: () =>
     fetch("/api/models/rescan", { method: "POST" })
-      .then(j<{ models: number; image_models: number; llm_models: number; loras: number }>),
+      .then(j<{ models: number; image_models: number; video_models: number; llm_models: number; loras: number }>),
   listLoras: () => fetch("/api/loras").then(j<Lora[]>),
   listModelProfiles: () => fetch("/api/models/profiles").then(j<ModelProfile[]>),
   resetModelProfile: (id: string) => fetch(`/api/models/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j<{ deleted: number }>),
@@ -282,6 +291,8 @@ export const api = {
   },
   deleteImage: (id: string) => fetch(`/api/images/${id}`, { method: "DELETE" }).then(j<{ deleted: string }>),
   revealImage: (id: string) => fetch(`/api/images/${id}/reveal`, { method: "POST" }).then(j),
+  listVideos: () => fetch("/api/videos").then(j<VideoItem[]>).then((rows) => rows.map(withVideoAuth)),
+  deleteVideo: (id: string) => fetch(`/api/videos/${id}`, { method: "DELETE" }).then(j<{ deleted: string }>),
   listPresets: () => fetch("/api/presets").then(j<Preset[]>),
   createPreset: (name: string, type: JobType, params: Record<string, unknown>) =>
     fetch("/api/presets", {

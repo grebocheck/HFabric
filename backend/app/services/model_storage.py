@@ -34,6 +34,7 @@ def _kind_dirs() -> dict[str, Path]:
     """kind -> folder, resolved at call time (settings is monkeypatched in tests)."""
     return {
         "image": settings.image_models_dir,
+        "video": settings.video_models_dir,
         "llm": settings.llm_models_dir,
         "lora": settings.lora_models_dir,
         "tts": settings.tts_models_dir,
@@ -46,6 +47,7 @@ def _kind_dirs() -> dict[str, Path]:
 
 KIND_LABELS: dict[str, str] = {
     "image": "Image",
+    "video": "Video",
     "llm": "LLM (chat)",
     "lora": "LoRA",
     "tts": "Text-to-speech",

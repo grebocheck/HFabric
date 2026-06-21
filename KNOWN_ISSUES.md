@@ -45,6 +45,18 @@ The deeper engineering rationale for several of these lives in the
   silently spill to the pagefile) — you'll see a clear "won't fit" message rather
   than an OOM crash. That's intended.
 
+## Video generation
+
+- **LTX-Video and Wan 2.2 currently require NVIDIA CUDA.** Their local Diffusers
+  repositories load in 4-bit with tiled VAE decode; non-NVIDIA fallback families
+  remain a P27 follow-up.
+- **Wan is measured in minutes, not seconds.** A 720p clip can take several minutes
+  on one consumer GPU. Start at 480p with 49 frames while tuning a prompt.
+- Video output is silent MP4. Longer/high-resolution clips are refused before load
+  when the predicted model + latent + decode peak would exceed safe RAM/VRAM.
+- Switching between LLM, image, and video models unloads the previous heavy resident,
+  so the first clip after another workspace includes a visible model-swap pause.
+
 ## LLM / chat
 
 - Reliable native tool-calling depends on the model supporting it; models without

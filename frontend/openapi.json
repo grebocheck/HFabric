@@ -1410,6 +1410,7 @@
         "enum": [
           "llm",
           "image",
+          "video",
           "upscale"
         ],
         "title": "JobType",
@@ -1723,6 +1724,11 @@
           "z-image",
           "flux-kontext",
           "sdxl",
+          "ltx-video",
+          "wan-video",
+          "hunyuan-video",
+          "cogvideo",
+          "animatediff",
           "gguf",
           "upscaler",
           "unknown"
@@ -2513,6 +2519,146 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VideoOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "fps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fps"
+          },
+          "frames": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frames"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "params": {
+            "title": "Params",
+            "type": "object"
+          },
+          "poster_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poster Url"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "thumb_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumb Url"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "params",
+          "created_at",
+          "url"
+        ],
+        "title": "VideoOut",
         "type": "object"
       },
       "VoiceAssetFetchRequest": {
@@ -7132,6 +7278,227 @@
         "summary": "Tts Status",
         "tags": [
           "tts"
+        ]
+      }
+    },
+    "/api/videos": {
+      "get": {
+        "operationId": "list_videos_api_videos_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VideoOut"
+                  },
+                  "title": "Response List Videos Api Videos Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Videos",
+        "tags": [
+          "videos"
+        ]
+      }
+    },
+    "/api/videos/{video_id}": {
+      "delete": {
+        "operationId": "delete_video_api_videos__video_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "video_id",
+            "required": true,
+            "schema": {
+              "title": "Video Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Delete Video Api Videos  Video Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Video",
+        "tags": [
+          "videos"
+        ]
+      }
+    },
+    "/api/videos/{video_id}/file": {
+      "get": {
+        "operationId": "video_file_api_videos__video_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "video_id",
+            "required": true,
+            "schema": {
+              "title": "Video Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Video File",
+        "tags": [
+          "videos"
+        ]
+      }
+    },
+    "/api/videos/{video_id}/poster": {
+      "get": {
+        "operationId": "video_poster_api_videos__video_id__poster_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "video_id",
+            "required": true,
+            "schema": {
+              "title": "Video Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Video Poster",
+        "tags": [
+          "videos"
+        ]
+      }
+    },
+    "/api/videos/{video_id}/thumb": {
+      "get": {
+        "operationId": "video_thumb_api_videos__video_id__thumb_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "video_id",
+            "required": true,
+            "schema": {
+              "title": "Video Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Video Thumb",
+        "tags": [
+          "videos"
         ]
       }
     },

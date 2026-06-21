@@ -8,6 +8,7 @@ from enum import Enum
 class JobType(str, Enum):
     LLM = "llm"
     IMAGE = "image"
+    VIDEO = "video"
     UPSCALE = "upscale"
 
 
@@ -28,6 +29,11 @@ class ModelFamily(str, Enum):
     Z_IMAGE = "z-image"
     FLUX_KONTEXT = "flux-kontext"
     SDXL = "sdxl"
+    LTX_VIDEO = "ltx-video"
+    WAN_VIDEO = "wan-video"
+    HUNYUAN_VIDEO = "hunyuan-video"
+    COGVIDEO = "cogvideo"
+    ANIMATEDIFF_VIDEO = "animatediff"
     GGUF = "gguf"
     UPSCALER = "upscaler"
     UNKNOWN = "unknown"
@@ -38,6 +44,14 @@ class ModelFamily(str, Enum):
             return JobType.LLM
         if self is ModelFamily.UPSCALER:
             return JobType.UPSCALE
+        if self in {
+            ModelFamily.LTX_VIDEO,
+            ModelFamily.WAN_VIDEO,
+            ModelFamily.HUNYUAN_VIDEO,
+            ModelFamily.COGVIDEO,
+            ModelFamily.ANIMATEDIFF_VIDEO,
+        }:
+            return JobType.VIDEO
         return JobType.IMAGE
 
 
@@ -67,6 +81,7 @@ class EventType(str, Enum):
 
     # produced artifact
     IMAGE_READY = "image.ready"
+    VIDEO_READY = "video.ready"
 
     # realtime voice lifecycle
     VOICE_SESSION_STARTED = "voice.session.started"

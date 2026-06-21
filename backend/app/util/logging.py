@@ -99,6 +99,7 @@ class EventLogSubscriber:
             "logs_dir": str(s.logs_dir),
             "runtime_dir": str(s.runtime_dir),
             "image_models_dir": str(s.image_models_dir),
+            "video_models_dir": str(s.video_models_dir),
             "lora_models_dir": str(s.lora_models_dir),
             "llm_models_dir": str(s.llm_models_dir),
             "tts_models_dir": str(s.tts_models_dir),

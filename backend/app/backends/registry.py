@@ -15,7 +15,12 @@ from ..core.enums import ModelFamily
 from ..util import sysmon
 from .base import GpuBackend, LoraDescriptor, ModelDescriptor
 from .image_diffusers import DiffusersImageBackend
-from .inspect import classify_diffusers_dir, classify_image_model, classify_lora_model
+from .inspect import (
+    classify_diffusers_dir,
+    classify_image_model,
+    classify_lora_model,
+    classify_video_dir,
+)
 from .llm_llamacpp import LlamaCppBackend
 from .upscaler import ImageUpscalerBackend
 
@@ -166,6 +171,13 @@ class ModelRegistry:
             else:
                 quant = None
             self._add(sub, family, quant=quant)
+        if settings.video_models_dir.exists():
+            for sub in sorted(settings.video_models_dir.iterdir()):
+                if not sub.is_dir():
+                    continue
+                family = classify_video_dir(sub)
+                if family is not None:
+                    self._add(sub, family, quant=settings.video_quant)
         for root in (settings.llm_models_dir, settings.vision_models_dir):
             if not root.exists():
                 continue
@@ -213,7 +225,10 @@ class ModelRegistry:
         quant: str | None = None,
         mmproj_path: Path | None = None,
     ) -> None:
-        mid = _slug(path.stem)
+        # Path.stem treats dots in a directory name as a file suffix
+        # ("wan2.2-ti2v-5b" -> "wan2"), producing misleading/colliding ids.
+        display_name = path.name if path.is_dir() else path.stem
+        mid = _slug(display_name)
         if mid in self._descriptors:
             try:
                 rel = Path(path).relative_to(settings.root)
@@ -224,7 +239,7 @@ class ModelRegistry:
         mmproj_size = self._path_size(mmproj_path) if mmproj_path else 0
         self._descriptors[mid] = ModelDescriptor(
             id=mid,
-            name=path.stem,
+            name=display_name,
             family=family,
             path=path,
             size_bytes=size + mmproj_size,
@@ -290,6 +305,10 @@ class ModelRegistry:
             backend = LlamaCppBackend(desc)
         elif desc.family is ModelFamily.UPSCALER:
             backend = ImageUpscalerBackend(desc)
+        elif desc.job_type.value == "video":
+            from .video_diffusers import DiffusersVideoBackend  # noqa: PLC0415
+
+            backend = DiffusersVideoBackend(desc)
         else:
             backend = DiffusersImageBackend(desc)
         self._backends[model_id] = backend

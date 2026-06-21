@@ -1441,6 +1441,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/videos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Videos */
+        get: operations["list_videos_api_videos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/videos/{video_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Video */
+        delete: operations["delete_video_api_videos__video_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/videos/{video_id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Video File */
+        get: operations["video_file_api_videos__video_id__file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/videos/{video_id}/poster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Video Poster */
+        get: operations["video_poster_api_videos__video_id__poster_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/videos/{video_id}/thumb": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Video Thumb */
+        get: operations["video_thumb_api_videos__video_id__thumb_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/voice/engine/assets/fetch": {
         parameters: {
             query?: never;
@@ -2125,7 +2210,7 @@ export interface components {
          * JobType
          * @enum {string}
          */
-        JobType: "llm" | "image" | "upscale";
+        JobType: "llm" | "image" | "video" | "upscale";
         /** LlmApiServerStatus */
         LlmApiServerStatus: {
             /** Available */
@@ -2231,7 +2316,7 @@ export interface components {
          * ModelFamily
          * @enum {string}
          */
-        ModelFamily: "anima" | "flux" | "flux2" | "qwen-image" | "qwen-image-edit" | "z-image" | "flux-kontext" | "sdxl" | "gguf" | "upscaler" | "unknown";
+        ModelFamily: "anima" | "flux" | "flux2" | "qwen-image" | "qwen-image-edit" | "z-image" | "flux-kontext" | "sdxl" | "ltx-video" | "wan-video" | "hunyuan-video" | "cogvideo" | "animatediff" | "gguf" | "upscaler" | "unknown";
         /** ModelOut */
         ModelOut: {
             /**
@@ -2531,6 +2616,40 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VideoOut */
+        VideoOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration S */
+            duration_s?: number | null;
+            /** Family */
+            family?: string | null;
+            /** Fps */
+            fps?: number | null;
+            /** Frames */
+            frames?: number | null;
+            /** Height */
+            height?: number | null;
+            /** Id */
+            id: string;
+            /** Job Id */
+            job_id: string | null;
+            /** Params */
+            params: Record<string, never>;
+            /** Poster Url */
+            poster_url?: string | null;
+            /** Seed */
+            seed?: number | null;
+            /** Thumb Url */
+            thumb_url?: string | null;
+            /** Url */
+            url: string;
+            /** Width */
+            width?: number | null;
         };
         /** VoiceAssetFetchRequest */
         VoiceAssetFetchRequest: {
@@ -5513,6 +5632,162 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    list_videos_api_videos_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_video_api_videos__video_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    video_file_api_videos__video_id__file_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    video_poster_api_videos__video_id__poster_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    video_thumb_api_videos__video_id__thumb_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

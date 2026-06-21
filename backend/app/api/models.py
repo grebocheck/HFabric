@@ -87,6 +87,7 @@ async def rescan_models(registry: ModelRegistry = Depends(get_registry)) -> dict
     return {
         "models": len(descriptors),
         "image_models": sum(1 for d in descriptors if d.job_type.value == "image"),
+        "video_models": sum(1 for d in descriptors if d.job_type.value == "video"),
         "llm_models": sum(1 for d in descriptors if d.job_type.value == "llm"),
         "loras": len(registry.loras()),
     }
@@ -193,6 +194,7 @@ async def runtime_settings(
         "stub_mode": settings.stub_mode,
         "paths": {
             "image_models_dir": str(settings.image_models_dir),
+            "video_models_dir": str(settings.video_models_dir),
             "lora_models_dir": str(settings.lora_models_dir),
             "llm_models_dir": str(settings.llm_models_dir),
             "tts_models_dir": str(settings.tts_models_dir),
@@ -216,6 +218,12 @@ async def runtime_settings(
             "default_guidance": settings.default_guidance,
             "default_width": settings.default_width,
             "default_height": settings.default_height,
+            "video_width": settings.video_default_width,
+            "video_height": settings.video_default_height,
+            "video_frames": settings.video_default_frames,
+            "video_fps": settings.video_default_fps,
+            "video_steps": settings.video_default_steps,
+            "video_guidance": settings.video_default_guidance,
             "keep_warm_models": settings.keep_warm_models,
             "keep_warm_max_models": settings.keep_warm_max_models,
             "anima_steps": settings.anima_default_steps,

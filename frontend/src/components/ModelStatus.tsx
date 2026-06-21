@@ -1,7 +1,7 @@
 import { Logo } from "./Logo";
 import type { AppTheme, GpuStatus, MemSnapshot } from "../types";
 
-export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "voice" | "models" | "system" | "settings";
+export type View = "images" | "video" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "voice" | "models" | "system" | "settings";
 
 const familyColor: Record<string, string> = {
   flux: "bg-accent",
@@ -9,6 +9,8 @@ const familyColor: Record<string, string> = {
   "qwen-image": "bg-violet-600",
   "z-image": "bg-cyan-600",
   sdxl: "bg-pink-600",
+  "ltx-video": "bg-cyan-600",
+  "wan-video": "bg-violet-600",
   gguf: "bg-emerald-600",
 };
 

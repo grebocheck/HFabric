@@ -86,6 +86,24 @@ def classify_diffusers_dir(path: Path) -> ModelFamily | None:
     return None
 
 
+def classify_video_dir(path: Path) -> ModelFamily | None:
+    """Classify a local video Diffusers repository without opening its weights."""
+    cls = _diffusers_pipeline_class(path)
+    if cls is None:
+        return None
+    if cls.startswith("LTX"):
+        return ModelFamily.LTX_VIDEO
+    if cls.startswith("Wan"):
+        return ModelFamily.WAN_VIDEO
+    if cls.startswith("HunyuanVideo"):
+        return ModelFamily.HUNYUAN_VIDEO
+    if cls.startswith("CogVideoX"):
+        return ModelFamily.COGVIDEO
+    if "AnimateDiff" in cls:
+        return ModelFamily.ANIMATEDIFF_VIDEO
+    return None
+
+
 def is_flux2_dir(path: Path) -> bool:
     """FLUX.2 [klein] ships as a multi-file diffusers repo (not a single
     .safetensors), so we detect it by a ``model_index.json`` whose pipeline

@@ -86,7 +86,7 @@ async def test_health_reports_stub_mode(client):
 async def test_models_discovered(client):
     models = (await client.get("/api/models")).json()
     job_types = {m["job_type"] for m in models}
-    assert {"llm", "image"} <= job_types
+    assert {"llm", "image", "video"} <= job_types
 
 
 async def test_mixed_batch_runs_with_one_swap(client):

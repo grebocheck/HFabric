@@ -8,6 +8,11 @@ include breaking changes — this is pre-release software.
 ## [Unreleased]
 
 ### Added
+- **Video generation workspace (P27):** dedicated T2V/I2V composer, local LTX-Video
+  and Wan 2.2 discovery, 4-bit Diffusers loading, tiled/chunked VAE decode, shared
+  arbiter queue, mp4 player, poster/animated thumbnails, and Video History.
+- Generated mp4 files are served with HTTP byte-range support for native seeking;
+  STUB mode exercises the full queue-to-video path without a GPU.
 - **First-class Edit workspace (P26):** full-size source and mask canvases,
   source/result A/B comparison, img2img, inpaint, outpaint, instruction-edit, and
   ControlNet modes, plus one-click “Edit” handoff from results and History.

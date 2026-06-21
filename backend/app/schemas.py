@@ -125,6 +125,26 @@ class ImageExportIn(BaseModel):
     image_ids: list[str] = Field(min_length=1, max_length=500)
 
 
+# --------------------------------------------------------------------- videos
+class VideoOut(BaseModel):
+    id: str
+    job_id: str | None
+    seed: int | None = None
+    width: int | None = None
+    height: int | None = None
+    frames: int | None = None
+    fps: float | None = None
+    duration_s: float | None = None
+    family: str | None = None
+    params: dict[str, Any]
+    created_at: datetime
+    url: str
+    poster_url: str | None = None
+    thumb_url: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 # ----------------------------------------------------------------------- chat
 class ChatAttachmentIn(BaseModel):
     token: str = Field(min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")

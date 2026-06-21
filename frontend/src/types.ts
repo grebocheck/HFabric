@@ -492,6 +492,11 @@ export type ImageItem = Omit<Api["ImageOut"], "family" | "params" | "tags"> & {
   params: JsonRecord;
 };
 
+export type VideoItem = Omit<Api["VideoOut"], "family" | "params"> & {
+  family: ModelFamily | "unknown" | string | null;
+  params: JsonRecord;
+};
+
 export interface ImageStats {
   total: number;
   today: number;

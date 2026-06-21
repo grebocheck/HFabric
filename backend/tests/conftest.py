@@ -22,9 +22,11 @@ _TMP = Path(tempfile.gettempdir()) / "hfabric_test"
 _IMAGE_DIR = _TMP / "image"
 _LLM_DIR = _TMP / "llm"
 _VISION_DIR = _TMP / "vision"
+_VIDEO_DIR = _TMP / "video"
 _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 _LLM_DIR.mkdir(parents=True, exist_ok=True)
 _VISION_DIR.mkdir(parents=True, exist_ok=True)
+_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _write_safetensors(path: Path, keys: list[str]) -> None:
@@ -46,6 +48,11 @@ if not _SDXL.exists():
 _GGUF = _LLM_DIR / "stub-llm.gguf"
 if not _GGUF.exists():
     _GGUF.write_bytes(b"GGUF\x00")
+_VIDEO = _VIDEO_DIR / "stub-ltx-video"
+_VIDEO.mkdir(parents=True, exist_ok=True)
+(_VIDEO / "model_index.json").write_text(
+    json.dumps({"_class_name": "LTXPipeline"}), encoding="utf-8"
+)
 
 os.environ.setdefault("HFAB_STUB_MODE", "true")
 # Popping is not enough: pydantic-settings also reads the repo .env FILE, so a
@@ -60,6 +67,7 @@ os.environ["HFAB_OUTPUTS_DIR"] = str(_TMP / "outputs")
 os.environ["HFAB_IMAGE_MODELS_DIR"] = str(_IMAGE_DIR)
 os.environ["HFAB_LLM_MODELS_DIR"] = str(_LLM_DIR)
 os.environ["HFAB_VISION_MODELS_DIR"] = str(_VISION_DIR)
+os.environ["HFAB_VIDEO_MODELS_DIR"] = str(_VIDEO_DIR)
 # Keep the budget guard deterministic regardless of the host's free RAM.
 os.environ.setdefault("HFAB_LEARN_MEMORY_PROFILES", "false")
 
