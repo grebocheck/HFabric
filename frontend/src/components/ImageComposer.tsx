@@ -4,7 +4,7 @@ import { ModelPicker } from "./ModelPicker";
 import { PromptLibrary } from "./PromptLibrary";
 import { Select, type SelectOption } from "./Select";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
-import { ControlNetBlock, ImageParamForm, LoraCard, Notice, SourceImageBlock } from "./ImageComposerParts";
+import { ImageParamForm, LoraCard, Notice } from "./ImageComposerParts";
 import type { ComposerApply, Lora, Model, Preset } from "../types";
 import {
   DEFAULT_GUIDANCE,
@@ -100,19 +100,6 @@ export function ImageComposer({
 
   const selectedImgModel = imgModels.find((m) => m.id === imgModel);
   const selectedFamily = selectedImgModel?.family;
-  // img2img/control inputs are transient and not persisted.
-  const [initImage, setInitImage] = useState<{ token: string; url: string } | null>(null);
-  const [maskDraft, setMaskDraft] = useState<File | null>(null);
-  const [strength, setStrength] = useState(0.6);
-  const [uploadBusy, setUploadBusy] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-  const [controlImage, setControlImage] = useState<{ token: string; url: string } | null>(null);
-  const [controlEnabled, setControlEnabled] = useState(true);
-  const [controlScale, setControlScale] = useState(0.75);
-  const [controlBusy, setControlBusy] = useState(false);
-  const [controlError, setControlError] = useState("");
-  const img2imgSupported = selectedFamily === "sdxl" || selectedFamily === "flux" || selectedFamily === "flux2" || selectedFamily === "qwen-image" || selectedFamily === "z-image" || selectedFamily === "anima";
-  const controlSupported = selectedFamily === "sdxl";
   const imagePresets = presets.filter((p) => p.type === "image");
   const compatibleLoras = loras
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
@@ -181,9 +168,7 @@ export function ImageComposer({
   const editWidth = useCallback((v: number) => { setWidth(v); setTouched((t) => ({ ...t, width: true })); }, []);
   const editHeight = useCallback((v: number) => { setHeight(v); setTouched((t) => ({ ...t, height: true })); }, []);
 
-  const useImg2img = img2imgSupported && initImage !== null;
-  const useControlNet = controlSupported && controlEnabled && controlImage !== null;
-  const imageParams = (maskToken?: string) => ({
+  const imageParams = () => ({
     prompt: promptDraft.trim(),
     negative: negative.trim() || undefined,
     steps,
@@ -193,13 +178,6 @@ export function ImageComposer({
     seed,
     batch_size: batch,
     loras: selectedLoras.length ? selectedLoras.map(({ id, weight }) => ({ id, weight })) : undefined,
-    init_image: useImg2img ? initImage!.token : undefined,
-    mask_image: useImg2img && maskToken ? maskToken : undefined,
-    strength: useImg2img && (selectedFamily !== "flux2" || maskToken) ? strength : undefined,
-    edit_mode: useImg2img && maskToken ? "inpaint" : useImg2img ? "img2img" : undefined,
-    control_image: useControlNet ? controlImage!.token : undefined,
-    control_type: useControlNet ? "canny" : undefined,
-    control_scale: useControlNet ? controlScale : undefined,
   });
 
   const rememberPrompt = useCallback((content: string) => {
@@ -210,57 +188,9 @@ export function ImageComposer({
 
   const generate = async () => {
     if (!imgModel || !promptDraft.trim()) return;
-    let maskToken: string | undefined;
-    if (useImg2img && maskDraft) {
-      setUploadError("");
-      try {
-        const res = await api.uploadMaskImage(maskDraft);
-        maskToken = res.mask_image;
-      } catch {
-        setUploadError("mask upload failed");
-        return;
-      }
-    }
-    const params = imageParams(maskToken);
+    const params = imageParams();
     rememberPrompt(params.prompt);
     await api.createJobs(Array.from({ length: count }, () => ({ type: "image" as const, model_id: imgModel, params })));
-  };
-
-  const onPickInitImage = async (file: File | null | undefined) => {
-    if (!file) return;
-    setUploadError("");
-    setUploadBusy(true);
-    try {
-      const res = await api.uploadInitImage(file);
-      setInitImage({ token: res.init_image, url: res.url });
-      setMaskDraft(null);
-      // snap the canvas to the source aspect (rounded to 64) for a faithful result
-      const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
-      editWidth(round64(res.width));
-      editHeight(round64(res.height));
-    } catch {
-      setUploadError("upload failed");
-    } finally {
-      setUploadBusy(false);
-    }
-  };
-
-  const onPickControlImage = async (file: File | null | undefined) => {
-    if (!file) return;
-    setControlError("");
-    setControlBusy(true);
-    try {
-      const res = await api.uploadInitImage(file);
-      setControlImage({ token: res.init_image, url: res.url });
-      setControlEnabled(true);
-      const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
-      editWidth(round64(res.width));
-      editHeight(round64(res.height));
-    } catch {
-      setControlError("control upload failed");
-    } finally {
-      setControlBusy(false);
-    }
   };
 
   const applyRatio = (rw: number, rh: number) => {
@@ -518,43 +448,6 @@ export function ImageComposer({
             </Notice>
           ) : null}
         </section>
-
-        {img2imgSupported ? (
-          <SourceImageBlock
-            initImage={initImage}
-            labelClass={label}
-            onClear={() => {
-              setInitImage(null);
-              setMaskDraft(null);
-            }}
-            onPickInitImage={(file) => void onPickInitImage(file)}
-            sectionClass={section}
-            setMaskDraft={setMaskDraft}
-            setStrength={setStrength}
-            strength={strength}
-            uploadBusy={uploadBusy}
-            uploadError={uploadError}
-            allowMask={selectedFamily !== "anima"}
-            referenceOnly={selectedFamily === "flux2" && !maskDraft}
-          />
-        ) : null}
-
-        {controlSupported ? (
-          <ControlNetBlock
-            controlImage={controlImage}
-            controlScale={controlScale}
-            disabled={false}
-            enabled={controlEnabled}
-            labelClass={label}
-            onClear={() => setControlImage(null)}
-            onPickControlImage={(file) => void onPickControlImage(file)}
-            sectionClass={section}
-            setControlScale={setControlScale}
-            setEnabled={setControlEnabled}
-            uploadBusy={controlBusy}
-            uploadError={controlError}
-          />
-        ) : null}
 
         <ImageParamForm
           activeRatio={activeRatio}

@@ -84,6 +84,9 @@ export default function App() {
   // A "reproduce from History" request handed to the image composer.
   const [composerApply, setComposerApply] = useState<ComposerApply | null>(null);
   const [editApply, setEditApply] = useState<EditApply | null>(null);
+  // The Images tab hosts both plain generation and the edit workspace, toggled
+  // in-place instead of living on a separate top-level tab.
+  const [imageMode, setImageMode] = useState<"generate" | "edit">("generate");
   const postureToastShown = useRef(false);
 
   const refreshJobs = useCallback(() => api.listJobs().then(setJobs).catch(() => {}), []);
@@ -297,7 +300,8 @@ export default function App() {
         width: image.width ?? undefined,
         height: image.height ?? undefined,
       });
-      setView("edit");
+      setImageMode("edit");
+      setView("images");
       toast.success("Loaded into Edit");
     },
     [models],
@@ -364,50 +368,64 @@ export default function App() {
       id: "images",
       label: "Images",
       render: () => (
-        <main className="grid flex-1 grid-cols-[390px_minmax(0,1fr)_330px] grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 max-[1240px]:grid-cols-[380px_minmax(0,1fr)] max-[1240px]:grid-rows-[minmax(0,1fr)_300px] max-[860px]:block max-[860px]:overflow-y-auto">
-          <ImageComposer
-            models={models}
-            modelsLoading={modelsLoading}
-            loras={loras}
-            lorasLoading={lorasLoading}
-            presets={presets}
-            presetsLoading={presetsLoading}
-            onPresetsChanged={refreshPresets}
-            promptDraft={promptDraft}
-            setPromptDraft={setPromptDraft}
-            apply={composerApply}
-          />
-          <ResultPreview
-            images={images}
-            onOpenHistory={() => setView("history")}
-            onReproduce={onReproduce}
-            onEdit={onEdit}
-            onUpscale={onUpscale}
-            generating={imageJobs.some((j) => j.status === "running")}
-            hasImageModels={hasImageModels}
-            modelsLoading={modelsLoading}
-            onGetModels={() => setView("models")}
-          />
-          <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />
-        </main>
-      ),
-    },
-    {
-      id: "edit",
-      label: "Edit",
-      render: () => (
-        <main className="min-h-0 flex-1 overflow-hidden p-4">
-          <EditWorkspace
-            models={models}
-            modelsLoading={modelsLoading}
-            loras={loras}
-            presets={presets}
-            jobs={imageJobs}
-            images={images}
-            apply={editApply}
-            onQueued={refreshJobs}
-            onGetModels={() => setView("models")}
-          />
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+          <div className="mb-3 flex shrink-0 items-center gap-1 self-start rounded-lg border border-line bg-control p-1">
+            {([["generate", "Generate"], ["edit", "Edit"]] as const).map(([id, modeLabel]) => (
+              <button
+                key={id}
+                onClick={() => setImageMode(id)}
+                className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+                  imageMode === id
+                    ? "bg-accent text-ui-inverse shadow-sm"
+                    : "text-ui-muted hover:bg-control-hover hover:text-ui"
+                }`}
+              >
+                {modeLabel}
+              </button>
+            ))}
+          </div>
+          {imageMode === "generate" ? (
+            <div className="grid min-h-0 flex-1 grid-cols-[390px_minmax(0,1fr)_330px] grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden max-[1240px]:grid-cols-[380px_minmax(0,1fr)] max-[1240px]:grid-rows-[minmax(0,1fr)_300px] max-[860px]:block max-[860px]:overflow-y-auto">
+              <ImageComposer
+                models={models}
+                modelsLoading={modelsLoading}
+                loras={loras}
+                lorasLoading={lorasLoading}
+                presets={presets}
+                presetsLoading={presetsLoading}
+                onPresetsChanged={refreshPresets}
+                promptDraft={promptDraft}
+                setPromptDraft={setPromptDraft}
+                apply={composerApply}
+              />
+              <ResultPreview
+                images={images}
+                onOpenHistory={() => setView("history")}
+                onReproduce={onReproduce}
+                onEdit={onEdit}
+                onUpscale={onUpscale}
+                generating={imageJobs.some((j) => j.status === "running")}
+                hasImageModels={hasImageModels}
+                modelsLoading={modelsLoading}
+                onGetModels={() => setView("models")}
+              />
+              <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <EditWorkspace
+                models={models}
+                modelsLoading={modelsLoading}
+                loras={loras}
+                presets={presets}
+                jobs={imageJobs}
+                images={images}
+                apply={editApply}
+                onQueued={refreshJobs}
+                onGetModels={() => setView("models")}
+              />
+            </div>
+          )}
         </main>
       ),
     },
