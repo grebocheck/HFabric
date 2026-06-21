@@ -8,14 +8,31 @@ include breaking changes — this is pre-release software.
 ## [Unreleased]
 
 ### Added
+- **First-class Edit workspace (P26):** full-size source and mask canvases,
+  source/result A/B comparison, img2img, inpaint, outpaint, instruction-edit, and
+  ControlNet modes, plus one-click “Edit” handoff from results and History.
+- **Broader image editing:** Qwen-Image and Z-Image component-sharing img2img /
+  inpaint views, custom latent-init Anima img2img, SDXL ControlNet combinations
+  (canny/depth/pose/scribble/Union), and model families/download entries for
+  Qwen-Image-Edit and FLUX.1-Kontext.
+- **Edit-quality controls:** crop/pad/stretch source fitting, server-side mask
+  grow/shrink/blur/invert, masked-region padding, outpaint margins, family-specific
+  strengths, and reproducible edit metadata.
 
 ### Changed
+- Finished the P25 semantic-theme pass across Code, Notes, RAG, Transcribe, Models,
+  Setup Doctor, Voice, telemetry, and shared controls; dark-only utilities are now
+  confined to intentional media, scrim, and code surfaces.
+- FLUX.2 source images are now described and recorded honestly as reference
+  conditioning; its real strength-controlled path is inpainting.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+- The top toolbar no longer overlaps or clips branding and actions at 390 px; narrow
+  screens use a separate horizontally scrollable navigation row.
 
 ### Security
 

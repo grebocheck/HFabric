@@ -156,7 +156,55 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
   actual GPU use (voice always; TTS when `tts_gpu_layers > 0`; transcribe when the
   device isn't CPU).
 
-## Unified Model Manager (P25)
+## Visual polish, color system & Studio light theme (P25-theme)
+
+- **P25.1–P25.3 — Semantic palette.** Added first-class roles for text, canvas,
+  panels, raised/sunken/stage surfaces, borders, controls, overlays, and semantic
+  tones. Light mode now uses paper/graphite Studio chrome with its own readable
+  success/warn/error/info recipes; dark utilities remain only on true media/scrim/
+  code surfaces.
+- **P25.4–P25.6 — Controls, header, and image workspace.** Unified fields, buttons,
+  chips, cards, focus/disabled states, compact/icon/quiet/danger/success variants,
+  and the image inspection stage. The header has a stronger active state and a
+  two-row 390 px layout so branding, actions, and the scrollable tab strip do not
+  overlap.
+- **P25.7–P25.10 — Workspace and overlay finish.** Polished History, LLM/Code/RAG,
+  Models, Voice, System, Setup Doctor, telemetry, dialogs, popovers, and app notices;
+  true image lightboxes and thumbnail gradients intentionally stay dark.
+- **P25.11 — Theme QA gate.** Added `docs/theme-qa.md`; completed a real-data STUB
+  screenshot sweep on 2026-06-21 for Images, History, LLM, Voice, Models, System,
+  Welcome, and 390 px mobile. The sweep found and closed the mobile-header overlap.
+
+## Image editing & dedicated Edit workspace (P26)
+
+- **P26.1–P26.3 — Green-family coverage.** Qwen-Image and Z-Image now expose lazy
+  img2img/inpaint views built from the resident pipeline's components, preserving the
+  one-heavy-model invariant for BnB and Nunchaku weights. Family-specific strengths
+  and a four-effective-step floor protect distilled Z edits. FLUX.2 source-image mode
+  is explicitly reference conditioning, while its real inpaint pipeline is enabled.
+- **P26.4 — Edit-quality core.** Source fitting supports crop, pad, and stretch;
+  inpaint supports masked-region padding plus server-side grow/shrink, blur, and
+  invert; outpaint builds an expanded canvas and border mask. Requested/effective
+  strength and every edit operation are stored for faithful History reproduction.
+- **P26.5 — Edit workspace.** Added a dedicated top-level tab with a full-size source
+  and mask canvas, source/result A/B comparison, family-gated modes, shared prompt /
+  sampling / LoRA / preset controls, and direct “Edit” handoff from results and
+  History. The compact Generate source block remains as a quick path.
+- **P26.6–P26.8 — Stretch set shipped.** Anima gained custom VAE latent-init img2img.
+  SDXL ControlNet can combine with img2img/inpaint and supports canny, depth, pose,
+  scribble, and Union behind configurable repos and an explicit memory guard.
+  Qwen-Image-Edit and FLUX.1-Kontext are first-class instruction-edit families with
+  arbiter residents, compatibility checks, UI gating, and advanced download entries.
+- **P26.9 — Validation.** Added backend routing/strength/resize/mask/component-sharing
+  coverage and frontend workspace tests. On 2026-06-21, RTX 5070 Ti real-GPU smoke
+  passed SDXL inpaint; Qwen, Z, FLUX, and FLUX.2 Nunchaku edit paths; full Z BnB
+  img2img/inpaint; and Anima img2img. See `docs/gpu-smoke.md` for the exact matrix and
+  optional-weight gaps.
+
+## Unified Model Manager (P25-models, historical numbering)
+
+The P25 number was reused by the later theme pass; the suffixes disambiguate the two
+already-shipped workstreams.
 
 - **P25.1 — "Models" workspace tab.** A dedicated top-level tab (`ModelManager.tsx`)
   with a left **sidebar** listing each kind (count + total size) that filters the

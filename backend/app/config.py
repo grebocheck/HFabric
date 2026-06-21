@@ -285,6 +285,14 @@ class Settings(BaseSettings):
     qwen_image_default_guidance: float = 4.0  # sent as true_cfg_scale
     qwen_image_default_width: int = 1328
     qwen_image_default_height: int = 1328
+    qwen_image_edit_quant: str = "bnb-nf4"
+    qwen_image_edit_offload: str = "model"
+    qwen_image_edit_default_steps: int = 40
+    qwen_image_edit_default_guidance: float = 4.0
+    flux_kontext_quant: str = "bnb-nf4"
+    flux_kontext_offload: str = "model"
+    flux_kontext_default_steps: int = 28
+    flux_kontext_default_guidance: float = 2.5
     z_image_quant: str = "bnb-fp4"  # bnb-nf4 | bnb-fp4 | none (bf16)
     z_image_offload: str = "model"  # model | sequential | none
     z_image_default_steps: int = 9  # Turbo / Nunchaku defaults
@@ -379,10 +387,24 @@ class Settings(BaseSettings):
     # (low = keep more of the source, high = follow the prompt more freely).
     image_upload_max_mb: int = 24
     img2img_default_strength: float = 0.6
+    qwen_image_img2img_strength: float = 0.6
+    z_image_img2img_strength: float = 0.45
+    anima_img2img_strength: float = 0.55
+    img2img_min_effective_steps: int = 4
+    image_edit_resize_mode: str = "crop"  # crop | pad | stretch
+    inpaint_padding_mask_crop: int = 32
+    inpaint_mask_blur: float = 0.0
+    inpaint_mask_grow: int = 0
     # P19.3: optional SDXL ControlNet. Canny is the first vetted control type;
     # the repo id can point to a local folder if you want zero network access.
     sdxl_controlnet_canny_repo: str | None = "diffusers/controlnet-canny-sdxl-1.0"
+    sdxl_controlnet_depth_repo: str | None = None
+    sdxl_controlnet_pose_repo: str | None = None
+    sdxl_controlnet_scribble_repo: str | None = None
+    sdxl_controlnet_union_repo: str | None = None
     sdxl_controlnet_default_scale: float = 0.75
+    sdxl_controlnet_extra_ram_gb: float = 3.0
+    sdxl_controlnet_extra_vram_gb: float = 2.5
 
     # --- upscaler (P19.2) ---
     # A virtual arbiter resident. If Real-ESRGAN is installed and the weight file

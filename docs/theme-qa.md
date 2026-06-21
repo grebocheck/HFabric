@@ -41,3 +41,11 @@ Use this checklist whenever shared UI tokens, controls, or theme colors change.
 - Disabled states are obvious and still readable.
 - Popovers and select menus match the active theme.
 - Destructive actions are red/error toned in both themes.
+
+## Completed Sweeps
+
+- **2026-06-21 — Studio light / real local data:** Images, History, LLM, Voice,
+  Models, System, Welcome, and 390 px mobile captured at production-build parity.
+  Result: passed after fixing the narrow-header overlap; lint, 89 Vitest tests, and
+  the TypeScript/Vite production build passed. Remaining dark utilities were checked
+  and are confined to media lightboxes, scrims, thumbnail gradients, and code blocks.

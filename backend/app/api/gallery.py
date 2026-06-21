@@ -33,7 +33,10 @@ async def list_images(
     offset: int = 0,
     q: str | None = Query(None, max_length=200),
     model: str | None = Query(None, max_length=200),
-    family: str | None = Query(None, pattern="^(anima|flux|flux2|qwen-image|z-image|sdxl|upscaler|unknown)$"),
+    family: str | None = Query(
+        None,
+        pattern="^(anima|flux|flux2|flux-kontext|qwen-image|qwen-image-edit|z-image|sdxl|upscaler|unknown)$",
+    ),
     size: str | None = Query(None, pattern="^(square|landscape|portrait|large|small)$"),
     lora: str | None = Query(None, max_length=200),
     favorite: bool | None = None,

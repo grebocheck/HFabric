@@ -508,6 +508,13 @@ export interface ComposerApply {
   nonce: number;
 }
 
+export interface EditApply extends ComposerApply {
+  image_id?: string;
+  source_url?: string;
+  width?: number;
+  height?: number;
+}
+
 export type Preset = Omit<Api["PresetOut"], "params"> & { params: JsonRecord };
 
 export type JobCreate = Omit<Api["JobCreate"], "params" | "priority"> & {

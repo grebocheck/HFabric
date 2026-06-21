@@ -65,7 +65,9 @@ def compatibility_for_model(
             ModelFamily.FLUX,
             ModelFamily.FLUX2,
             ModelFamily.QWEN_IMAGE,
+            ModelFamily.QWEN_IMAGE_EDIT,
             ModelFamily.Z_IMAGE,
+            ModelFamily.FLUX_KONTEXT,
         }:
             warnings.append("This image family is not fully validated on ROCm yet.")
 

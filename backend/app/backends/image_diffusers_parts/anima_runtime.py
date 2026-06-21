@@ -343,6 +343,8 @@ class AnimaPipeline:
         num_inference_steps: int = 30,
         guidance_scale: float = 4.0,
         generator: torch.Generator | None = None,
+        image: Any | None = None,
+        strength: float = 0.55,
         callback_on_step_end: Callable | None = None,
         **_: Any,
     ) -> SimpleNamespace:
@@ -358,19 +360,53 @@ class AnimaPipeline:
             negative = negative.to(self.device)
 
         latent_height, latent_width = height // 8, width // 8
-        latents = torch.randn(
-            (1, 16, 1, latent_height, latent_width),
-            generator=generator,
-            device=self.device,
-            dtype=torch.float32,
-        )
         scheduler = FlowMatchEulerDiscreteScheduler(shift=3.0)
         scheduler.set_timesteps(num_inference_steps, device=self.device)
+        timesteps = scheduler.timesteps
+        if image is None:
+            latents = torch.randn(
+                (1, 16, 1, latent_height, latent_width),
+                generator=generator,
+                device=self.device,
+                dtype=torch.float32,
+            )
+        else:
+            # Anima reuses Qwen-Image's VAE. Encode the fitted source, normalize
+            # with the same latent statistics used by Qwen, then enter the flow
+            # schedule at the strength-selected sigma instead of pure noise.
+            self.vae.to(self.device)
+            source = self.image_processor.preprocess(image, height=height, width=width)
+            source = source.to(device=self.device, dtype=self.vae.dtype)
+            if source.dim() == 4:
+                source = source.unsqueeze(2)
+            encoded = self.vae.encode(source).latent_dist.sample(generator=generator)
+            mean = torch.tensor(
+                self.vae.config.latents_mean, device=self.device, dtype=encoded.dtype
+            ).view(1, 16, 1, 1, 1)
+            inv_std = 1.0 / torch.tensor(
+                self.vae.config.latents_std, device=self.device, dtype=encoded.dtype
+            ).view(1, 16, 1, 1, 1)
+            encoded = (encoded - mean) * inv_std
+            self.vae.to("cpu")
+            self._empty_cache()
+            strength = max(0.05, min(1.0, float(strength)))
+            init_steps = min(num_inference_steps, max(1, round(num_inference_steps * strength)))
+            start = max(0, num_inference_steps - init_steps)
+            timesteps = scheduler.timesteps[start:]
+            if hasattr(scheduler, "set_begin_index"):
+                scheduler.set_begin_index(start)
+            noise = torch.randn(
+                encoded.shape,
+                generator=generator,
+                device=self.device,
+                dtype=encoded.dtype,
+            )
+            latents = scheduler.scale_noise(encoded, timesteps[:1], noise).float()
         padding_mask = torch.zeros(
             (1, 1, latent_height, latent_width), device=self.device, dtype=torch.bfloat16
         )
 
-        for step, timestep in enumerate(scheduler.timesteps):
+        for step, timestep in enumerate(timesteps):
             model_input = latents.to(torch.bfloat16)
             # Anima is trained with ComfyUI's flow multiplier=1. Diffusers keeps
             # scheduler timesteps on its conventional 0..1000 scale, while the

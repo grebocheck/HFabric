@@ -508,10 +508,10 @@ export function ModelBadges({ model }: { model: VoiceModel | null | undefined })
   return (
     <span className="flex flex-wrap gap-1.5">
       <Badge color="bg-accent/45 text-accent-fg">{model.type}{model.version ? ` ${model.version}` : ""}</Badge>
-      <Badge color={model.f0 ? "bg-sky-700/50 text-sky-100" : "bg-white/10 text-white/55"}>
+      <Badge color={model.f0 ? "bg-info-bg text-info-fg" : "ui-chip"}>
         {model.f0 ? "f0 pitch" : "no f0"}
       </Badge>
-      <Badge color={model.has_index ? "bg-emerald-700/55 text-emerald-100" : "bg-white/10 text-white/55"}>
+      <Badge color={model.has_index ? "bg-success-bg text-success-fg" : "ui-chip"}>
         {model.has_index ? "index" : "no index"}
       </Badge>
       {model.sampling_rate ? <Badge>{model.sampling_rate} Hz</Badge> : null}

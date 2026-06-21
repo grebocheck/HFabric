@@ -1719,7 +1719,9 @@
           "flux",
           "flux2",
           "qwen-image",
+          "qwen-image-edit",
           "z-image",
+          "flux-kontext",
           "sdxl",
           "gguf",
           "upscaler",
@@ -4256,7 +4258,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "pattern": "^(anima|flux|flux2|qwen-image|z-image|sdxl|upscaler|unknown)$",
+                  "pattern": "^(anima|flux|flux2|flux-kontext|qwen-image|qwen-image-edit|z-image|sdxl|upscaler|unknown)$",
                   "type": "string"
                 },
                 {

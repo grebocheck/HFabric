@@ -142,7 +142,12 @@ class ModelRegistry:
                 self._add(path, fam, quant=quant)
         # Multi-file Diffusers repos (FLUX.2 [klein], Qwen-Image, Z-Image).
         for sub, family in diffusers_dirs:
-            if family in (ModelFamily.QWEN_IMAGE, ModelFamily.Z_IMAGE) and not _has_transformer_weights(sub):
+            if family in (
+                ModelFamily.QWEN_IMAGE,
+                ModelFamily.QWEN_IMAGE_EDIT,
+                ModelFamily.Z_IMAGE,
+                ModelFamily.FLUX_KONTEXT,
+            ) and not _has_transformer_weights(sub):
                 # A "slimmed" base repo (transformer/ weights deleted): it only
                 # supplies the text encoder / VAE / tokenizer to a separate Nunchaku
                 # fp4 transformer, so don't expose it as a standalone (it would fail
@@ -152,8 +157,12 @@ class ModelRegistry:
                 quant = settings.flux2_quant
             elif family is ModelFamily.QWEN_IMAGE:
                 quant = settings.qwen_image_quant
+            elif family is ModelFamily.QWEN_IMAGE_EDIT:
+                quant = settings.qwen_image_edit_quant
             elif family is ModelFamily.Z_IMAGE:
                 quant = settings.z_image_quant
+            elif family is ModelFamily.FLUX_KONTEXT:
+                quant = settings.flux_kontext_quant
             else:
                 quant = None
             self._add(sub, family, quant=quant)

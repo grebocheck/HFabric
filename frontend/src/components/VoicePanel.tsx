@@ -684,13 +684,13 @@ export function VoicePanel() {
       <header className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl font-semibold text-white/90">Voice Changer</h2>
-            <Badge color={live ? "bg-emerald-700/55 text-emerald-100" : "bg-white/10 text-white/55"}>
+            <h2 className="text-xl font-semibold text-ui-strong">Voice Changer</h2>
+            <Badge color={live ? "bg-success-bg text-success-fg" : "ui-chip"}>
               {live ? "live" : "idle"}
             </Badge>
             {tuningDirty ? <Badge color="bg-amber-600/40 text-amber-100">unsaved tuning</Badge> : null}
           </div>
-          <p className="mt-1 truncate text-sm text-white/45">
+          <p className="mt-1 truncate text-sm text-ui-subtle">
             {selected?.name ?? "No voice selected"} {selected ? "->" : ""} {live ? "microphone lane active" : "ready for setup"}
           </p>
         </div>
@@ -724,7 +724,7 @@ export function VoicePanel() {
 
           <div className="mt-4">
             <div className="mb-1.5 flex items-center justify-between gap-2">
-              <div className="text-xs font-medium text-white/55">Voice model</div>
+              <div className="text-xs font-medium text-ui-muted">Voice model</div>
               <Badge>{models.length} slots</Badge>
             </div>
             <Select
@@ -739,11 +739,11 @@ export function VoicePanel() {
             />
           </div>
 
-          <div className="mt-3 rounded-md border border-white/10 bg-black/15 p-3">
+          <div className="ui-card mt-3 rounded-md p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-white/82">{selected?.name ?? "No model selected"}</div>
-                <div className="mt-1 truncate text-xs text-white/38">
+                <div className="truncate text-sm font-medium text-ui">{selected?.name ?? "No model selected"}</div>
+                <div className="mt-1 truncate text-xs text-ui-subtle">
                   loaded: {loadedModel?.name ?? status?.loaded_model ?? "none"}
                 </div>
               </div>
@@ -762,7 +762,7 @@ export function VoicePanel() {
           <button
             type="button"
             onClick={() => setVoicesOpen((open) => !open)}
-            className="mt-3 w-full rounded-md border border-white/10 px-2.5 py-1.5 text-left text-xs font-medium text-white/55 transition hover:bg-white/10 hover:text-white/75"
+            className="ui-button mt-3 w-full rounded-md px-2.5 py-1.5 text-left text-xs font-medium"
           >
             {voicesOpen ? "Hide model list" : "Show model list"}
           </button>
@@ -773,18 +773,18 @@ export function VoicePanel() {
               <div
                 key={asset.name}
                 title={assetTitle(asset)}
-                className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-black/15 px-2.5 py-1.5"
+                className="ui-card flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5"
               >
-                <span className="min-w-0 truncate text-sm text-white/72">{asset.name}</span>
+                <span className="min-w-0 truncate text-sm text-ui-muted">{asset.name}</span>
                 <span className="flex shrink-0 items-center gap-1.5">
-                  <Badge color={asset.found ? "bg-emerald-700/55 text-emerald-100" : asset.optional ? "bg-white/10 text-white/55" : "bg-amber-600/40 text-amber-100"}>
+                  <Badge color={asset.found ? "bg-success-bg text-success-fg" : asset.optional ? "ui-chip" : "bg-warn-bg text-warn-fg"}>
                     {asset.found ? "found" : asset.optional ? "optional" : "missing"}
                   </Badge>
                   {asset.source ? <Badge>{asset.source}</Badge> : null}
                 </span>
               </div>
             ))}
-            {!status?.assets?.length ? <div className="text-sm text-white/40">Loading native assets...</div> : null}
+            {!status?.assets?.length ? <div className="text-sm text-ui-subtle">Loading native assets...</div> : null}
           </div>
 
           {(() => {
@@ -797,7 +797,7 @@ export function VoicePanel() {
                 <p className="mt-1 text-xs leading-5 text-amber-100/80">
                   Every voice model uses a shared ContentVec encoder (and RMVPE for the quality pitch path) —
                   these aren't bundled with your voice files. Fetch them once into{" "}
-                  <code className="rounded bg-black/30 px-1">models/voice/pretrain</code> and any voice model works.
+                  <code className="rounded bg-control-active px-1">models/voice/pretrain</code> and any voice model works.
                 </p>
                 {dl?.state === "running" ? (
                   <div className="mt-2 text-xs text-amber-100/80">
@@ -823,20 +823,20 @@ export function VoicePanel() {
           })()}
 
           {denoiseDtlnMissing ? (
-            <div className="mt-3 rounded-md border border-white/10 bg-black/15 p-3">
+            <div className="ui-card mt-3 rounded-md p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-white/78">Optional DTLN denoise assets</div>
-                  <div className="mt-1 text-xs leading-5 text-white/42">
+                  <div className="text-sm font-medium text-ui">Optional DTLN denoise assets</div>
+                  <div className="mt-1 text-xs leading-5 text-ui-subtle">
                     Enables the DTLN input denoise mode; files land in{" "}
-                    <code className="rounded bg-black/30 px-1">models/voice/pretrain/denoise</code>.
+                    <code className="rounded bg-control-active px-1">models/voice/pretrain/denoise</code>.
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => void fetchDtlnAssets()}
                   disabled={busy === "dtln-assets" || status?.asset_download?.state === "running"}
-                  className="rounded-md border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                  className="ui-button rounded-md px-3 py-1.5 text-xs font-medium"
                 >
                   {busy === "dtln-assets" ? "Starting..." : "Download DTLN"}
                 </button>
@@ -848,7 +848,7 @@ export function VoicePanel() {
         <Panel
           title="Live Console"
           aside={(
-            <Badge color={live ? "bg-emerald-700/55 text-emerald-100" : "bg-white/10 text-white/55"}>
+            <Badge color={live ? "bg-success-bg text-success-fg" : "ui-chip"}>
               {live ? "on air" : "stopped"}
             </Badge>
           )}
@@ -859,13 +859,13 @@ export function VoicePanel() {
             </div>
           ) : null}
 
-          <div className={`rounded-md border p-4 ${live ? "border-emerald-400/30 bg-emerald-400/10" : "border-white/10 bg-black/15"}`}>
+          <div className={`rounded-md border p-4 ${live ? "border-success-border bg-success-bg" : "border-border bg-sunken"}`}>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
               <div className="min-w-0">
-                <div className="truncate text-base font-semibold text-white/88">
+                <div className="truncate text-base font-semibold text-ui-strong">
                   {live ? "Live voice is running" : "Live voice is off"}
                 </div>
-                <div className="mt-1 truncate text-sm text-white/42">
+                <div className="mt-1 truncate text-sm text-ui-subtle">
                   {deviceName(inputDevices, inputDeviceId, "input")}{" -> "}{selected?.name ?? "voice"}{" -> "}{deviceName(outputDevices, outputDeviceId, "output")}
                 </div>
               </div>
@@ -901,16 +901,16 @@ export function VoicePanel() {
           </div>
 
           <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(250px,0.75fr)]">
-            <div className={`rounded-md border px-3 py-2 ${recording ? "border-red-300/35 bg-red-400/10" : "border-white/10 bg-black/15"}`}>
+            <div className={`rounded-md border px-3 py-2 ${recording ? "border-error-border bg-error-bg" : "border-border bg-sunken"}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white/80">Recorder</span>
-                    <Badge color={recording ? "bg-red-600/60 text-red-50" : "bg-white/10 text-white/55"}>
+                    <span className="text-sm font-medium text-ui">Recorder</span>
+                    <Badge color={recording ? "bg-error-bg text-error-fg" : "ui-chip"}>
                       {recording ? `${(status?.recording.duration_s ?? 0).toFixed(1)} s` : "ready"}
                     </Badge>
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-white/36">
+                  <div className="mt-0.5 truncate text-xs text-ui-subtle">
                     {recordingResult ? `${recordingResult.sample_rate} Hz / ${recordingResult.duration_s.toFixed(2)} s` : "live output"}
                   </div>
                 </div>
@@ -922,23 +922,23 @@ export function VoicePanel() {
                 <div className="mt-3">
                   <audio controls src={recordingResult.url} className="w-full" />
                   <div className="mt-2 flex justify-end gap-2">
-                    <a href={recordingResult.url} download className="rounded border border-white/15 px-2 py-1 text-xs text-white/70 transition hover:bg-white/10 hover:text-white">WAV</a>
-                    <a href={recordingResult.mp3_url} download className="rounded border border-white/15 px-2 py-1 text-xs text-white/70 transition hover:bg-white/10 hover:text-white">MP3</a>
+                    <a href={recordingResult.url} download className="ui-button rounded px-2 py-1 text-xs">WAV</a>
+                    <a href={recordingResult.mp3_url} download className="ui-button rounded px-2 py-1 text-xs">MP3</a>
                   </div>
                 </div>
               ) : null}
             </div>
 
-            <div className={`rounded-md border px-3 py-2 ${monitorOn ? "border-sky-400/30 bg-sky-400/10" : "border-white/10 bg-black/15"}`}>
+            <div className={`rounded-md border px-3 py-2 ${monitorOn ? "border-info-border bg-info-bg" : "border-border bg-sunken"}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white/80">Monitor</span>
-                    <Badge color={monitorOn ? "bg-sky-700/50 text-sky-100" : "bg-white/10 text-white/55"}>
+                    <span className="text-sm font-medium text-ui">Monitor</span>
+                    <Badge color={monitorOn ? "bg-info-bg text-info-fg" : "ui-chip"}>
                       {monitorOn ? "on" : "off"}
                     </Badge>
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-white/36" title={deviceName(outputDevices, monitorDeviceId, "Off")}>
+                  <div className="mt-0.5 truncate text-xs text-ui-subtle" title={deviceName(outputDevices, monitorDeviceId, "Off")}>
                     {deviceName(outputDevices, monitorDeviceId, "Off")}
                   </div>
                 </div>
@@ -954,7 +954,7 @@ export function VoicePanel() {
             <Badge>overruns {status?.metrics.overruns ?? 0}</Badge>
             <Badge>underruns {status?.metrics.underruns ?? 0}</Badge>
             <Badge>chunk {formatMs(status?.metrics.chunk_ms)}</Badge>
-            <Badge color={status?.metrics.latency_warning ? "bg-amber-600/40 text-amber-100" : "bg-white/10 text-white/55"}>
+            <Badge color={status?.metrics.latency_warning ? "bg-warn-bg text-warn-fg" : "ui-chip"}>
               p95 {formatMs(status?.metrics.total_p95_ms)}
             </Badge>
             <Badge color={status?.metrics.squelched ? "bg-amber-600/40 text-amber-100" : "bg-emerald-700/45 text-emerald-100"}>
@@ -1011,7 +1011,7 @@ export function VoicePanel() {
 
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <label className="min-w-0">
-              <div className="mb-1.5 text-xs font-medium text-white/55">F0 detector</div>
+              <div className="mb-1.5 text-xs font-medium text-ui-muted">F0 detector</div>
               <Select
                 value={f0Detector}
                 onChange={(value) => {
@@ -1022,7 +1022,7 @@ export function VoicePanel() {
               />
             </label>
             <label className="min-w-0">
-              <div className="mb-1.5 text-xs font-medium text-white/55">Speaker ID</div>
+              <div className="mb-1.5 text-xs font-medium text-ui-muted">Speaker ID</div>
               <input
                 type="number"
                 min={0}
@@ -1034,7 +1034,7 @@ export function VoicePanel() {
               />
             </label>
             <label className="min-w-0">
-              <div className="mb-1.5 text-xs font-medium text-white/55">Denoise</div>
+              <div className="mb-1.5 text-xs font-medium text-ui-muted">Denoise</div>
               <Select
                 value={inputDenoise}
                 onChange={(value) => {
@@ -1059,7 +1059,7 @@ export function VoicePanel() {
               </div>
             </label>
             <label className="min-w-0">
-              <div className="mb-1.5 text-xs font-medium text-white/55">High-pass</div>
+              <div className="mb-1.5 text-xs font-medium text-ui-muted">High-pass</div>
               <Select
                 value={String(inputHighpassHz)}
                 onChange={(value) => {
@@ -1136,12 +1136,12 @@ export function VoicePanel() {
               onChange={(value) => { setSilenceHoldMs(value); markTuning(); }}
               valueLabel={`${Math.round(silenceHoldMs)} ms`}
             />
-            <div className="flex items-end justify-between gap-3 rounded-md border border-white/10 bg-black/15 px-3 py-2">
-              <label className="flex items-center gap-2 text-sm text-white/62">
+            <div className="ui-card flex items-end justify-between gap-3 rounded-md px-3 py-2">
+              <label className="flex items-center gap-2 text-sm text-ui-muted">
                 <Toggle checked={passThrough} onChange={onBypass} disabled={!statusLoaded || Boolean(busy)} />
                 Bypass
               </label>
-              <label className="flex items-center gap-2 text-sm text-white/62">
+              <label className="flex items-center gap-2 text-sm text-ui-muted">
                 <Toggle checked={ptt} onChange={onPtt} disabled={!statusLoaded} />
                 PTT
               </label>
@@ -1199,7 +1199,7 @@ export function VoicePanel() {
                 ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100/80"
                 : virtualCableDetected
                   ? "border-amber-400/25 bg-amber-400/10 text-amber-100/80"
-                  : "border-white/10 bg-black/15 text-white/45"
+                  : "border-border bg-sunken text-ui-subtle"
             }`}
             >
               {outputIsVirtualCable ? (
@@ -1220,7 +1220,7 @@ export function VoicePanel() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label>
               <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-white/55">Sample rate</span>
+                <span className="text-xs font-medium text-ui-muted">Sample rate</span>
                 {sampleRateRestartPending ? <span className="text-[11px] text-amber-200/70">restart</span> : null}
               </div>
               <Select
@@ -1232,7 +1232,7 @@ export function VoicePanel() {
 
             <label>
               <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-white/55">Chunk</span>
+                <span className="text-xs font-medium text-ui-muted">Chunk</span>
                 {chunkRestartPending ? <span className="text-[11px] text-amber-200/70">restart</span> : null}
               </div>
               <input
@@ -1300,7 +1300,7 @@ export function VoicePanel() {
                 onDelete={onDeleteVoicePreset}
               />
             )) : (
-              <div className="rounded-md border border-white/10 bg-black/15 px-3 py-3 text-sm text-white/42">
+              <div className="ui-card rounded-md px-3 py-3 text-sm text-ui-subtle">
                 No saved voice presets yet.
               </div>
             )}
@@ -1321,16 +1321,16 @@ export function VoicePanel() {
 
           <div className="grid gap-3 xl:grid-cols-[minmax(220px,1fr)_minmax(220px,0.9fr)]">
             <label>
-              <div className="mb-1.5 text-xs font-medium text-white/55">Audio file</div>
+              <div className="mb-1.5 text-xs font-medium text-ui-muted">Audio file</div>
               <input
                 type="file"
                 accept=".wav,.flac,.ogg,.mp3,audio/wav,audio/flac,audio/ogg,audio/mpeg"
                 onChange={(event) => setOfflineFile(event.target.files?.[0] ?? null)}
-                className={`${field} file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white/70`}
+                className={`${field} file:mr-3 file:rounded file:border-0 file:bg-control-active file:px-2 file:py-1 file:text-xs file:text-ui-muted`}
               />
             </label>
             <label>
-              <div className="mb-1.5 text-xs font-medium text-white/55">Voice</div>
+              <div className="mb-1.5 text-xs font-medium text-ui-muted">Voice</div>
               <Select
                 value={offlineModelId}
                 onChange={setOfflineModelId}
@@ -1352,20 +1352,20 @@ export function VoicePanel() {
           </div>
 
           {offlineResult ? (
-            <div className="mt-4 rounded-md border border-white/10 bg-black/15 p-3">
+            <div className="ui-card mt-4 rounded-md p-3">
               <audio controls src={offlineResult.url} className="w-full" />
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
                 <span className="flex gap-2">
-                  <a href={offlineResult.url} download className="rounded-md border border-white/15 px-3 py-1.5 text-white/75 transition hover:bg-white/10 hover:text-white">WAV</a>
-                  <a href={offlineResult.mp3_url} download className="rounded-md border border-white/15 px-3 py-1.5 text-white/75 transition hover:bg-white/10 hover:text-white">MP3</a>
+                  <a href={offlineResult.url} download className="ui-button rounded-md px-3 py-1.5">WAV</a>
+                  <a href={offlineResult.mp3_url} download className="ui-button rounded-md px-3 py-1.5">MP3</a>
                 </span>
-                <span className="text-xs text-white/45">
+                <span className="text-xs text-ui-subtle">
                   {offlineResult.sample_rate} Hz / {offlineResult.duration_s.toFixed(2)} s / pitch {offlineResult.params.pitch}
                   {" / "}formant {offlineResult.params.input_formant.toFixed(2)}
                   {" / "}denoise {offlineResult.params.input_denoise}
                 </span>
               </div>
-              <div className="mt-2 text-xs text-white/40">{timingsLine(offlineResult.timings_ms)}</div>
+              <div className="mt-2 text-xs text-ui-subtle">{timingsLine(offlineResult.timings_ms)}</div>
             </div>
           ) : null}
         </Panel>

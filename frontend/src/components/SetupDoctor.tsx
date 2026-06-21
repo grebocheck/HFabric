@@ -16,7 +16,7 @@ const TONE_CARD: Record<DoctorTone, string> = {
   good: "border-success/30 bg-success/10",
   warn: "border-warn/30 bg-warn/10",
   info: "border-info/30 bg-info/10",
-  neutral: "border-white/10 bg-white/5",
+  neutral: "border-border bg-control",
 };
 
 // Curated, plain-language feature labels — only the ones a user benefits from
@@ -66,7 +66,7 @@ export function SetupDoctor() {
           <button
             onClick={() => void load(true)}
             disabled={busy}
-            className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+            className="ui-button rounded-md px-3 py-1.5 text-xs"
           >
             {busy ? "Detecting…" : "Re-run detection"}
           </button>
@@ -86,14 +86,14 @@ export function SetupDoctor() {
           <>
             <div className={`rounded-lg border px-4 py-3 ${TONE_CARD[status.tone]}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-white/85">{status.headline}</h3>
+                <h3 className="text-sm font-semibold text-ui-strong">{status.headline}</h3>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {isExperimentalBackend(cap) ? <StatusPill label="Experimental" tone="warn" /> : null}
                   <StatusPill label={cap.label ?? cap.active_profile} tone={status.tone === "warn" ? "warn" : "good"} />
                   {cap.confidence ? <StatusPill label={`${cap.confidence} confidence`} tone="neutral" /> : null}
                 </div>
               </div>
-              <p className="mt-1 text-sm text-white/55">{status.detail}</p>
+              <p className="mt-1 text-sm text-ui-muted">{status.detail}</p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -123,7 +123,7 @@ export function SetupDoctor() {
                       <span
                         key={key}
                         className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-                          on ? "bg-success/20 text-success-fg" : "bg-white/8 text-white/35 line-through"
+                          on ? "bg-success-bg text-success-fg" : "bg-control-active text-ui-subtle line-through"
                         }`}
                         title={on ? `${label}: available` : `${label}: disabled for this profile`}
                       >
@@ -141,11 +141,11 @@ export function SetupDoctor() {
                   <FamilyRow label="Recommended" tone="good" families={policy.image.recommended} empty="none" />
                   <FamilyRow label="Advanced" tone="neutral" families={policy.image.advanced} empty="none" />
                   <FamilyRow label="Not supported" tone="bad" families={policy.image.hidden} empty="none" />
-                  <div className="text-[11px] text-white/40">
+                  <div className="text-[11px] text-ui-subtle">
                     LLMs: recommend up to ~{policy.llm.max_recommended_params_b}B params.
                   </div>
                   {policy.notes.map((note) => (
-                    <p key={note} className="text-[11px] text-white/40">{note}</p>
+                    <p key={note} className="text-[11px] text-ui-subtle">{note}</p>
                   ))}
                 </div>
               </DetailCard>
@@ -155,26 +155,26 @@ export function SetupDoctor() {
               <DetailCard title="Starter model set">
                 {starter.jobs.length ? (
                   <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-white/40">
-                      <span className="rounded bg-white/8 px-1.5 py-0.5 font-mono text-white/55">{starter.profile}</span>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ui-subtle">
+                      <span className="ui-chip rounded px-1.5 py-0.5 font-mono">{starter.profile}</span>
                       <span>{starter.jobs.length} files planned</span>
                     </div>
                     <div className="grid gap-1.5">
                       {starter.jobs.map((job) => (
                         <div key={`${job.repo}/${job.filename}`} className="grid gap-0.5 text-xs md:grid-cols-[220px_minmax(0,1fr)] md:gap-2">
-                          <span className="truncate text-white/70" title={job.label}>{job.label}</span>
-                          <span className="truncate font-mono text-[11px] text-white/35" title={`${job.repo}/${job.filename}`}>
+                          <span className="truncate text-ui-muted" title={job.label}>{job.label}</span>
+                          <span className="truncate font-mono text-[11px] text-ui-subtle" title={`${job.repo}/${job.filename}`}>
                             {compactModelDest(job.dest, job.filename)}
                           </span>
                         </div>
                       ))}
                     </div>
-                    <div className="truncate font-mono text-[11px] text-white/35" title={starter.dry_run_command}>
+                    <div className="truncate font-mono text-[11px] text-ui-subtle" title={starter.dry_run_command}>
                       {starter.dry_run_command}
                     </div>
                   </div>
                 ) : (
-                  <div className="text-xs text-white/40">No real-model downloads for CPU-safe/STUB mode.</div>
+                  <div className="text-xs text-ui-subtle">No real-model downloads for CPU-safe/STUB mode.</div>
                 )}
               </DetailCard>
             ) : null}
@@ -189,7 +189,7 @@ export function SetupDoctor() {
 
             <button
               onClick={() => setShowAdvanced((v) => !v)}
-              className="text-xs text-white/45 underline-offset-2 hover:text-white/70 hover:underline"
+              className="text-xs text-ui-subtle underline-offset-2 hover:text-ui hover:underline"
             >
               {showAdvanced ? "Hide advanced details" : "Show advanced details"}
             </button>
@@ -200,10 +200,10 @@ export function SetupDoctor() {
                   <div className="space-y-1.5 text-[11px]">
                     {cap.candidates.map((c) => (
                       <div key={c.id} className="flex items-start justify-between gap-2">
-                        <span className={`font-mono ${c.id === cap.selected_profile ? "text-accent-fg" : "text-white/55"}`}>
+                        <span className={`font-mono ${c.id === cap.selected_profile ? "text-accent-fg" : "text-ui-muted"}`}>
                           {c.id}{c.id === cap.selected_profile ? " ◂ selected" : ""}
                         </span>
-                        <span className="min-w-0 truncate text-white/35" title={c.reason ?? ""}>{c.reason}</span>
+                        <span className="min-w-0 truncate text-ui-subtle" title={c.reason ?? ""}>{c.reason}</span>
                       </div>
                     ))}
                   </div>
@@ -212,7 +212,7 @@ export function SetupDoctor() {
                   <DetailCard title="Disabled features">
                     <div className="flex flex-wrap gap-1.5">
                       {cap.disabled_features.map((f) => (
-                        <span key={f} className="rounded bg-white/8 px-1.5 py-0.5 font-mono text-[11px] text-white/45">{f}</span>
+                        <span key={f} className="ui-chip rounded px-1.5 py-0.5 font-mono text-[11px]">{f}</span>
                       ))}
                     </div>
                   </DetailCard>
@@ -239,8 +239,8 @@ export function SetupDoctor() {
 
 function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-white/10 bg-black/20 p-3">
-      <div className="mb-2 text-xs font-medium text-white/45">{title}</div>
+    <div className="ui-card rounded-md p-3">
+      <div className="mb-2 text-xs font-medium text-ui-subtle">{title}</div>
       {children}
     </div>
   );
@@ -251,8 +251,8 @@ function KeyVals({ rows }: { rows: [string, string][] }) {
     <dl className="space-y-1 text-xs">
       {rows.map(([k, v]) => (
         <div key={k} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
-          <dt className="text-white/35">{k}</dt>
-          <dd className="truncate text-white/70" title={v}>{v}</dd>
+          <dt className="text-ui-subtle">{k}</dt>
+          <dd className="truncate text-ui-muted" title={v}>{v}</dd>
         </div>
       ))}
     </dl>
@@ -273,17 +273,17 @@ function FamilyRow({
   const toneClass =
     tone === "good" ? "bg-success/20 text-success-fg"
       : tone === "bad" ? "bg-error/20 text-error-fg"
-        : "bg-white/10 text-white/55";
+        : "bg-control-active text-ui-muted";
   return (
     <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-2 text-xs">
-      <span className="text-white/35">{label}</span>
+      <span className="text-ui-subtle">{label}</span>
       <div className="flex flex-wrap gap-1.5">
         {families.length ? (
           families.map((f) => (
             <span key={f} className={`rounded px-1.5 py-0.5 text-[11px] ${toneClass}`}>{familyLabel(f)}</span>
           ))
         ) : (
-          <span className="text-[11px] text-white/25">{empty}</span>
+          <span className="text-[11px] text-ui-subtle">{empty}</span>
         )}
       </div>
     </div>

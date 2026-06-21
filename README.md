@@ -67,11 +67,13 @@ they never collide.
 The full pipeline (model discovery → queue → arbiter swap → live progress over
 WebSocket → gallery with reproducible metadata) is validated on the GPU today:
 
-- **Image:** SDXL, FLUX (Nunchaku fp4), FLUX.2 [klein], Anima, Qwen-Image, Z-Image.
+- **Image:** SDXL, FLUX, FLUX.2 [klein], Anima, Qwen-Image, and Z-Image generation;
+  a dedicated **Edit** workspace adds img2img, inpaint, outpaint, full-size mask
+  painting, A/B comparison, ControlNet, and instruction-edit model support.
 - **Chat LLM:** any GGUF model via `llama-server`, with streaming, personas,
   sampling control, stop/regenerate/edit, attachments, native multimodal
   `mmproj` vision, and a `/image` bridge.
-- **Workspaces:** RAG, TTS, Transcribe, Notes, Code, and a native RVC Voice
+- **Workspaces:** Edit, RAG, TTS, Transcribe, Notes, Code, and a native RVC Voice
   changer — all model-gated and CPU-first by default.
 
 The same pipeline also runs **without** torch or llama.cpp in **STUB mode**

@@ -9,6 +9,7 @@ export function ResultPreview({
   images,
   onOpenHistory,
   onReproduce,
+  onEdit,
   onUpscale,
   generating = false,
   hasImageModels = true,
@@ -18,6 +19,7 @@ export function ResultPreview({
   images: ImageItem[];
   onOpenHistory: () => void;
   onReproduce?: (image: ImageItem, opts: { keepSeed: boolean }) => void;
+  onEdit?: (image: ImageItem) => void;
   onUpscale?: (image: ImageItem, scale: 2 | 4) => void;
   generating?: boolean;
   hasImageModels?: boolean;
@@ -166,6 +168,7 @@ export function ResultPreview({
           <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={copyImage} disabled={!selected} className={`${actionBtn} disabled:opacity-30`}>Copy</button>
             <button onClick={() => setLightbox(true)} disabled={!selected} className={`${actionBtn} disabled:opacity-30`}>Detail</button>
+            <button onClick={() => selected && onEdit?.(selected)} disabled={!selected || !onEdit} className={`${actionBtn} disabled:opacity-30`}>Edit</button>
             <button
               onClick={() => selected && onReproduce?.(selected, { keepSeed: true })}
               disabled={!selected || !onReproduce}

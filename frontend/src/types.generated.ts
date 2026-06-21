@@ -2231,7 +2231,7 @@ export interface components {
          * ModelFamily
          * @enum {string}
          */
-        ModelFamily: "anima" | "flux" | "flux2" | "qwen-image" | "z-image" | "sdxl" | "gguf" | "upscaler" | "unknown";
+        ModelFamily: "anima" | "flux" | "flux2" | "qwen-image" | "qwen-image-edit" | "z-image" | "flux-kontext" | "sdxl" | "gguf" | "upscaler" | "unknown";
         /** ModelOut */
         ModelOut: {
             /**

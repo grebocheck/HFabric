@@ -6,6 +6,51 @@ from ...config import settings
 
 
 class QwenZLoaderMixin:
+    def _load_qwen_image_edit(self, torch) -> Any:
+        """Load Qwen-Image-Edit as its own arbiter resident (new weights)."""
+        import json  # noqa: PLC0415
+
+        from diffusers import QwenImageEditPipeline, QwenImageEditPlusPipeline  # noqa: PLC0415
+
+        cls = QwenImageEditPipeline
+        index = self.descriptor.path / "model_index.json"
+        if index.is_file():
+            try:
+                class_name = str(
+                    json.loads(index.read_text(encoding="utf-8")).get("_class_name", "")
+                )
+                if "EditPlus" in class_name:
+                    cls = QwenImageEditPlusPipeline
+            except (OSError, ValueError):
+                pass
+        kwargs = self._quantized_repo_kwargs(
+            torch,
+            settings.qwen_image_edit_quant,
+            "HFAB_QWEN_IMAGE_EDIT_QUANT",
+            ["transformer", "text_encoder"],
+        )
+        pipe = cls.from_pretrained(str(self.descriptor.path), **kwargs)
+        if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
+            pipe.vae.enable_tiling()
+        quant = settings.qwen_image_edit_quant.lower().strip()
+        if quant in ("bnb-nf4", "bnb-fp4"):
+            if hasattr(getattr(pipe, "vae", None), "to"):
+                self._runtime().move(pipe.vae)
+            placement = "bnb-loader"
+        else:
+            self._place_repo_pipeline(
+                pipe,
+                settings.qwen_image_edit_offload,
+                "HFAB_QWEN_IMAGE_EDIT_OFFLOAD",
+            )
+            placement = settings.qwen_image_edit_offload
+        self._active_features["qwen_image_edit"] = {
+            "quant": settings.qwen_image_edit_quant,
+            "placement": placement,
+            "instruction_edit": True,
+        }
+        return pipe
+
     def _load_qwen_image(self, torch) -> Any:
         """Qwen-Image-2512 multi-file Diffusers repo.
 

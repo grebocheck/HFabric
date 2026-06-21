@@ -4,7 +4,7 @@ import { Select } from "./Select";
 import { EmptyState, InfoRows, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { TranscriptionResult, TranscriptionStatus } from "../types";
 
-const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
+const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 
 function size(bytes: number): string {
   if (!bytes) return "0 B";
@@ -90,7 +90,7 @@ export function TranscriptionPanel() {
         />
 
         <label>
-          <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Model</div>
           <Select
             value={modelId}
             onChange={setModelId}
@@ -101,18 +101,18 @@ export function TranscriptionPanel() {
         </label>
 
         <label>
-          <div className="text-xs uppercase tracking-wide text-white/40">Audio</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Audio</div>
           <input
             type="file"
             accept="audio/*,video/mp4,video/webm"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className={`${field} mt-1 file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white/70`}
+            className={`${field} mt-1 file:mr-3 file:rounded file:border-0 file:bg-control-active file:px-2 file:py-1 file:text-xs file:text-ui-muted`}
           />
         </label>
 
         <div className="grid grid-cols-2 gap-2">
           <label>
-            <div className="text-xs uppercase tracking-wide text-white/40">Task</div>
+            <div className="text-xs uppercase tracking-wide text-ui-subtle">Task</div>
             <Select
               value={task}
               onChange={setTask}
@@ -124,7 +124,7 @@ export function TranscriptionPanel() {
             />
           </label>
           <label>
-            <div className="text-xs uppercase tracking-wide text-white/40">Language</div>
+            <div className="text-xs uppercase tracking-wide text-ui-subtle">Language</div>
             <input
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
@@ -135,7 +135,7 @@ export function TranscriptionPanel() {
         </div>
 
         <label className="flex min-h-0 flex-1 flex-col">
-          <div className="text-xs uppercase tracking-wide text-white/40">Prompt</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Prompt</div>
           <textarea
             value={initialPrompt}
             onChange={(e) => setInitialPrompt(e.target.value)}
@@ -160,15 +160,15 @@ export function TranscriptionPanel() {
           <textarea
             readOnly
             value={result.text}
-            className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-white/80 outline-none"
+            className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-ui outline-none"
           />
         ) : (
           <EmptyState title="No transcript yet" body="Choose a file and run transcription to fill this panel." />
         )}
 
         {result && (
-          <div className="max-h-52 overflow-y-auto border-t border-white/10 p-3">
-            <div className="mb-2 flex items-center gap-3 text-xs text-white/40">
+          <div className="max-h-52 overflow-y-auto border-t border-border p-3">
+            <div className="mb-2 flex items-center gap-3 text-xs text-ui-subtle">
               <span>{result.duration_seconds.toFixed(1)}s</span>
               {result.detected_language && <span>{result.detected_language}</span>}
               {typeof result.language_probability === "number" && (
@@ -178,17 +178,17 @@ export function TranscriptionPanel() {
             <div className="space-y-1">
               {result.segments.map((segment, idx) => (
                 <div key={`${segment.start}-${idx}`} className="grid grid-cols-[90px_1fr] gap-3 rounded-md px-2 py-1.5 text-xs hover:bg-white/5">
-                  <span className="font-mono text-white/35">{stamp(segment.start)}-{stamp(segment.end)}</span>
-                  <span className="text-white/65">{segment.text}</span>
+                  <span className="font-mono text-ui-subtle">{stamp(segment.start)}-{stamp(segment.end)}</span>
+                  <span className="text-ui-muted">{segment.text}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        <div className="flex items-center justify-between border-t border-white/10 p-3">
+        <div className="flex items-center justify-between border-t border-border p-3">
           <span
-            className={`min-w-0 truncate text-xs ${error ? "text-red-300" : "text-white/35"}`}
+            className={`min-w-0 truncate text-xs ${error ? "text-error-fg" : "text-ui-subtle"}`}
             title={statusText}
           >
             {statusText}

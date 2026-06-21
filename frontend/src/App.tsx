@@ -5,6 +5,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import type { ChatJump } from "./components/ChatPanel";
 import { CodePanel } from "./components/CodePanel";
 import { CommandPalette, type Command } from "./components/CommandPalette";
+import { EditWorkspace } from "./components/EditWorkspace";
 import { ImageComposer } from "./components/ImageComposer";
 import { Gallery } from "./components/Gallery";
 import { ModelManager } from "./components/ModelManager";
@@ -21,7 +22,7 @@ import { TtsPanel } from "./components/TtsPanel";
 import { VoicePanel } from "./components/VoicePanel";
 import { Welcome } from "./components/Welcome";
 import { buildComposerApply } from "./components/imageComposerHelpers";
-import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
+import type { AppTheme, ArbiterNote, BusEvent, ComposerApply, EditApply, GpuStatus, HealthStatus, ImageItem, Job, Lora, MemPoint, MemSnapshot, Model, Preset } from "./types";
 
 const MEM_HISTORY_MAX = 90; // rolling timeline points (~a few minutes at the poll rate)
 const THEME_KEY = "hfabric.theme";
@@ -82,6 +83,7 @@ export default function App() {
   const [imageEpoch, setImageEpoch] = useState(0);
   // A "reproduce from History" request handed to the image composer.
   const [composerApply, setComposerApply] = useState<ComposerApply | null>(null);
+  const [editApply, setEditApply] = useState<EditApply | null>(null);
   const postureToastShown = useRef(false);
 
   const refreshJobs = useCallback(() => api.listJobs().then(setJobs).catch(() => {}), []);
@@ -285,6 +287,22 @@ export default function App() {
     [models],
   );
 
+  const onEdit = useCallback(
+    (image: ImageItem) => {
+      const base = buildComposerApply(image, models, { keepSeed: true });
+      setEditApply({
+        ...base,
+        image_id: image.id,
+        source_url: image.url,
+        width: image.width ?? undefined,
+        height: image.height ?? undefined,
+      });
+      setView("edit");
+      toast.success("Loaded into Edit");
+    },
+    [models],
+  );
+
   const onUpscale = useCallback(
     async (image: ImageItem, scale: 2 | 4) => {
       const upscaler = models.find((model) => model.job_type === "upscale" && model.available);
@@ -363,6 +381,7 @@ export default function App() {
             images={images}
             onOpenHistory={() => setView("history")}
             onReproduce={onReproduce}
+            onEdit={onEdit}
             onUpscale={onUpscale}
             generating={imageJobs.some((j) => j.status === "running")}
             hasImageModels={hasImageModels}
@@ -374,11 +393,30 @@ export default function App() {
       ),
     },
     {
+      id: "edit",
+      label: "Edit",
+      render: () => (
+        <main className="min-h-0 flex-1 overflow-hidden p-4">
+          <EditWorkspace
+            models={models}
+            modelsLoading={modelsLoading}
+            loras={loras}
+            presets={presets}
+            jobs={imageJobs}
+            images={images}
+            apply={editApply}
+            onQueued={refreshJobs}
+            onGetModels={() => setView("models")}
+          />
+        </main>
+      ),
+    },
+    {
       id: "history",
       label: "History",
       render: () => (
         <main className="flex-1 overflow-hidden p-4">
-          <Gallery models={models} reloadSignal={imageEpoch} onReproduce={onReproduce} onUpscale={onUpscale} />
+          <Gallery models={models} reloadSignal={imageEpoch} onReproduce={onReproduce} onEdit={onEdit} onUpscale={onUpscale} />
         </main>
       ),
     },

@@ -81,6 +81,8 @@ class DiffusersMemoryMixin:
         self._inpaint_pipe = None
         self._controlnet_pipe = None
         self._controlnet_model = None
+        self._controlnet_pipes = {}
+        self._controlnet_models = {}
         gc.collect()
         self._runtime().empty_cache(torch)
 
@@ -90,6 +92,8 @@ class DiffusersMemoryMixin:
         self._inpaint_pipe = None
         self._controlnet_pipe = None
         self._controlnet_model = None
+        self._controlnet_pipes = {}
+        self._controlnet_models = {}
         self._loaded = False
         self._warm = False
         self._active_features = {}

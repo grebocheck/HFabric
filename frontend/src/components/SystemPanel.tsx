@@ -105,7 +105,7 @@ export function SystemPanel({
               }} />
             </>
           ) : (
-            <div className="text-sm text-white/30">VRAM stats unavailable</div>
+            <div className="text-sm text-ui-subtle">VRAM stats unavailable</div>
           )}
         </Card>
 
@@ -120,7 +120,7 @@ export function SystemPanel({
               }} />
             </>
           ) : (
-            <div className="text-sm text-white/30">waiting for telemetry…</div>
+            <div className="text-sm text-ui-subtle">waiting for telemetry…</div>
           )}
         </Card>
 
@@ -135,7 +135,7 @@ export function SystemPanel({
               {imageStats.by_model.length ? <ModelCounts rows={imageStats.by_model.slice(0, 5)} /> : null}
             </>
           ) : (
-            <div className="text-sm text-white/30">waiting for generation counters...</div>
+            <div className="text-sm text-ui-subtle">waiting for generation counters...</div>
           )}
         </Card>
 
@@ -157,12 +157,12 @@ export function SystemPanel({
           </Card>
         ) : (
           <Card title="Runtime" subtitle="loading">
-            <div className="text-sm text-white/30">waiting for runtime settings...</div>
+            <div className="text-sm text-ui-subtle">waiting for runtime settings...</div>
           </Card>
         )}
       </div>
 
-      <p className="text-xs text-white/30">Live telemetry streams over the WebSocket; updates roughly every few seconds.</p>
+      <p className="text-xs text-ui-subtle">Live telemetry streams over the WebSocket; updates roughly every few seconds.</p>
     </div>
   );
 }

@@ -9,7 +9,9 @@ const FAMILY_LABELS: Record<string, string> = {
   flux: "FLUX",
   flux2: "FLUX.2",
   "qwen-image": "Qwen-Image",
+  "qwen-image-edit": "Qwen-Image Edit",
   "z-image": "Z-Image",
+  "flux-kontext": "FLUX Kontext",
   sdxl: "SDXL",
   upscaler: "Upscaler",
   unknown: "Unknown",
@@ -29,6 +31,7 @@ export function DetailModal({
   models,
   onClose,
   onReproduce,
+  onEdit,
   onUpscale,
   onUpdate,
   onDelete,
@@ -41,6 +44,7 @@ export function DetailModal({
   models: Model[];
   onClose: () => void;
   onReproduce: (image: ImageItem, opts: { keepSeed: boolean }) => void;
+  onEdit: (image: ImageItem) => void;
   onUpscale: (image: ImageItem, scale: 2 | 4) => void;
   onUpdate: (image: ImageItem) => void;
   onDelete: () => void;
@@ -149,8 +153,11 @@ export function DetailModal({
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => onReproduce(image, { keepSeed: true })} className={primaryBtn} title={knownModel ? "" : "model not loaded — params applied, model unchanged"}>
-              Edit in composer
+            <button onClick={() => onEdit(image)} className={primaryBtn}>
+              Edit image
+            </button>
+            <button onClick={() => onReproduce(image, { keepSeed: true })} className={actionBtn} title={knownModel ? "" : "model not loaded — params applied, model unchanged"}>
+              Reproduce
             </button>
             <button onClick={() => onReproduce(image, { keepSeed: false })} className={actionBtn}>
               Variation

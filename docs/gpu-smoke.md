@@ -82,7 +82,21 @@ are close to the baselines below.
      fallback appears, and timings stay within normal variance. Investigate a
      repeatable regression above roughly 25%.
 
-5. `python scripts/voice_engine_smoke.py`
+5. Run the P26 image-edit matrix through the Edit workspace or `/api/jobs`:
+   - SDXL and FLUX: one img2img and one inpaint job.
+   - Qwen-Image and Z-Image: one img2img and one inpaint job for every locally
+     installed BnB/Nunchaku variant; verify `mem.status` still reports one resident
+     heavy model because edit pipes share components.
+   - FLUX.2 [klein]: one reference-conditioned source job (metadata contains
+     `flux2_reference: true` and no fake strength) and one inpaint job.
+   - Anima: one img2img job; masks must remain unavailable.
+   - If installed, run one Qwen-Image-Edit or FLUX.1-Kontext instruction edit and
+     one SDXL ControlNet combined img2img/inpaint job.
+   - Pass: gallery output is valid, masks remain localized, requested/effective
+     strength and edit operations are reproducible from metadata, and no job spills
+     into shared VRAM or pagefile pressure.
+
+6. `python scripts/voice_engine_smoke.py`
    - Expected:
      - Strict RVC state-dict load: `457/0/0`.
      - RMVPE median on a 220 Hz tone: about 220 Hz.
@@ -91,7 +105,7 @@ are close to the baselines below.
    - Pass: all three gates match, output is finite audio, and the script does not
      use any fake synth or silent fallback.
 
-6. `python scripts/voice_realtime_bench.py`
+7. `python scripts/voice_realtime_bench.py`
    - Expected CUDA hot-path numbers for chunk sizes 96/133/192:
      - 96: mean/p95 about 224.6/374.7 ms vs 256.0 ms chunk budget.
      - 133: mean/p95 about 129.3/140.8 ms vs 354.7 ms chunk budget.
@@ -99,6 +113,23 @@ are close to the baselines below.
    - Pass: CUDA mean is realtime at all three sizes, p95 is realtime at 133 and
      192, stitched output is finite and exact-length, and no sustained overrun
      pattern appears. Use CUDA for live sessions.
+
+### P26 real-machine edit validation log
+
+| Date | GPU | Family / variant | Paths | Result | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 2026-06-21 | RTX 5070 Ti 16 GB | SDXL NoobAI | inpaint + mask ops | PASS | 512², 4 steps; grow/blur and `padding_mask_crop` exercised. Existing img2img path remained covered by the full regression suite. |
+| 2026-06-21 | RTX 5070 Ti 16 GB | Qwen-Image Nunchaku fp4 | img2img + inpaint | PASS | Both views reused the resident transformer. A standalone BnB row was not present locally: the slim Qwen repo has no transformer weights. |
+| 2026-06-21 | RTX 5070 Ti 16 GB | Z-Image Nunchaku fp4 | img2img + inpaint | PASS | 512², 4 effective steps, guidance 0. |
+| 2026-06-21 | RTX 5070 Ti 16 GB | Z-Image BnB fp4 | img2img + inpaint | PASS | Cold process required for the RAM guard; warm process correctly refused after another heavy model occupied RAM. |
+| 2026-06-21 | RTX 5070 Ti 16 GB | FLUX.1-dev Nunchaku fp4 | img2img + inpaint | PASS | 512², 4 steps. |
+| 2026-06-21 | RTX 5070 Ti 16 GB | FLUX.2 klein 9B Nunchaku fp4 | reference + inpaint | PASS | First on-device validation of `Flux2KleinInpaintPipeline`; 512², 4 steps. Full 34.7 GB BnB install exceeds this host's safe RAM budget. |
+| 2026-06-21 | RTX 5070 Ti 16 GB | Anima | img2img | PASS | Custom VAE encode/noise/timestep latent-init path, 512², 4 steps. |
+
+Optional ControlNet depth/pose/scribble/Union and instruction-edit rows require
+their separate model weights; this host did not have those assets installed. Their
+routing, family gating, memory guards, and stub-mode acceptance paths are covered by
+the automated suite rather than being reported here as real-GPU passes.
 
 ## Fail Handling
 

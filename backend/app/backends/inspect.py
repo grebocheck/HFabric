@@ -73,6 +73,10 @@ def classify_diffusers_dir(path: Path) -> ModelFamily | None:
     cls = _diffusers_pipeline_class(path)
     if cls is None:
         return None
+    if "QwenImageEdit" in cls:
+        return ModelFamily.QWEN_IMAGE_EDIT
+    if "FluxKontext" in cls:
+        return ModelFamily.FLUX_KONTEXT
     if "Flux2" in cls:
         return ModelFamily.FLUX2
     if "QwenImage" in cls:

@@ -4,7 +4,7 @@ import { Select } from "./Select";
 import { EmptyState, InfoRows, Panel, SectionTitle, SkeletonLine, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { Model, RagDocument, RagSearchResponse, RagStatus } from "../types";
 
-const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
+const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 const RAG_SYSTEM = "You are a careful local RAG assistant. Answer from the retrieved context when possible. Cite bracketed source numbers like [1]. If the context is insufficient, say what is missing.";
 
 function size(bytes: number): string {
@@ -172,7 +172,7 @@ export function RagPanel({
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3">
       <Panel className="flex min-h-0 flex-col overflow-hidden">
         <SectionTitle title="Documents" subtitle={ready ? "embed ready" : "waiting for embed model"} actions={<StatusPill label={String(docs.length)} />} />
-        <div className="border-b border-white/10 p-3">
+        <div className="border-b border-border p-3">
           <input
             value={docQuery}
             onChange={(e) => setDocQuery(e.target.value)}
@@ -186,8 +186,8 @@ export function RagPanel({
             <div key={doc.id} className="mb-1 rounded-md px-2 py-2 hover:bg-white/5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-white/80" title={doc.title}>{doc.title}</div>
-                  <div className="mt-0.5 truncate text-xs text-white/35" title={doc.source ?? ""}>
+                  <div className="truncate text-sm font-medium text-ui" title={doc.title}>{doc.title}</div>
+                  <div className="mt-0.5 truncate text-xs text-ui-subtle" title={doc.source ?? ""}>
                     {doc.source || "local"} · {doc.chunks_count} chunks
                   </div>
                 </div>
@@ -205,7 +205,7 @@ export function RagPanel({
 
       <Panel className="flex min-h-0 flex-col overflow-hidden">
         <SectionTitle title="Search" subtitle={search ? `${search.results.length} retrieved chunks` : "Ask against indexed documents"} />
-        <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-white/10 p-3">
+        <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-border p-3">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -224,14 +224,14 @@ export function RagPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           {search?.results.length ? search.results.map((item, idx) => (
-            <div key={item.chunk_id} className="mb-2 rounded-md border border-white/10 bg-black/15 p-3">
+            <div key={item.chunk_id} className="ui-card mb-2 rounded-md p-3">
               <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                <span className="min-w-0 truncate font-medium text-white/60" title={item.document_title}>
+                <span className="min-w-0 truncate font-medium text-ui-muted" title={item.document_title}>
                   [{idx + 1}] {item.document_title}
                 </span>
-                <span className="shrink-0 font-mono text-white/35">{item.score.toFixed(3)}</span>
+                <span className="shrink-0 font-mono text-ui-subtle">{item.score.toFixed(3)}</span>
               </div>
-              <div className="text-sm leading-6 text-white/70">{excerpt(item.text)}</div>
+              <div className="text-sm leading-6 text-ui-muted">{excerpt(item.text)}</div>
             </div>
           )) : (
             <EmptyState
@@ -255,7 +255,7 @@ export function RagPanel({
         />
 
         <label>
-          <div className="text-xs uppercase tracking-wide text-white/40">Embedding</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Embedding</div>
           {statusLoading && !status ? (
             <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
           ) : (
@@ -270,7 +270,7 @@ export function RagPanel({
         </label>
 
         <label>
-          <div className="text-xs uppercase tracking-wide text-white/40">LLM</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">LLM</div>
           {modelsLoading && llmModels.length === 0 ? (
             <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
           ) : (
@@ -286,7 +286,7 @@ export function RagPanel({
 
         <div className="grid grid-cols-2 gap-2">
           <label>
-            <div className="text-xs uppercase tracking-wide text-white/40">Top K</div>
+            <div className="text-xs uppercase tracking-wide text-ui-subtle">Top K</div>
             <input
               type="number"
               min={1}
@@ -307,8 +307,8 @@ export function RagPanel({
           </div>
         </div>
 
-        <div className="border-t border-white/10 pt-3">
-          <div className="mb-2 text-xs uppercase tracking-wide text-white/40">Index text</div>
+        <div className="border-t border-border pt-3">
+          <div className="mb-2 text-xs uppercase tracking-wide text-ui-subtle">Index text</div>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -330,23 +330,23 @@ export function RagPanel({
           </button>
         </div>
 
-        <div className="border-t border-white/10 pt-3">
+        <div className="border-t border-border pt-3">
           <input
             type="file"
             accept=".txt,.md,.json,.csv"
             onChange={(e) => setUpload(e.target.files?.[0] ?? null)}
-            className={`${field} file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white/70`}
+            className={`${field} file:mr-3 file:rounded file:border-0 file:bg-control-active file:px-2 file:py-1 file:text-xs file:text-ui-muted`}
           />
           <button
             onClick={() => void uploadFile()}
             disabled={!ready || !upload || Boolean(busy)}
-            className="mt-2 w-full rounded-md border border-white/15 px-3 py-1.5 text-sm text-white/70 hover:bg-white/10 disabled:opacity-30"
+            className="ui-button mt-2 w-full rounded-md px-3 py-1.5 text-sm"
           >
             {busy === "upload" ? "Uploading..." : "Upload"}
           </button>
         </div>
 
-        <span className="min-h-4 truncate text-xs text-white/35" title={note}>{note}</span>
+        <span className="min-h-4 truncate text-xs text-ui-subtle" title={note}>{note}</span>
         </div>
       </Panel>
       </div>

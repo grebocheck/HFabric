@@ -151,6 +151,8 @@ export function familyColor(family: string): string {
   if (family === "anima") return "bg-fuchsia-700/50 text-fuchsia-100";
   if (family === "flux2") return "bg-sky-700/50 text-sky-100";
   if (family === "qwen-image") return "bg-violet-700/50 text-violet-100";
+  if (family === "qwen-image-edit") return "bg-violet-700/50 text-violet-100";
+  if (family === "flux-kontext") return "bg-accent/55 text-accent-fg";
   if (family === "z-image") return "bg-cyan-700/50 text-cyan-100";
   if (family === "flux") return "bg-accent/55 text-accent-fg";
   if (family === "sdxl") return "bg-emerald-700/55 text-emerald-100";

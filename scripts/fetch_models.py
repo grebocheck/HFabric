@@ -148,6 +148,30 @@ ADVANCED_IMAGE_JOBS = [
         source="hf-repo",
         local_subdir="qwen-image-2512",
     ),
+    FetchJob(
+        "Qwen/Qwen-Image-Edit-2509",
+        "",
+        MODELS / "image",
+        "Qwen-Image-Edit-2509 full repo",
+        "instruction editing with a source image; separate arbiter resident",
+        approx_size_mb=54_000,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="qwen-image-edit-2509",
+    ),
+    FetchJob(
+        "black-forest-labs/FLUX.1-Kontext-dev",
+        "",
+        MODELS / "image",
+        "FLUX.1 Kontext dev full repo",
+        "instruction editing with a source image; separate arbiter resident",
+        approx_size_mb=24_000,
+        license="FLUX.1-dev Non-Commercial",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="flux-kontext-dev",
+    ),
 ]
 
 COMMON_JOBS = [

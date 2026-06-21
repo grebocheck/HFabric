@@ -130,6 +130,14 @@ def test_steps_qwen_and_z_image_defaults_when_untouched():
     assert _backend(ModelFamily.Z_IMAGE, name="z-image-turbo")._steps({}) == settings.z_image_default_steps
     assert _backend(ModelFamily.Z_IMAGE, name="z-image")._steps({}) == settings.z_image_base_default_steps
     assert _backend(ModelFamily.Z_IMAGE)._steps({"steps": 12}) == 12
+    assert (
+        _backend(ModelFamily.QWEN_IMAGE_EDIT)._steps({})
+        == settings.qwen_image_edit_default_steps
+    )
+    assert (
+        _backend(ModelFamily.FLUX_KONTEXT)._steps({})
+        == settings.flux_kontext_default_steps
+    )
 
 
 def test_guidance_flux2_default_when_untouched():
@@ -147,3 +155,11 @@ def test_guidance_qwen_and_z_image_defaults_when_untouched():
         _backend(ModelFamily.Z_IMAGE, name="z-image")._guidance({}) == settings.z_image_base_default_guidance
     )
     assert _backend(ModelFamily.Z_IMAGE)._guidance({"guidance": 1.5}) == 1.5
+    assert (
+        _backend(ModelFamily.QWEN_IMAGE_EDIT)._guidance({})
+        == settings.qwen_image_edit_default_guidance
+    )
+    assert (
+        _backend(ModelFamily.FLUX_KONTEXT)._guidance({})
+        == settings.flux_kontext_default_guidance
+    )

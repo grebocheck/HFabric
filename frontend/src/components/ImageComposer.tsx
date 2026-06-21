@@ -67,7 +67,7 @@ export function ImageComposer({
   apply?: ComposerApply | null;
 }) {
   const imgModels = models
-    .filter((m) => m.job_type === "image")
+    .filter((m) => m.job_type === "image" && m.family !== "qwen-image-edit" && m.family !== "flux-kontext")
     .sort((a, b) => imageModelRank(a) - imageModelRank(b) || a.name.localeCompare(b.name));
 
   const saved = useMemo(readSaved, []);
@@ -111,7 +111,7 @@ export function ImageComposer({
   const [controlScale, setControlScale] = useState(0.75);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState("");
-  const img2imgSupported = selectedFamily === "sdxl" || selectedFamily === "flux" || selectedFamily === "flux2";
+  const img2imgSupported = selectedFamily === "sdxl" || selectedFamily === "flux" || selectedFamily === "flux2" || selectedFamily === "qwen-image" || selectedFamily === "z-image" || selectedFamily === "anima";
   const controlSupported = selectedFamily === "sdxl";
   const imagePresets = presets.filter((p) => p.type === "image");
   const compatibleLoras = loras
@@ -182,7 +182,7 @@ export function ImageComposer({
   const editHeight = useCallback((v: number) => { setHeight(v); setTouched((t) => ({ ...t, height: true })); }, []);
 
   const useImg2img = img2imgSupported && initImage !== null;
-  const useControlNet = controlSupported && !useImg2img && controlEnabled && controlImage !== null;
+  const useControlNet = controlSupported && controlEnabled && controlImage !== null;
   const imageParams = (maskToken?: string) => ({
     prompt: promptDraft.trim(),
     negative: negative.trim() || undefined,
@@ -195,7 +195,8 @@ export function ImageComposer({
     loras: selectedLoras.length ? selectedLoras.map(({ id, weight }) => ({ id, weight })) : undefined,
     init_image: useImg2img ? initImage!.token : undefined,
     mask_image: useImg2img && maskToken ? maskToken : undefined,
-    strength: useImg2img ? strength : undefined,
+    strength: useImg2img && (selectedFamily !== "flux2" || maskToken) ? strength : undefined,
+    edit_mode: useImg2img && maskToken ? "inpaint" : useImg2img ? "img2img" : undefined,
     control_image: useControlNet ? controlImage!.token : undefined,
     control_type: useControlNet ? "canny" : undefined,
     control_scale: useControlNet ? controlScale : undefined,
@@ -533,6 +534,8 @@ export function ImageComposer({
             strength={strength}
             uploadBusy={uploadBusy}
             uploadError={uploadError}
+            allowMask={selectedFamily !== "anima"}
+            referenceOnly={selectedFamily === "flux2" && !maskDraft}
           />
         ) : null}
 
@@ -540,7 +543,7 @@ export function ImageComposer({
           <ControlNetBlock
             controlImage={controlImage}
             controlScale={controlScale}
-            disabled={useImg2img}
+            disabled={false}
             enabled={controlEnabled}
             labelClass={label}
             onClear={() => setControlImage(null)}

@@ -112,6 +112,21 @@ def test_classify_diffusers_dir_detects_z_image(tmp_path):
     assert classify_diffusers_dir(d) is ModelFamily.Z_IMAGE
 
 
+def test_classify_diffusers_dir_detects_instruction_edit_models(tmp_path):
+    qwen = tmp_path / "qwen-edit"
+    qwen.mkdir()
+    (qwen / "model_index.json").write_text(
+        json.dumps({"_class_name": "QwenImageEditPlusPipeline"}), encoding="utf-8"
+    )
+    kontext = tmp_path / "kontext"
+    kontext.mkdir()
+    (kontext / "model_index.json").write_text(
+        json.dumps({"_class_name": "FluxKontextPipeline"}), encoding="utf-8"
+    )
+    assert classify_diffusers_dir(qwen) is ModelFamily.QWEN_IMAGE_EDIT
+    assert classify_diffusers_dir(kontext) is ModelFamily.FLUX_KONTEXT
+
+
 def test_classify_diffusers_dir_ignores_unknown_pipeline(tmp_path):
     d = tmp_path / "other"
     d.mkdir()

@@ -45,7 +45,7 @@ export function ModelPicker({
           <span className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate font-medium" title={m.name}>{m.name}</span>
-              {vram ? <span className="shrink-0 font-mono text-[11px] text-white/55">{vram}</span> : null}
+              {vram ? <span className="shrink-0 font-mono text-[11px] text-ui-muted">{vram}</span> : null}
             </span>
             <span className="flex items-center gap-1 overflow-hidden">
               <Badge color={familyColor(m.family)}>{m.family}</Badge>

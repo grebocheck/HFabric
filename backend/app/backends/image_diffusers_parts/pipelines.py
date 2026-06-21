@@ -11,6 +11,7 @@ from typing import Any
 from ...config import settings
 from ...core.enums import ModelFamily
 from ...services import accelerator_runtime
+from ...util import sysmon
 
 
 class DiffusersPipelineMixin:
@@ -316,32 +317,132 @@ class DiffusersPipelineMixin:
             self._inpaint_pipe = Flux2KleinInpaintPipeline(**self._pipe.components)
         return self._inpaint_pipe
 
-    def _sdxl_controlnet_pipe(self, torch):
-        if self._controlnet_pipe is None:
-            repo = settings.sdxl_controlnet_canny_repo
-            if not repo:
-                raise RuntimeError("SDXL ControlNet canny repo is not configured.")
-            from diffusers import ControlNetModel, StableDiffusionXLControlNetPipeline  # noqa: PLC0415
+    def _qwen_img2img_pipe(self):
+        """Qwen edit view sharing every component of the resident pipeline."""
+        if self._img2img_pipe is None:
+            from diffusers import QwenImageImg2ImgPipeline  # noqa: PLC0415
 
-            dtype = getattr(getattr(self._pipe, "unet", None), "dtype", torch.float16)
-            before = self._memory_snapshot(torch)
-            controlnet = ControlNetModel.from_pretrained(repo, torch_dtype=dtype)
+            self._img2img_pipe = QwenImageImg2ImgPipeline(**self._pipe.components)
+        return self._img2img_pipe
+
+    def _qwen_inpaint_pipe(self):
+        if self._inpaint_pipe is None:
+            from diffusers import QwenImageInpaintPipeline  # noqa: PLC0415
+
+            self._inpaint_pipe = QwenImageInpaintPipeline(**self._pipe.components)
+        return self._inpaint_pipe
+
+    def _z_image_img2img_pipe(self):
+        """Z-Image edit view; no weights are copied or loaded twice."""
+        if self._img2img_pipe is None:
+            from diffusers import ZImageImg2ImgPipeline  # noqa: PLC0415
+
+            self._img2img_pipe = ZImageImg2ImgPipeline(**self._pipe.components)
+        return self._img2img_pipe
+
+    def _z_image_inpaint_pipe(self):
+        if self._inpaint_pipe is None:
+            from diffusers import ZImageInpaintPipeline  # noqa: PLC0415
+
+            self._inpaint_pipe = ZImageInpaintPipeline(**self._pipe.components)
+        return self._inpaint_pipe
+
+    @staticmethod
+    def _controlnet_repo(control_type: str) -> str | None:
+        if control_type.startswith("union-"):
+            return settings.sdxl_controlnet_union_repo
+        return {
+            "canny": settings.sdxl_controlnet_canny_repo,
+            "depth": settings.sdxl_controlnet_depth_repo,
+            "pose": settings.sdxl_controlnet_pose_repo,
+            "scribble": settings.sdxl_controlnet_scribble_repo,
+        }.get(control_type)
+
+    @staticmethod
+    def _guard_controlnet_budget() -> None:
+        snap = sysmon.snapshot()
+        ram = snap.get("ram") or {}
+        available = float(ram.get("available_gb") or 0)
+        required_ram = float(settings.sdxl_controlnet_extra_ram_gb) + float(settings.min_free_ram_gb)
+        if available and available < required_ram:
+            raise MemoryError(
+                f"ControlNet needs about {settings.sdxl_controlnet_extra_ram_gb:.1f} GB extra RAM "
+                f"plus {settings.min_free_ram_gb:.1f} GB headroom; only {available:.1f} GB is free."
+            )
+        vram = snap.get("vram") or {}
+        free_vram = vram.get("free_gb")
+        required_vram = float(settings.sdxl_controlnet_extra_vram_gb) + 0.5
+        if free_vram is not None and float(free_vram) < required_vram:
+            raise MemoryError(
+                f"ControlNet needs about {settings.sdxl_controlnet_extra_vram_gb:.1f} GB extra VRAM "
+                f"plus a 0.5 GB margin; only {float(free_vram):.1f} GB is free."
+            )
+
+    def _sdxl_controlnet_pipe(self, torch, mode: str = "text2img", control_type: str = "canny"):
+        control_type = control_type.lower().strip()
+        mode = mode.lower().strip()
+        model_key = "union" if control_type.startswith("union-") else control_type
+        key = (model_key, mode)
+        if key in self._controlnet_pipes:
+            return self._controlnet_pipes[key]
+
+        repo = self._controlnet_repo(control_type)
+        if not repo:
+            raise RuntimeError(f"SDXL ControlNet {control_type} repo is not configured.")
+        self._guard_controlnet_budget()
+        from diffusers import (  # noqa: PLC0415
+            ControlNetModel,
+            ControlNetUnionModel,
+            StableDiffusionXLControlNetImg2ImgPipeline,
+            StableDiffusionXLControlNetInpaintPipeline,
+            StableDiffusionXLControlNetPipeline,
+            StableDiffusionXLControlNetUnionImg2ImgPipeline,
+            StableDiffusionXLControlNetUnionInpaintPipeline,
+            StableDiffusionXLControlNetUnionPipeline,
+        )
+
+        dtype = getattr(getattr(self._pipe, "unet", None), "dtype", torch.float16)
+        before = self._memory_snapshot(torch)
+        controlnet = self._controlnet_models.get(model_key)
+        if controlnet is None:
+            model_cls = ControlNetUnionModel if control_type.startswith("union-") else ControlNetModel
+            controlnet = model_cls.from_pretrained(repo, torch_dtype=dtype)
             self._runtime().move(controlnet)
-            components = dict(self._pipe.components)
-            components["controlnet"] = controlnet
-            self._controlnet_model = controlnet
-            self._controlnet_pipe = StableDiffusionXLControlNetPipeline(**components)
-            after = self._memory_snapshot(torch)
-            feature = {
-                "type": "canny",
-                "repo": repo,
-                "memory": {
-                    "before": before.get(self._runtime().memory_key),
-                    "after": after.get(self._runtime().memory_key),
-                },
+            self._controlnet_models[model_key] = controlnet
+        components = dict(self._pipe.components)
+        components["controlnet"] = controlnet
+        classes = (
+            {
+                "text2img": StableDiffusionXLControlNetUnionPipeline,
+                "img2img": StableDiffusionXLControlNetUnionImg2ImgPipeline,
+                "inpaint": StableDiffusionXLControlNetUnionInpaintPipeline,
             }
-            self._active_features["sdxl_controlnet"] = feature
-            if isinstance(self._load_report, dict):
-                self._load_report.setdefault("acceleration", {})["sdxl_controlnet"] = feature
-                self._load_report.setdefault("memory", {})["end"] = after
-        return self._controlnet_pipe
+            if control_type.startswith("union-")
+            else {
+                "text2img": StableDiffusionXLControlNetPipeline,
+                "img2img": StableDiffusionXLControlNetImg2ImgPipeline,
+                "inpaint": StableDiffusionXLControlNetInpaintPipeline,
+            }
+        )
+        cls = classes.get(mode)
+        if cls is None:
+            raise ValueError(f"unknown ControlNet pipeline mode: {mode}")
+        pipe = cls(**components)
+        self._controlnet_pipes[key] = pipe
+        self._controlnet_model = controlnet
+        self._controlnet_pipe = pipe
+        after = self._memory_snapshot(torch)
+        feature = {
+            "type": control_type,
+            "mode": mode,
+            "repo": repo,
+            "memory": {
+                "before": before.get(self._runtime().memory_key),
+                "after": after.get(self._runtime().memory_key),
+            },
+        }
+        self._active_features["sdxl_controlnet"] = feature
+        if isinstance(self._load_report, dict):
+            self._load_report.setdefault("acceleration", {})["sdxl_controlnet"] = feature
+            self._load_report.setdefault("memory", {})["end"] = after
+        return pipe

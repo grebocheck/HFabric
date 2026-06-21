@@ -9,6 +9,38 @@ from ...core.enums import ModelFamily
 
 
 class FluxLoaderMixin:
+    def _load_flux_kontext(self, torch) -> Any:
+        """Load FLUX.1 Kontext as a dedicated instruction-edit resident."""
+        from diffusers import FluxKontextPipeline  # noqa: PLC0415
+
+        kwargs = self._quantized_repo_kwargs(
+            torch,
+            settings.flux_kontext_quant,
+            "HFAB_FLUX_KONTEXT_QUANT",
+            ["transformer", "text_encoder_2"],
+        )
+        pipe = FluxKontextPipeline.from_pretrained(str(self.descriptor.path), **kwargs)
+        if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
+            pipe.vae.enable_tiling()
+        quant = settings.flux_kontext_quant.lower().strip()
+        if quant in ("bnb-nf4", "bnb-fp4"):
+            if hasattr(getattr(pipe, "vae", None), "to"):
+                self._runtime().move(pipe.vae)
+            placement = "bnb-loader"
+        else:
+            self._place_repo_pipeline(
+                pipe,
+                settings.flux_kontext_offload,
+                "HFAB_FLUX_KONTEXT_OFFLOAD",
+            )
+            placement = settings.flux_kontext_offload
+        self._active_features["flux_kontext"] = {
+            "quant": settings.flux_kontext_quant,
+            "placement": placement,
+            "instruction_edit": True,
+        }
+        return pipe
+
     def _load_flux(self, torch) -> Any:
         from diffusers import FluxPipeline  # noqa: PLC0415
 

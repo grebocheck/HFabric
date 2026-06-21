@@ -76,7 +76,7 @@ export function TtsPanel() {
         />
 
         <label>
-          <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Model</div>
           <Select
             value={modelId}
             onChange={setModelId}
@@ -87,7 +87,7 @@ export function TtsPanel() {
         </label>
 
         <label>
-          <div className="text-xs uppercase tracking-wide text-white/40">Vocoder</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Vocoder</div>
           <Select
             value={vocoderId}
             onChange={setVocoderId}
@@ -97,10 +97,10 @@ export function TtsPanel() {
           />
         </label>
 
-        <label className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/55">
+        <label className="ui-card flex items-center justify-between gap-3 rounded-md px-3 py-2 text-xs text-ui-muted">
           <span>
-            <span className="block text-sm font-medium text-white/70">Guide tokens</span>
-            <span className="block text-xs text-white/35">Use model guidance markers when available</span>
+            <span className="block text-sm font-medium text-ui">Guide tokens</span>
+            <span className="block text-xs text-ui-subtle">Use model guidance markers when available</span>
           </span>
           <Toggle checked={useGuideTokens} onChange={setUseGuideTokens} />
         </label>
@@ -112,11 +112,11 @@ export function TtsPanel() {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-white/80 outline-none placeholder:text-white/25"
+          className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 text-ui outline-none placeholder:text-ui-subtle"
         />
         {result && (
-          <div className="border-t border-white/10 p-3">
-            <div className="mb-2 flex items-center justify-between text-xs text-white/45">
+          <div className="border-t border-border p-3">
+            <div className="mb-2 flex items-center justify-between text-xs text-ui-subtle">
               <span>{result.duration_seconds.toFixed(1)}s</span>
               <a href={result.url} download className="text-emerald-300 hover:text-emerald-200">
                 Download WAV
@@ -125,9 +125,9 @@ export function TtsPanel() {
             <audio controls src={result.url} className="w-full" />
           </div>
         )}
-        <div className="flex items-center justify-between border-t border-white/10 p-3">
+        <div className="flex items-center justify-between border-t border-border p-3">
           <span
-            className={`min-w-0 truncate text-xs ${error ? "text-red-300" : "text-white/35"}`}
+            className={`min-w-0 truncate text-xs ${error ? "text-error-fg" : "text-ui-subtle"}`}
             title={error || undefined}
           >
             {error || (ready ? "ready" : "waiting for local model")}

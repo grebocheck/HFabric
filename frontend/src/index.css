@@ -123,6 +123,12 @@
     transform: translateY(1px);
   }
 
+  .ui-button:disabled,
+  .ui-field:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
   .ui-button-primary {
     border-color: color-mix(in oklab, var(--color-accent) 72%, transparent);
     background: var(--color-accent);
@@ -132,6 +138,54 @@
   .ui-button-primary:hover {
     background: var(--color-accent-hover);
     color: var(--color-ui-inverse);
+  }
+
+  .ui-button-quiet {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .ui-button-danger {
+    border-color: var(--color-error-border);
+    background: var(--color-error-bg);
+    color: var(--color-error-fg);
+  }
+
+  .ui-button-danger:hover {
+    border-color: var(--color-error);
+    background: color-mix(in oklab, var(--color-error-bg) 82%, var(--color-error) 18%);
+    color: var(--color-error-fg);
+  }
+
+  .ui-button-success {
+    border-color: var(--color-success-border);
+    background: var(--color-success-bg);
+    color: var(--color-success-fg);
+  }
+
+  .ui-button-success:hover {
+    border-color: var(--color-success);
+    background: color-mix(in oklab, var(--color-success-bg) 82%, var(--color-success) 18%);
+    color: var(--color-success-fg);
+  }
+
+  .ui-button-icon {
+    display: inline-grid;
+    place-items: center;
+    aspect-ratio: 1;
+    padding: 0;
+  }
+
+  .ui-button-compact {
+    min-height: 1.625rem;
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .ui-card {
+    border: 1px solid var(--color-border);
+    background: var(--color-sunken);
   }
 
   .ui-chip {
@@ -271,7 +325,7 @@
   --color-ui-strong: #0f172a;
   --color-ui: #182235;
   --color-ui-muted: #536176;
-  --color-ui-subtle: #7a8798;
+  --color-ui-subtle: #64748b;
   --color-ui-inverse: #ffffff;
   --color-border: rgb(21 31 48 / 0.14);
   --color-border-strong: rgb(21 31 48 / 0.24);

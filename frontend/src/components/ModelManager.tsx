@@ -76,39 +76,39 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
   const freeMb = data?.disk.free_mb ?? null;
   const navItem = (active: boolean) =>
     `flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition ${
-      active ? "bg-white/15 text-white" : "text-white/55 hover:bg-white/5 hover:text-white/80"
+      active ? "bg-control-active text-ui-strong" : "text-ui-muted hover:bg-control-hover hover:text-ui"
     }`;
 
   return (
     <div className="flex h-full w-full gap-4 overflow-hidden">
-      <aside className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-white/10 bg-surface p-2.5">
+      <aside className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-border bg-panel p-2.5 shadow-panel">
         <button onClick={() => setPane("download")} className={`${navItem(pane === "download")} font-medium`}>
           <span className="flex items-center gap-2"><span className="text-accent">＋</span> Get models</span>
         </button>
 
-        <div className="mt-1 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-white/30">Installed</div>
+        <div className="mt-1 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-ui-subtle">Installed</div>
         <button onClick={() => setPane("all")} className={navItem(pane === "all")}>
           <span>All</span>
-          <span className="shrink-0 text-[11px] text-white/40">{items.length} · {fmtBytes(data?.total_used_bytes ?? 0)}</span>
+          <span className="shrink-0 text-[11px] text-ui-subtle">{items.length} · {fmtBytes(data?.total_used_bytes ?? 0)}</span>
         </button>
         {kindStats.map((k) => (
           <button key={k.kind} onClick={() => setPane(k.kind)} className={navItem(pane === k.kind)}>
             <span className="min-w-0 truncate">{k.label}</span>
-            <span className="shrink-0 text-[11px] text-white/40">{k.count} · {fmtBytes(k.bytes)}</span>
+            <span className="shrink-0 text-[11px] text-ui-subtle">{k.count} · {fmtBytes(k.bytes)}</span>
           </button>
         ))}
         {data && kindStats.length === 0 ? (
-          <div className="px-2.5 py-1 text-[11px] text-white/30">Nothing installed yet.</div>
+          <div className="px-2.5 py-1 text-[11px] text-ui-subtle">Nothing installed yet.</div>
         ) : null}
 
-        <div className="mt-auto border-t border-white/10 px-2.5 pt-2 text-[11px] text-white/35">
+        <div className="mt-auto border-t border-border px-2.5 pt-2 text-[11px] text-ui-subtle">
           <div className="flex items-center justify-between">
             <span>On disk</span>
-            <span className="text-white/55">{fmtBytes(data?.total_used_bytes ?? 0)}</span>
+            <span className="text-ui-muted">{fmtBytes(data?.total_used_bytes ?? 0)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span>Free</span>
-            <span className={freeMb != null && freeMb < 5120 ? "text-amber-300" : "text-white/55"}>
+            <span className={freeMb != null && freeMb < 5120 ? "text-warn-fg" : "text-ui-muted"}>
               {freeMb != null ? (freeMb >= 1024 ? `${(freeMb / 1024).toFixed(1)} GB` : `${freeMb} MB`) : "—"}
             </span>
           </div>
@@ -120,17 +120,17 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
           <ModelDownloads onModelsChanged={onDownloadsChanged} />
         ) : (
           <Panel className="flex h-full flex-col">
-            <div className="flex min-h-11 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+            <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border px-4 py-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white/75">
+                <div className="truncate text-sm font-semibold text-ui-strong">
                   {pane === "all" ? "All installed models" : data?.kinds[pane] ?? pane}
                 </div>
-                <div className="mt-0.5 text-xs text-white/35">
+                <div className="mt-0.5 text-xs text-ui-subtle">
                   {visibleItems.length} item{visibleItems.length === 1 ? "" : "s"} ·{" "}
                   {fmtBytes(visibleItems.reduce((s, i) => s + i.size_bytes, 0))}
                 </div>
               </div>
-              <button onClick={() => void refresh()} className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-white/65 hover:bg-white/10 hover:text-white">
+              <button onClick={() => void refresh()} className="ui-button ui-button-compact rounded-md">
                 Refresh
               </button>
             </div>
@@ -139,7 +139,7 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
                 <SkeletonRows rows={5} />
               ) : visibleItems.length === 0 ? (
                 <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 text-center">
-                  <p className="text-sm text-white/45">No models here yet.</p>
+                  <p className="text-sm text-ui-subtle">No models here yet.</p>
                   <button
                     onClick={() => setPane("download")}
                     className="rounded-md border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent-fg hover:bg-accent/25"
@@ -152,17 +152,17 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
                   {visibleItems.map((item) => {
                     const key = `${item.kind}/${item.path}`;
                     return (
-                      <li key={key} className="flex items-center gap-2.5 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                      <li key={key} className="ui-card flex items-center gap-2.5 rounded-md px-3 py-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="truncate text-[13px] text-white/85" title={item.name}>{item.name}</span>
+                            <span className="truncate text-[13px] text-ui-strong" title={item.name}>{item.name}</span>
                             {pane === "all" ? (
-                              <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">{data.kinds[item.kind] ?? item.kind}</span>
+                              <span className="ui-chip rounded px-1.5 py-0.5 text-[10px]">{data.kinds[item.kind] ?? item.kind}</span>
                             ) : null}
-                            {item.is_dir ? <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/45">folder</span> : null}
+                            {item.is_dir ? <span className="ui-chip rounded px-1.5 py-0.5 text-[10px]">folder</span> : null}
                             {item.in_use ? <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">on GPU</span> : null}
                           </div>
-                          <div className="mt-0.5 font-mono text-[11px] text-white/30">{fmtBytes(item.size_bytes)}</div>
+                          <div className="mt-0.5 font-mono text-[11px] text-ui-subtle">{fmtBytes(item.size_bytes)}</div>
                         </div>
                         <button
                           onClick={() => void del(item)}

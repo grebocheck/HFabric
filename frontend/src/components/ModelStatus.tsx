@@ -1,7 +1,7 @@
 import { Logo } from "./Logo";
 import type { AppTheme, GpuStatus, MemSnapshot } from "../types";
 
-export type View = "images" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "voice" | "models" | "system" | "settings";
+export type View = "images" | "edit" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "voice" | "models" | "system" | "settings";
 
 const familyColor: Record<string, string> = {
   flux: "bg-accent",
@@ -44,8 +44,8 @@ export function ModelStatus({
   onPalette: () => void;
 }) {
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-line bg-base/95 px-5 py-3">
-      <div className="flex min-w-0 items-center gap-5">
+    <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-line bg-base/95 px-3 py-2 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-5 md:py-3">
+      <div className="contents">
         <div className="flex shrink-0 items-center gap-2">
           <Logo className="h-7 w-7" />
           <span className="text-lg font-semibold tracking-tight">HFabric</span>
@@ -62,7 +62,7 @@ export function ModelStatus({
           )}
         </div>
 
-        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-line bg-control p-1">
+        <nav className="col-span-2 row-start-2 flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-line bg-control p-1 md:col-span-1 md:col-start-2 md:row-start-1 md:w-auto md:justify-self-start">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -79,10 +79,10 @@ export function ModelStatus({
         </nav>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 text-sm">
+      <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-2 text-sm md:col-start-3 md:gap-3">
         {mem?.vram ? (
           <div
-            className="flex items-center gap-1.5"
+            className="hidden items-center gap-1.5 sm:flex"
             title={`VRAM ${mem.vram.used_gb.toFixed(1)} / ${mem.vram.total_gb.toFixed(1)} GB`}
           >
             <span className="text-xs text-ui-subtle">VRAM</span>
@@ -94,7 +94,7 @@ export function ModelStatus({
             </div>
           </div>
         ) : null}
-        <span className="text-ui-muted">Active model:</span>
+        <span className="hidden text-ui-muted lg:inline">Active model:</span>
         {gpu.model ? (
           <span className="flex min-w-0 items-center gap-2">
             <span
@@ -121,7 +121,7 @@ export function ModelStatus({
             </span>
           </span>
         ) : (
-          <span className="text-ui-subtle">idle</span>
+          <span className="hidden text-ui-subtle sm:inline">idle</span>
         )}
         {gpu.warm?.length ? (
           <span className="flex items-center gap-1 text-xs text-ui-subtle">
@@ -137,7 +137,7 @@ export function ModelStatus({
         <button
           onClick={onFree}
           disabled={!gpu.model && !gpu.warm?.length}
-          className="ui-button rounded px-2.5 py-1 text-xs disabled:opacity-30"
+          className="ui-button hidden rounded px-2.5 py-1 text-xs sm:inline-flex"
         >
           Free GPU
         </button>

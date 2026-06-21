@@ -4,7 +4,7 @@ import { Select } from "./Select";
 import { EmptyState, Panel, SectionTitle, SkeletonLine, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { CodeFile, CodeFileContent, Model } from "../types";
 
-const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
+const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 const CODE_SYSTEM = "You are a focused local code assistant. Prefer concrete file-aware answers. If context is missing, name exactly what is missing.";
 
 function size(bytes: number): string {
@@ -116,7 +116,7 @@ export function CodePanel({
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3">
       <Panel className="flex min-h-0 flex-col overflow-hidden">
         <SectionTitle title="Repository files" subtitle="Search and select up to 8 files" />
-        <div className="border-b border-white/10 p-3">
+        <div className="border-b border-border p-3">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -133,12 +133,12 @@ export function CodePanel({
                 key={f.path}
                 onClick={() => void toggle(f.path)}
                 className={`mb-1 grid w-full grid-cols-[22px_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
-                  isSelected ? "bg-emerald-500/15 text-emerald-100" : "text-white/65 hover:bg-white/5"
+                  isSelected ? "bg-success-bg text-success-fg" : "text-ui-muted hover:bg-control-hover"
                 }`}
               >
-                <span className="text-center text-white/45">{isSelected ? "-" : "+"}</span>
+                <span className="text-center text-ui-subtle">{isSelected ? "-" : "+"}</span>
                 <span className="min-w-0 truncate font-mono" title={f.path}>{f.path}</span>
-                <span className="text-white/30">{size(f.size_bytes)}</span>
+                <span className="text-ui-subtle">{size(f.size_bytes)}</span>
               </button>
             );
           })}
@@ -152,7 +152,7 @@ export function CodePanel({
           actions={active?.truncated ? <StatusPill label="truncated" tone="warn" /> : null}
         />
         {active ? (
-          <pre className="min-h-0 flex-1 overflow-auto p-4 text-xs leading-5 text-white/70">
+          <pre className="min-h-0 flex-1 overflow-auto p-4 text-xs leading-5 text-ui-muted">
             {active.content}
           </pre>
         ) : (
@@ -164,7 +164,7 @@ export function CodePanel({
         <SectionTitle title="Ask LLM" subtitle={selected.length ? `${selected.length} files in context` : "No files selected"} />
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         <label>
-          <div className="text-xs uppercase tracking-wide text-white/40">Model</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Model</div>
           {modelsLoading && llmModels.length === 0 ? (
             <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
           ) : (
@@ -179,15 +179,15 @@ export function CodePanel({
         </label>
 
         <div>
-          <div className="mb-1 text-xs uppercase tracking-wide text-white/40">Selected</div>
-          <div className="max-h-32 overflow-y-auto rounded-md border border-white/10 bg-black/20 p-2">
+          <div className="mb-1 text-xs uppercase tracking-wide text-ui-subtle">Selected</div>
+          <div className="ui-card max-h-32 overflow-y-auto rounded-md p-2">
             {selected.length === 0 ? (
-              <div className="text-xs text-white/30">No selected files</div>
+              <div className="text-xs text-ui-subtle">No selected files</div>
             ) : selected.map((path) => (
               <button
                 key={path}
                 onClick={() => setActivePath(path)}
-                className="block w-full truncate rounded px-1.5 py-1 text-left font-mono text-xs text-white/60 hover:bg-white/5"
+                className="block w-full truncate rounded px-1.5 py-1 text-left font-mono text-xs text-ui-muted hover:bg-control-hover"
                 title={path}
               >
                 {path}
@@ -197,7 +197,7 @@ export function CodePanel({
         </div>
 
         <label className="flex min-h-0 flex-1 flex-col">
-          <div className="text-xs uppercase tracking-wide text-white/40">Prompt</div>
+          <div className="text-xs uppercase tracking-wide text-ui-subtle">Prompt</div>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -207,7 +207,7 @@ export function CodePanel({
         </label>
 
         <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate text-xs text-white/35" title={note || undefined}>{note}</span>
+          <span className="min-w-0 truncate text-xs text-ui-subtle" title={note || undefined}>{note}</span>
           <button
             onClick={() => void send()}
             disabled={!modelId || !prompt.trim() || busy}

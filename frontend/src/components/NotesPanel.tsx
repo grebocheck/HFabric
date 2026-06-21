@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import { EmptyState, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
 import type { Note } from "../types";
 
-const field = "w-full rounded-md bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500";
+const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 
 function fmt(ts: string): string {
   const d = new Date(ts);
@@ -117,7 +117,7 @@ export function NotesPanel() {
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,340px)_minmax(0,1fr)] gap-3">
         <Panel className="flex min-h-0 flex-col overflow-hidden">
-        <div className="border-b border-white/10 p-3">
+        <div className="border-b border-border p-3">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -135,9 +135,9 @@ export function NotesPanel() {
                 activeId === note.id ? "bg-white/15" : "hover:bg-white/5"
               }`}
             >
-              <div className="truncate text-sm font-medium text-white/80">{note.title}</div>
-              <div className="mt-0.5 truncate text-xs text-white/35">{excerpt(note.content) || "empty"}</div>
-              <div className="mt-1 text-[11px] text-white/25">{fmt(note.updated_at)}</div>
+              <div className="truncate text-sm font-medium text-ui">{note.title}</div>
+              <div className="mt-0.5 truncate text-xs text-ui-subtle">{excerpt(note.content) || "empty"}</div>
+              <div className="mt-1 text-[11px] text-ui-subtle">{fmt(note.updated_at)}</div>
             </button>
           ))}
         </div>
@@ -157,13 +157,13 @@ export function NotesPanel() {
             </button>
           )}
         />
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <input
             value={title}
             onChange={(e) => { setTitle(e.target.value); setDirty(true); }}
             disabled={!activeId}
             placeholder="Untitled note"
-            className="min-w-0 flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-white/25"
+            className="min-w-0 flex-1 bg-transparent text-lg font-semibold text-ui-strong outline-none placeholder:text-ui-subtle"
           />
         </div>
 
@@ -173,7 +173,7 @@ export function NotesPanel() {
           disabled={!activeId}
           placeholder="Scratch here..."
           spellCheck
-          className="min-h-0 flex-1 resize-none bg-transparent p-4 font-mono text-sm leading-6 text-white/80 outline-none placeholder:text-white/25"
+          className="min-h-0 flex-1 resize-none bg-transparent p-4 font-mono text-sm leading-6 text-ui outline-none placeholder:text-ui-subtle"
         />
       </Panel>
       </div>
