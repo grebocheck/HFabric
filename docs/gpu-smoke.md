@@ -131,6 +131,12 @@ are close to the baselines below.
      192, stitched output is finite and exact-length, and no sustained overrun
      pattern appears. Use CUDA for live sessions.
 
+9. Voice live A/B capture:
+   - Start a live session, record a short phrase, and save it.
+   - Pass: the result exposes processed output WAV/MP3, raw input WAV, and a JSON
+     params/session snapshot; both WAV files play, and the JSON includes
+     `kind=voice_ab_capture`.
+
 ### P26 real-machine edit validation log
 
 | Date | GPU | Family / variant | Paths | Result | Notes |

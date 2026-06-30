@@ -7634,6 +7634,46 @@
         ]
       }
     },
+    "/api/voice/engine/file/{token}/json": {
+      "get": {
+        "operationId": "voice_engine_metadata_file_api_voice_engine_file__token__json_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Voice Engine Metadata File",
+        "tags": [
+          "voice-engine"
+        ]
+      }
+    },
     "/api/voice/engine/file/{token}/mp3": {
       "get": {
         "operationId": "voice_engine_mp3_file_api_voice_engine_file__token__mp3_get",

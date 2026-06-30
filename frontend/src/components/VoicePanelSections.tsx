@@ -164,11 +164,26 @@ export function VoiceLiveConsolePanel({
             </Button>
           </div>
           {recordingResult ? (
-            <div className="mt-3">
-              <audio controls src={recordingResult.url} className="w-full" />
-              <div className="mt-2 flex justify-end gap-2">
+            <div className="mt-3 grid gap-2">
+              <div>
+                <div className="mb-1 text-[11px] font-medium text-ui-subtle">Output</div>
+                <audio controls src={recordingResult.url} className="w-full" />
+              </div>
+              {recordingResult.raw_url ? (
+                <div>
+                  <div className="mb-1 text-[11px] font-medium text-ui-subtle">Raw</div>
+                  <audio controls src={recordingResult.raw_url} className="w-full" />
+                </div>
+              ) : null}
+              <div className="mt-1 flex flex-wrap justify-end gap-2">
                 <a href={recordingResult.url} download className="ui-button rounded px-2 py-1 text-xs">WAV</a>
                 <a href={recordingResult.mp3_url} download className="ui-button rounded px-2 py-1 text-xs">MP3</a>
+                {recordingResult.raw_url ? (
+                  <a href={recordingResult.raw_url} download className="ui-button rounded px-2 py-1 text-xs">Raw</a>
+                ) : null}
+                {recordingResult.metadata_url ? (
+                  <a href={recordingResult.metadata_url} download className="ui-button rounded px-2 py-1 text-xs">JSON</a>
+                ) : null}
               </div>
             </div>
           ) : null}

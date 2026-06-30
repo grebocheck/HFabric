@@ -202,10 +202,23 @@ async def test_session_records_live_phrase(client):
     result = body["recording_result"]
     assert result["duration_s"] > 0
     assert result["sample_rate"] == body["settings"]["server_audio_sample_rate"]
+    assert result["raw_token"]
+    assert result["raw_url"].startswith("/api/voice/engine/file/")
+    assert result["metadata_url"].endswith("/json")
 
     wav = await client.get(result["url"])
     assert wav.status_code == 200
     assert wav.content.startswith(b"RIFF")
+
+    raw = await client.get(result["raw_url"])
+    assert raw.status_code == 200
+    assert raw.content.startswith(b"RIFF")
+
+    metadata = (await client.get(result["metadata_url"])).json()
+    assert metadata["kind"] == "voice_ab_capture"
+    assert metadata["token"] == result["token"]
+    assert metadata["raw_token"] == result["raw_token"]
+    assert metadata["settings"]["server_audio_sample_rate"] == result["sample_rate"]
 
     stopped = await client.post("/api/voice/engine/session/stop")
     assert stopped.status_code == 200

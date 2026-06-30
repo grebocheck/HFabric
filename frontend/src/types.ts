@@ -888,8 +888,11 @@ export interface VoiceEngineRecordingStatus {
 
 export interface VoiceEngineRecordingResult {
   token: string;
+  raw_token?: string;
   url: string;
+  raw_url?: string;
   mp3_url: string;
+  metadata_url?: string;
   duration_s: number;
   sample_rate: number;
   samples: number;

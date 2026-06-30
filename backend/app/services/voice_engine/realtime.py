@@ -25,6 +25,7 @@ and the voice-lane parking are all testable in CI.
 from __future__ import annotations
 
 from collections import deque
+import json
 import logging
 import math
 import threading
@@ -165,6 +166,7 @@ class RealtimeSession:
         self._processor: ChunkProcessor | None = None
         self._recording_lock = threading.Lock()
         self._recording_frames: list[Any] = []
+        self._recording_raw_frames: list[Any] = []
         self._recording_started: float | None = None
         self._recording_sample_rate = 48_000
         self.stream_sr = 48000
@@ -315,7 +317,7 @@ class RealtimeSession:
             self._output_ring.push(out)
             if self._monitor_ring is not None:
                 self._monitor_ring.push(out)
-            self._record_chunk(out)
+            self._record_chunk(chunk, out)
             squelched = bool(timings.pop("squelched", False))
             total_raw = timings.get("total")
             total = float(total_raw) if isinstance(total_raw, (int, float)) and not isinstance(total_raw, bool) else None
@@ -365,6 +367,7 @@ class RealtimeSession:
             if self._recording_started is not None:
                 raise RuntimeError("voice recording is already active")
             self._recording_frames = []
+            self._recording_raw_frames = []
             self._recording_started = time.monotonic()
             self._recording_sample_rate = int(self.stream_sr)
         return self.recording_status()
@@ -380,25 +383,73 @@ class RealtimeSession:
             if self._recording_started is None:
                 raise RuntimeError("voice recording is not active")
             frames = list(self._recording_frames)
+            raw_frames = list(self._recording_raw_frames)
             sample_rate = int(self._recording_sample_rate)
             self._recording_frames = []
+            self._recording_raw_frames = []
             self._recording_started = None
         audio = np.concatenate(frames).astype(np.float32, copy=False) if frames else np.zeros(0, dtype=np.float32)
+        raw_audio = (
+            np.concatenate(raw_frames).astype(np.float32, copy=False)
+            if raw_frames
+            else np.zeros(0, dtype=np.float32)
+        )
         from . import storage  # noqa: PLC0415
 
         token = storage.new_token()
+        raw_token = storage.new_token()
         path = storage.resolve_output(token)
+        raw_path = storage.resolve_output(raw_token)
+        metadata_path = storage.resolve_metadata(token)
         assert path is not None
+        assert raw_path is not None
+        assert metadata_path is not None
         _write_wav(path, audio, sample_rate)
+        _write_wav(raw_path, raw_audio, sample_rate)
+        metadata = self._recording_metadata(
+            token=token,
+            raw_token=raw_token,
+            sample_rate=sample_rate,
+            samples=len(audio),
+            raw_samples=len(raw_audio),
+            duration_s=len(audio) / float(sample_rate) if sample_rate else 0.0,
+        )
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return {
             "token": token,
+            "raw_token": raw_token,
             "url": f"/api/voice/engine/file/{token}",
+            "raw_url": f"/api/voice/engine/file/{raw_token}",
+            "metadata_url": f"/api/voice/engine/file/{token}/json",
             "duration_s": len(audio) / float(sample_rate) if sample_rate else 0.0,
             "sample_rate": sample_rate,
             "samples": int(len(audio)),
         }
 
-    def _record_chunk(self, chunk) -> None:
+    def _recording_metadata(
+        self,
+        *,
+        token: str,
+        raw_token: str,
+        sample_rate: int,
+        samples: int,
+        raw_samples: int,
+        duration_s: float,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "voice_ab_capture",
+            "token": token,
+            "raw_token": raw_token,
+            "sample_rate": int(sample_rate),
+            "samples": int(samples),
+            "raw_samples": int(raw_samples),
+            "duration_s": float(duration_s),
+            "settings": self._engine.settings_payload(),
+            "session_config": self.session_config(),
+            "metrics": self.metrics(),
+        }
+
+    def _record_chunk(self, raw_chunk, output_chunk) -> None:
         import numpy as np  # noqa: PLC0415
 
         with self._recording_lock:
@@ -408,7 +459,8 @@ class RealtimeSession:
             if elapsed > MAX_RECORD_SECONDS:
                 self._recording_started = None
                 return
-            self._recording_frames.append(np.asarray(chunk, dtype=np.float32).reshape(-1).copy())
+            self._recording_raw_frames.append(np.asarray(raw_chunk, dtype=np.float32).reshape(-1).copy())
+            self._recording_frames.append(np.asarray(output_chunk, dtype=np.float32).reshape(-1).copy())
 
 
 class StubRealtimeSession:
@@ -483,16 +535,40 @@ class StubRealtimeSession:
         self._recording_started = None
         sample_rate = int(self._engine.server_audio_sample_rate)
         t = np.arange(int(duration * sample_rate), dtype=np.float32) / float(sample_rate)
+        raw_audio = (0.08 * np.sin(2.0 * np.pi * 440.0 * t)).astype(np.float32)
         audio = (0.12 * np.sin(2.0 * np.pi * 220.0 * t)).astype(np.float32)
         from . import storage  # noqa: PLC0415
 
         token = storage.new_token()
+        raw_token = storage.new_token()
         path = storage.resolve_output(token)
+        raw_path = storage.resolve_output(raw_token)
+        metadata_path = storage.resolve_metadata(token)
         assert path is not None
+        assert raw_path is not None
+        assert metadata_path is not None
         _write_wav(path, audio, sample_rate)
+        _write_wav(raw_path, raw_audio, sample_rate)
+        metadata = {
+            "kind": "voice_ab_capture",
+            "stub": True,
+            "token": token,
+            "raw_token": raw_token,
+            "sample_rate": int(sample_rate),
+            "samples": int(len(audio)),
+            "raw_samples": int(len(raw_audio)),
+            "duration_s": len(audio) / float(sample_rate) if sample_rate else 0.0,
+            "settings": self._engine.settings_payload(),
+            "session_config": self.session_config(),
+            "metrics": self.metrics(),
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return {
             "token": token,
+            "raw_token": raw_token,
             "url": f"/api/voice/engine/file/{token}",
+            "raw_url": f"/api/voice/engine/file/{raw_token}",
+            "metadata_url": f"/api/voice/engine/file/{token}/json",
             "duration_s": len(audio) / float(sample_rate) if sample_rate else 0.0,
             "sample_rate": sample_rate,
             "samples": int(len(audio)),

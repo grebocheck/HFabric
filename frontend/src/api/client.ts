@@ -406,7 +406,9 @@ export const api = {
           ? {
               ...res.recording_result,
               url: apiAssetUrl(res.recording_result.url),
+              raw_url: res.recording_result.raw_url ? apiAssetUrl(res.recording_result.raw_url) : undefined,
               mp3_url: apiAssetUrl(res.recording_result.mp3_url),
+              metadata_url: res.recording_result.metadata_url ? apiAssetUrl(res.recording_result.metadata_url) : undefined,
             }
           : undefined,
       })),

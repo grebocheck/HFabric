@@ -201,6 +201,13 @@ def _ensure_mp3(token: str) -> Path:
     return mp3_path
 
 
+def _ensure_metadata(token: str) -> Path:
+    path = storage.resolve_metadata(token)
+    if path is None or not path.exists():
+        raise HTTPException(404, "voice recording metadata not found")
+    return path
+
+
 async def _write_upload_to_temp(file: UploadFile, ext: str) -> Path:
     max_bytes = settings.voice_max_upload_mb * 1024 * 1024
     storage.output_dir()
@@ -452,6 +459,12 @@ async def voice_engine_recording_stop() -> dict[str, Any]:
 async def voice_engine_mp3_file(token: str) -> FileResponse:
     path = _ensure_mp3(token)
     return FileResponse(path, media_type="audio/mpeg", filename=f"{token}.mp3")
+
+
+@router.get("/file/{token}/json")
+async def voice_engine_metadata_file(token: str) -> FileResponse:
+    path = _ensure_metadata(token)
+    return FileResponse(path, media_type="application/json", filename=f"{token}.json")
 
 
 @router.get("/file/{token}")

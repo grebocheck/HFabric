@@ -21,7 +21,7 @@
 > Marking: `[ ]` not started · `[~]` in progress / partially done · `[x]` done.
 >
 > **Audit basis (2026-06-30):** all gates green — ruff/eslint/tsc clean,
-> vitest 99 green, pytest 431 green at **69.21%** coverage (floor 68%); Alembic at
+> vitest 99 green, pytest 431 green at **69.23%** coverage (floor 68%); Alembic at
 > revision `0005`; frontend type-safety strong (`types.ts` now derives from the
 > OpenAPI-generated `types.generated.ts`; 0 stray `console.*`). Findings below cite
 > exact files and metrics so each item is checkable.
@@ -79,7 +79,7 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   added focused stub/unit coverage for `chat_attachments.py`, `chat_service.py`,
   `rag_service.py`, `video_service.py`, `embedding_service.py`, plus adjacent
   scheduler/event/queue/media safety paths. CI now enforces
-  `--cov-fail-under=68`; local verification: **431 passed, 69.21%**.
+  `--cov-fail-under=68`; local verification: **431 passed, 69.23%**.
 - [x] **Q2 — Decompose the highest-churn monolith first.** Done 2026-06-30:
   `image_diffusers.py::_generate_real` is now a thin metadata/persistence wrapper
   over `image_diffusers_parts/generation.py`, with dispatcher tests for txt2img /
@@ -204,10 +204,12 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
 
 ### P22 — Voice realtime quality (optional residual)
 
-- [ ] **P22.7 — *(optional)* High-band detail preserve + one-click A/B capture.** Only
-  if the denoise wet/dry mix isn't enough for noisy rooms: re-inject raw > 3.5 kHz at
-  low gain (risk: brings back keyboard hiss). A/B capture = a 10 s "raw + output +
-  params JSON" button to make preset tuning objective.
+- [x] **P22.7 — *(optional)* One-click A/B capture; high-band preserve decision.**
+  Done 2026-06-30: the live recorder now saves processed output WAV, raw input WAV,
+  and a params/session/metrics JSON snapshot from the same capture; the Voice panel
+  plays output/raw side by side and exposes WAV/MP3/Raw/JSON downloads. The raw
+  >3.5 kHz reinjection idea remains deliberately off: it risks reintroducing keyboard
+  hiss, and the new A/B artifact should justify it before it becomes a tuning knob.
 
 ### P21 — Release readiness (needs external hardware)
 
