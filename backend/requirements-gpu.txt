@@ -22,6 +22,10 @@ protobuf>=5.0
 bitsandbytes>=0.49             # 4-bit path (Blackwell sm_120 supported)
 imageio>=2.37                  # mp4 export for real + STUB video generation
 imageio-ffmpeg>=0.6
+ftfy>=6.1                      # Wan prompt text-cleaning. diffusers 0.38's
+                               # WanImageToVideoPipeline calls ftfy.fix_text
+                               # unguarded (unlike the t2v pipeline), so i2v
+                               # raises NameError without it. Harmless to t2v.
 
 # --- Native voice engine (P6R): offline/realtime RVC audio stack ---
 sounddevice>=0.5

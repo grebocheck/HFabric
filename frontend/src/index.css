@@ -548,6 +548,15 @@ body {
   button {
     font: inherit;
   }
+  /* Native dropdown popups don't inherit the field's background, so without an
+     explicit color the option text blends into the popup canvas (notably on
+     Windows Chromium). Pin both to theme tokens so options stay readable in
+     every theme. */
+  select option,
+  select optgroup {
+    background-color: var(--color-surface);
+    color: var(--color-fg);
+  }
 }
 
 /* Respect users who ask for less motion (P5.B animation constraint). */

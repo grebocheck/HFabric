@@ -1,18 +1,30 @@
 # HFabric — Roadmap & Backlog
 
-> **Status:** working app, real-GPU validated on NVIDIA/Windows (M0/M1), with a CI
-> safety net (ruff + eslint + pytest with a coverage floor + `tsc` + build + vitest
-> on every push/PR). The audit-driven foundation (P0–P20) and the beta-prep phases
-> (P21–P24) have largely shipped — see [`docs/history.md`](docs/history.md) for the
-> full shipped record and [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+> **Status:** working app at **v0.3.0** (tags `v0.1.0`/`v0.2.0`/`v0.3.0` shipped),
+> real-GPU validated on NVIDIA/Windows, with a green CI safety net on every push/PR
+> (ruff + eslint + `tsc` + build + pytest@68% floor + vitest). The audit-driven
+> foundation (P0–P24), the unified Model Manager (P25), the Edit workspace (P26),
+> and CivitAI integration have all shipped — see [`docs/history.md`](docs/history.md)
+> for the full record and [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 >
-> The remaining work is **cutting and standing behind a public `0.1` beta**: push the
-> first `v0.1.0` tag (the launch), make the repo worth trying at first glance, close
-> the last observability/first-run gaps, and validate the non-NVIDIA paths once
-> testers exist. This file is the **forward plan only** — completed phases move to
+> **The beta is launched; the next chapter is paying down the debt that velocity
+> bought.** Five feature workstreams landed back-to-back (P25 → P26 → P27) and the
+> codebase now shows it: a coverage floor sitting flush against the actual number,
+> four service modules with no test file, several files too large to review safely,
+> and an in-flight video workspace (P27) still uncommitted. So this plan leads with a
+> **code-quality & stability track (Q1–Q7)** ahead of new features, then finishes the
+> genuinely-remaining feature/validation work (FramePack, non-NVIDIA breadth).
+>
+> This file is the **forward plan only** — completed phases move to
 > `docs/history.md` so the plan stays legible.
 >
-> Marking: `[ ]` not started · `[~]` in progress / partially done.
+> Marking: `[ ]` not started · `[~]` in progress / partially done · `[x]` done.
+>
+> **Audit basis (2026-06-30):** all gates green — ruff/eslint/tsc clean,
+> vitest 98 green, pytest 420 green at **69.07%** coverage (floor 68%); Alembic at
+> revision `0005`; frontend type-safety strong (`types.ts` now derives from the
+> OpenAPI-generated `types.generated.ts`; 0 stray `console.*`). Findings below cite
+> exact files and metrics so each item is checkable.
 
 ## Objectives (priority order)
 
@@ -43,15 +55,69 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ## Next up
 
-1. **P24.1 — push the `v0.1.0` tag.** The pipeline is built and statically verified;
-   the only thing left is the deliberate tag push that *is* the launch.
-2. **P24.6 — invite-readiness.** Screenshots/GIF + a tight repo description so a
-   stranger sees it work before deciding to clone. *(Needs the user for assets.)*
+1. **P27 feature breadth.** FramePack long-video support and the non-NVIDIA fallback
+   remain the real P27 feature work after the LTX/Wan surface proved out.
+2. **P24.7 clean tester audit.** Re-run first-run/resilience on a clean Windows
+   tester machine when one is available.
+3. **P21.4 external hardware breadth.** Recruit ROCm and Apple Silicon testers for
+   real install + GPU smoke validation.
 
 Then the long-pole items that need other people/hardware: **P21.4** (ROCm + Apple
-testers) and the **P24.7** resilience audit.
+testers), and the **P24.7** resilience audit on a clean tester machine.
 
 ## Active backlog
+
+### Q — Code quality & stability hardening *(lead priority)*
+
+> **Why this is the lead track:** the app works and ships, but P25→P26→P27 added
+> ~7k lines fast and the seams show. None of these are user-visible bugs today; each
+> is a place where the *next* change is more likely to break something or where a
+> failure would be hard to debug. Ordered by risk-reduction per hour.
+
+- [x] **Q1 — Get the coverage floor off the tripwire.** Done 2026-06-30:
+  added focused stub/unit coverage for `chat_attachments.py`, `chat_service.py`,
+  `rag_service.py`, `video_service.py`, `embedding_service.py`, plus adjacent
+  scheduler/event/queue/media safety paths. CI now enforces
+  `--cov-fail-under=68`; local verification: **420 passed, 69.07%**.
+- [x] **Q2 — Decompose the highest-churn monolith first.** Done 2026-06-30:
+  `image_diffusers.py::_generate_real` is now a thin metadata/persistence wrapper
+  over `image_diffusers_parts/generation.py`, with dispatcher tests for txt2img /
+  img2img / inpaint / controlnet family branches. Follow-up split the next backend
+  tier too: settings schema metadata lives in `settings_specs.py` (`settings_overrides.py`
+  is now 159 lines), and the realtime voice chunk core lives in `realtime_processor.py`
+  (`voice_engine/realtime.py` is now 561 lines).
+- [x] **Q3 — Frontend monolith split (resume P17).** Done 2026-06-30:
+  `ChatPanel.tsx` is down to **854** after moving send/edit/attachment/manual-image
+  workflow actions into `ChatPanelHooks.ts`; `VoicePanel.tsx` is down to **985** after
+  moving Live Console / Tuning / Routing / Presets / Offline Convert / Diagnostics into
+  `VoicePanelSections.tsx`. `types.ts` (946) is **not** in scope — it is now mostly thin
+  re-exports over the generated schema.
+- [x] **Q4 — Stabilize & land the P27 video WIP.** Done 2026-06-30: P27's family
+  defaults, bnb offload selection, guidance clamping, decode/encode progress phases,
+  LTX I2V dtype fix, app-path smoke script, richer presets, and History filters are
+  covered by STUB/unit/frontend tests. Real-GPU CLI smoke passed for LTX T2V, LTX I2V,
+  and Wan T2V; live app-path smoke passed for range replay, cancel, and
+  Video -> LLM -> Video swap. The WIP was landed as part of this quality pass.
+- [x] **Q5 — Exception-handling observability sweep.** 278 `except` blocks across 52
+  files; most are deliberate best-effort (annotated `# noqa: BLE001`), but a handful
+  swallow with a bare `pass` and **no log** — `core/events.py` (L44, L61, the event
+  bus itself) and `voice_engine/realtime.py` (L597, L608, stream teardown). For the
+  "debuggable after a crash" promise, every swallow should at least `logger.debug(...,
+  exc_info=True)`. Make the convention enforceable: require the `noqa: BLE001` to carry
+  a reason comment (most already do). Done: event bus and realtime teardown now log
+  debug exceptions with reason comments and tests cover event-bus failure paths.
+- [x] **Q6 — Cover the load-bearing safety paths explicitly.** The arbiter/scheduler
+  invariants are the product's core promise; confirm each recovery branch has a named
+  STUB test and add the gaps: RAM-budget refusal + warm-evict ladder
+  (`arbiter._guard_budget`), resident-pin park/resume (`scheduler._pick_next`), and
+  orphan requeue on restart (`scheduler._requeue_orphans`). These must never silently
+  regress. Done: the RAM guard tests already existed; resident-pin and orphan-requeue
+  tests were added 2026-06-30.
+- [x] **Q7 — Truth-in-docs cadence.** The roadmap had drifted three releases (claimed
+  pre-`v0.1.0` while `v0.3.0` was tagged) and `docs/audit-2026-06-14.md` predates
+  P25/P26/P27. Adopt a one-line rule: **refresh the audit snapshot + prune this
+  roadmap on every minor release.** Fold a fresh `docs/audit-2026-06-30.md` (this
+  pass) in as the current baseline. Done for this pass.
 
 ### P27 — Video generation workspace (text-to-video / image-to-video)
 
@@ -74,42 +140,47 @@ testers) and the **P24.7** resilience audit.
 > Wan 2.2 TI2V-5B (quality tier, fp8/bnb + offload, minutes/clip) → FramePack
 > (memory-flat long clips). AnimateDiff-SDXL is the lightweight + non-NVIDIA fallback.
 
-- [~] **P27.1 — Plumbing + STUB end-to-end.** Shipped & tested in STUB: `JobType.VIDEO`,
+- [x] **P27.1 — Plumbing + STUB end-to-end.** Shipped & tested in STUB: `JobType.VIDEO`,
   per-architecture video `ModelFamily` entries, `video_models_dir`, a `VideoBackend`
   (STUB writes a placeholder mp4), a `Video` DB row, `/api/videos/{id}/file` with **HTTP
   range**, a **Video** tab (`VideoComposer` + mp4 player) and video History items.
-  *Remaining:* the real-GPU smoke before it moves to history.
-- [~] **P27.2 — First real model: LTX-Video.** T2V + I2V via `LTX{,ImageToVideo}Pipeline`,
+  Real-GPU CLI smoke and the live app-path smoke passed on 2026-06-30.
+- [x] **P27.2 — First real model: LTX-Video.** T2V + I2V via `LTX{,ImageToVideo}Pipeline`,
   `export_to_video`, `vae.enable_tiling()` + `enable_model_cpu_offload`, learned RAM/VRAM
-  profile — wired; *remaining:* GPU validation. The fast default that fits.
-- [~] **P27.3 — Quality tier: Wan 2.2 TI2V-5B** (fp8 / bnb-nf4 + offload + VAE tiling),
+  profile — wired and real-GPU validated 2026-06-30 at 832x480 / 49f / 8 steps
+  (T2V peak 6.00 GB, I2V peak 6.76 GB). The I2V smoke caught and fixed the VAE dtype
+  mismatch in the LTX image-conditioning path.
+- [x] **P27.3 — Quality tier: Wan 2.2 TI2V-5B** (fp8 / bnb-nf4 + offload + VAE tiling),
   Wan 2.1 T2V-1.3B as the lightweight variant. Video families + the VAE-decode peak are in
   `sysmon.estimate_*` and the "minutes per clip" note is in `KNOWN_ISSUES.md`;
-  *remaining:* GPU validation.
+  Wan 2.2 real-GPU T2V validated 2026-06-30 at 832x480 / 49f / 8 steps, peak 7.83 GB.
 - [ ] **P27.4 — Long video: FramePack (HunyuanVideo).** `HunyuanVideoFramepackPipeline`
   for memory-flat I2V clips (10 s+) on 16 GB — slow but constant-VRAM. Not started.
 - [~] **P27.5 — Capability gating + non-NVIDIA.** CUDA gating shipped. *Remaining:* the
   fp8/Blackwell fast-path gate and the CPU/ROCm/MPS lightest-path fallback
   (AnimateDiff-SDXL / CogVideoX-2B), mirroring today's SDXL-only posture there.
-- [~] **P27.6 — Maintenance & polish.** Shipped: in-app download catalog, STUB / range /
-  classification / budget + composer/player tests, docs, History. *Remaining:* richer
-  presets + History filters.
+- [x] **P27.6 — Maintenance & polish.** Shipped: in-app download catalog, STUB / range /
+  classification / budget + composer/player tests, docs, History, and CLI real-GPU
+  video smoke log; `scripts/video_app_smoke.py` now validates live HTTP range replay,
+  websocket events, cancel during denoise, and Video -> LLM -> Video resident swap.
+  Richer clip presets and Video History filters landed 2026-06-30.
 
-### P24 — Release pipeline & public v0.1 beta
+### P24 — Release pipeline & first-impression (post-launch residual)
 
-- [~] **P24.1 — Release CI workflow (tag → GitHub pre-release).** *(P1 — load-bearing.)*
-  `.github/workflows/release.yml` triggers on `v*` tags: reuses `ci.yml` via
-  `workflow_call` as a required precondition, assembles a `git archive` source bundle,
-  generates the body from the matching `CHANGELOG.md` section + `docs/release-footer.md`,
-  attaches a SHA-256 checksum, and publishes with `--prerelease`. **Authored &
-  statically verified;** the one remaining check is the first real `v0.1.0` tag push —
-  the actual launch moment.
-- [ ] **P24.6 — Invite-readiness / first impression.** *(P1/P2 — what makes someone
-  actually try it.)* README hero with screenshots or a short demo GIF (chat + image
-  gen + the live VRAM bar — the differentiator is "two heavy models, one 16 GB GPU, no
-  OOM"); a concise above-the-fold feature list; a tight GitHub repo description +
-  topics. The README is honest but long and text-only — a stranger needs to *see* it
-  work before they'll `git clone`.
+> The release pipeline is **proven, not theoretical:** `v0.1.0`, `v0.2.0`, and
+> `v0.3.0` have all been tagged and published via `.github/workflows/release.yml`
+> (tag → CI precondition → source bundle + SHA-256 → GitHub pre-release). P24.1 is
+> **done.** What remains is presentation and the clean-machine resilience pass.
+
+- [x] **P24.6 — Invite-readiness / first impression.** Done 2026-06-30: README now
+  opens with a concise local/private AI value proposition, screenshots for image
+  generation + live VRAM, chat, history, and voice, an above-the-fold feature list,
+  current `v0.3.0` status/audit links, and explicit image/edit/video/model-manager
+  scope. GitHub repo metadata is set too: description
+  "Local private AI workspace for LLM chat, image/edit/video generation, RAG and
+  voice on one GPU with a VRAM arbiter" plus topics `local-ai`, `llm`,
+  `image-generation`, `video-generation`, `diffusers`, `llama-cpp`, `rag`,
+  `voice-changer`, `cuda`, `private-ai`.
 - [~] **P24.7 — First-run experience & resilience.** *(P2 — the newcomer's first ten
   minutes.)* **Done:** Welcome modal, dismissible STUB-mode banner, no-image-models
   nudge, chat empty-state hint; friendly model-load failure messages (P17.6) clear the

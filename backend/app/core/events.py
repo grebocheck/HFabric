@@ -10,10 +10,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import logging
 import time
 from typing import Any
 
 from .enums import EventType
+
+logger = logging.getLogger("hfabric")
 
 
 class Event(dict):
@@ -41,8 +44,8 @@ class EventBus:
                 try:
                     q.get_nowait()
                     q.put_nowait(event)
-                except Exception:
-                    pass
+                except Exception:  # noqa: BLE001 - slow/broken subscribers must not break publishers
+                    logger.debug("event=bus.drop_failed", exc_info=True)
 
     def emit(self, type: EventType | str, **data: Any) -> None:
         """Fire-and-forget publish from sync or async contexts."""
@@ -58,8 +61,8 @@ class EventBus:
             for q in list(self._subscribers):
                 try:
                     q.put_nowait(event)
-                except Exception:
-                    pass
+                except Exception:  # noqa: BLE001 - sync emit is best-effort outside app loop
+                    logger.debug("event=bus.emit_failed", exc_info=True)
 
     @asynccontextmanager
     async def subscribe(self) -> AsyncIterator[asyncio.Queue[Event]]:

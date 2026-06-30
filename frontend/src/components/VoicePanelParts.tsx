@@ -1,10 +1,39 @@
 import type { ReactNode } from "react";
 import { Badge } from "./Badge";
 import { Select } from "./Select";
-import { deviceHint, deviceName, formatBytes, formatMs } from "./voiceHelpers";
+import { deviceHint, deviceNumericId, formatBytes, formatMs, hostApiTag } from "./voiceHelpers";
 import type { VoiceAudioDevice, VoiceModel } from "../types";
 
 export type RoutingApplyState = "idle" | "pending" | "applying" | "applied" | "error";
+
+// Dropdown row: device name on the left, a colour-coded host-API badge plus
+// sample rate on the right. The badge colour is what makes a cross-API pair
+// (which can't open a duplex stream) jump out at a glance.
+function DeviceOptionRow({ device, label }: { device?: VoiceAudioDevice; label: string }) {
+  const tag = device ? hostApiTag(device.host_api) : null;
+  const rate = device?.default_sample_rate;
+  return (
+    <>
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        {tag?.label ? <Badge color={tag.color}>{tag.label}</Badge> : null}
+        {rate ? <span className="text-[11px] text-ui-subtle">{rate / 1000}k</span> : null}
+      </span>
+    </>
+  );
+}
+
+// Summary line under a select: shows the chosen device's host-API badge so a
+// mismatch is visible even without opening the dropdown.
+function DeviceSummary({ name, device }: { name: string; device?: VoiceAudioDevice }) {
+  const tag = device ? hostApiTag(device.host_api) : null;
+  return (
+    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ui-subtle">
+      <span className="min-w-0 truncate" title={name}>{name}</span>
+      {tag?.label ? <Badge color={tag.color} className="shrink-0">{tag.label}</Badge> : null}
+    </div>
+  );
+}
 
 export function SetupStep({ step, title, aside, children }: { step: string; title: string; aside?: ReactNode; children: ReactNode }) {
   return (
@@ -49,7 +78,9 @@ export function DeviceSelect({
   restartPending?: boolean;
   onChange: (value: number) => void;
 }) {
-  const name = deviceName(devices, value, fallback);
+  const byId = new Map(devices.map((d) => [d.id, d]));
+  const selected = devices.find((d) => deviceNumericId(d) === value);
+  const name = selected?.name ?? fallback;
   return (
     <label className="min-w-0">
       <div className="flex items-center justify-between gap-2">
@@ -69,8 +100,9 @@ export function DeviceSelect({
           label: d.name,
           hint: deviceHint(d.host_api, d.default_sample_rate),
         }))}
+        renderOption={(o) => <DeviceOptionRow device={byId.get(o.value)} label={o.label} />}
       />
-      <div className="mt-1 truncate text-[11px] text-ui-subtle" title={name}>{name}</div>
+      <DeviceSummary name={name} device={selected} />
     </label>
   );
 }
@@ -88,7 +120,9 @@ export function MonitorSelect({
   restartPending?: boolean;
   onChange: (value: number) => void;
 }) {
-  const name = deviceName(devices, value, "Off");
+  const byId = new Map(devices.map((d) => [d.id, d]));
+  const selected = devices.find((d) => deviceNumericId(d) === value);
+  const name = selected?.name ?? "Off";
   return (
     <label className="min-w-0">
       <div className="flex items-center justify-between gap-2">
@@ -110,8 +144,9 @@ export function MonitorSelect({
             hint: deviceHint(d.host_api, d.default_sample_rate),
           })),
         ]}
+        renderOption={(o) => <DeviceOptionRow device={byId.get(o.value)} label={o.label} />}
       />
-      <div className="mt-1 truncate text-[11px] text-ui-subtle" title={name}>{name}</div>
+      <DeviceSummary name={name} device={selected} />
     </label>
   );
 }

@@ -310,6 +310,20 @@ export function deviceHint(hostApi: string, rate: number | null): string {
   return [hostApi, rate ? `${rate / 1000}k` : ""].filter(Boolean).join(", ");
 }
 
+// A short label + Badge color per Windows host API. The API a device sits on
+// is easy to miss in grey hint text, yet input and output MUST share one host
+// API or the duplex stream fails to open (PaErrorCode -9993). Colouring the tag
+// makes a mismatched pair (e.g. amber MME mic + sky DirectSound output) obvious.
+export function hostApiTag(hostApi: string): { label: string; color: string } {
+  const api = (hostApi ?? "").toLowerCase();
+  if (api.includes("wasapi")) return { label: "WASAPI", color: "bg-emerald-700/50 text-emerald-100" };
+  if (api.includes("directsound")) return { label: "DirectSound", color: "bg-sky-700/50 text-sky-100" };
+  if (api.includes("wdm")) return { label: "WDM-KS", color: "bg-violet-700/50 text-violet-100" };
+  if (api.includes("mme")) return { label: "MME", color: "bg-amber-700/50 text-amber-100" };
+  if (!hostApi) return { label: "", color: "" };
+  return { label: hostApi, color: "bg-white/10 text-white/65" };
+}
+
 export function deviceNumericId(device: Pick<VoiceAudioDevice, "id" | "index">): number {
   return num(device.id, device.index);
 }

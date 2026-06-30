@@ -23,6 +23,25 @@ from ..util import imaging, sysmon
 from ..util import uploads as uploads_util
 from .base import GenerationCancelled, ModelDescriptor, ProgressCb, VideoBackend
 
+# Per-family generation defaults. The arbiter keeps a single heavy resident, so
+# these mirror each model's validated recipe rather than one global compromise.
+# Frame rate matters most: LTX-Video conditions the transformer on it and the
+# model card calls for 24-30 fps, so the old global 16 fps default sat below the
+# trained range and produced temporal artifacts. Wan 2.2 TI2V-5B is likewise a
+# 24 fps model and prefers stronger guidance than LTX.
+_FAMILY_GEN_DEFAULTS: dict[ModelFamily, dict[str, Any]] = {
+    ModelFamily.LTX_VIDEO: {"fps": 24, "steps": 30, "guidance": 3.0},
+    ModelFamily.WAN_VIDEO: {"fps": 24, "steps": 30, "guidance": 5.0},
+}
+
+# The heavy work does not stop at the last denoise step: a (fp32, tiled) VAE
+# decode and the mp4 encode follow, and neither emits step callbacks. Wan's
+# decode alone can run minutes. Reserve progress headroom so sampling fills the
+# bar up to _DENOISE_END and the decode/encode phases stay visible afterwards
+# instead of the bar sitting frozen at 100%.
+_DENOISE_END = 0.9
+_ENCODE_START = 0.97
+
 
 class DiffusersVideoBackend(VideoBackend):
     def __init__(self, descriptor: ModelDescriptor) -> None:
@@ -98,14 +117,22 @@ class DiffusersVideoBackend(VideoBackend):
         if hasattr(pipe.vae, "enable_slicing"):
             pipe.vae.enable_slicing()
 
+        offload = settings.video_offload.lower().strip()
         if use_bnb:
-            # Quantized components are placed by the Diffusers bnb loader. Moving
-            # the whole pipeline afterwards can touch meta tensors, so only place
-            # the compact tiled VAE on CUDA.
-            self._accelerator.move(pipe.vae)
-            placement = "bnb-loader+tiled-vae"
+            # The big win on 16 GB: model offload keeps only the active submodel on
+            # the GPU. Wan 5B's text encoder is ~7 GB of *unquantized* bf16 and is
+            # used once; with everything resident the fp32 VAE decode had no room
+            # and spilled to shared RAM (or OOMed at 720p). Per-submodel offload
+            # drops the peak from ~14.5 GB to ~7.8 GB. The old "bnb can't be moved"
+            # worry only applies to a bulk pipe.to() — model-offload's hooks work
+            # fine with the 4-bit transformer (verified on diffusers 0.38).
+            if offload == "sequential":
+                self._accelerator.enable_sequential_cpu_offload(pipe)
+                placement = "bnb+sequential-offload"
+            else:
+                self._accelerator.enable_model_cpu_offload(pipe)
+                placement = "bnb+model-offload"
         else:
-            offload = settings.video_offload.lower().strip()
             if offload == "sequential":
                 self._accelerator.enable_sequential_cpu_offload(pipe)
             elif offload in {"", "none"}:
@@ -169,8 +196,11 @@ class DiffusersVideoBackend(VideoBackend):
     ) -> dict[str, Any]:
         width, height = self._dimensions(params)
         frames = self._frames(params)
-        fps = self._bounded_int(params.get("fps"), settings.video_default_fps, 4, 30)
-        steps = self._bounded_int(params.get("steps"), settings.video_default_steps, 1, 80)
+        fps = self._bounded_int(params.get("fps"), self._gen_default("fps", settings.video_default_fps), 4, 30)
+        steps = self._bounded_int(params.get("steps"), self._gen_default("steps", settings.video_default_steps), 1, 80)
+        guidance = self._bounded_float(
+            params.get("guidance"), self._gen_default("guidance", settings.video_default_guidance), 0.0, 20.0
+        )
         seed = self._bounded_int(params.get("seed"), -1, -1, 2**31 - 1)
         if seed < 0:
             seed = random.randint(0, 2**31 - 1)
@@ -182,12 +212,15 @@ class DiffusersVideoBackend(VideoBackend):
         if settings.stub_mode:
             return await self._generate_stub(
                 params, progress, width=width, height=height, frames=frames,
-                fps=fps, steps=steps, seed=seed, mode=mode,
+                fps=fps, steps=steps, guidance=guidance, seed=seed, mode=mode,
             )
         return await self._generate_real(
             params, progress, width=width, height=height, frames=frames,
-            fps=fps, steps=steps, seed=seed, mode=mode,
+            fps=fps, steps=steps, guidance=guidance, seed=seed, mode=mode,
         )
+
+    def _gen_default(self, key: str, fallback: Any) -> Any:
+        return _FAMILY_GEN_DEFAULTS.get(self.descriptor.family, {}).get(key, fallback)
 
     async def _generate_stub(
         self,
@@ -199,6 +232,7 @@ class DiffusersVideoBackend(VideoBackend):
         frames: int,
         fps: int,
         steps: int,
+        guidance: float,
         seed: int,
         mode: str,
     ) -> dict[str, Any]:
@@ -206,7 +240,8 @@ class DiffusersVideoBackend(VideoBackend):
             if self._stop:
                 raise GenerationCancelled()
             await asyncio.sleep(0.025)
-            await progress((step + 1) / steps, f"step {step + 1}/{steps}")
+            await progress(_DENOISE_END * (step + 1) / steps, f"step {step + 1}/{steps}")
+        await progress(_ENCODE_START, "encoding video…")
 
         # Keep CI/dev output tiny while still producing a real seekable mp4.
         actual_frames = min(frames, 24)
@@ -219,7 +254,7 @@ class DiffusersVideoBackend(VideoBackend):
             ]))
         meta = self._metadata(
             params, width=width, height=height, frames=actual_frames,
-            requested_frames=frames, fps=fps, steps=steps, seed=seed, mode=mode,
+            requested_frames=frames, fps=fps, steps=steps, guidance=guidance, seed=seed, mode=mode,
         )
         meta["stub"] = True
         return await asyncio.to_thread(self._persist, rendered, meta)
@@ -234,6 +269,7 @@ class DiffusersVideoBackend(VideoBackend):
         frames: int,
         fps: int,
         steps: int,
+        guidance: float,
         seed: int,
         mode: str,
     ) -> dict[str, Any]:
@@ -245,9 +281,14 @@ class DiffusersVideoBackend(VideoBackend):
             if self._stop:
                 raise GenerationCancelled()
             step = int(args[-3] if len(args) >= 4 else args[0])
-            asyncio.run_coroutine_threadsafe(
-                progress((step + 1) / steps, f"step {step + 1}/{steps}"), loop
-            )
+            done = step + 1
+            if done >= steps:
+                # Final step end — sampling is over and the slow VAE decode begins
+                # with no callbacks of its own; label it so the bar isn't a frozen 100%.
+                frac, note = _DENOISE_END, "decoding frames (VAE)…"
+            else:
+                frac, note = _DENOISE_END * done / steps, f"step {done}/{steps}"
+            asyncio.run_coroutine_threadsafe(progress(frac, note), loop)
             return args[-1] if args and isinstance(args[-1], dict) else None
 
         def run():
@@ -259,9 +300,7 @@ class DiffusersVideoBackend(VideoBackend):
                 "height": height,
                 "num_frames": frames,
                 "num_inference_steps": steps,
-                "guidance_scale": self._bounded_float(
-                    params.get("guidance"), settings.video_default_guidance, 0.0, 20.0
-                ),
+                "guidance_scale": guidance,
                 "generator": self._runtime().generator(torch, seed),
                 "callback_on_step_end": callback,
             }
@@ -273,9 +312,10 @@ class DiffusersVideoBackend(VideoBackend):
             return list(output.frames[0])
 
         rendered = await asyncio.to_thread(run)
+        await progress(_ENCODE_START, "encoding video…")
         meta = self._metadata(
             params, width=width, height=height, frames=len(rendered),
-            requested_frames=frames, fps=fps, steps=steps, seed=seed, mode=mode,
+            requested_frames=frames, fps=fps, steps=steps, guidance=guidance, seed=seed, mode=mode,
         )
         return await asyncio.to_thread(self._persist, rendered, meta)
 
@@ -285,11 +325,26 @@ class DiffusersVideoBackend(VideoBackend):
         if self._i2v_pipe is None:
             if self.descriptor.family is ModelFamily.LTX_VIDEO:
                 from diffusers import LTXImageToVideoPipeline  # noqa: PLC0415
+                import torch  # noqa: PLC0415
 
                 self._i2v_pipe = LTXImageToVideoPipeline.from_pipe(self._pipe)
+                # Diffusers 0.38 builds the LTX I2V image tensor as bf16 from the
+                # parent pipe, while from_pipe can leave the VAE encode path in
+                # fp32. Keep the VAE on bf16 so image conditioning does not fail
+                # with "input bf16, bias float" during the first conv3d.
+                self._i2v_pipe.vae.to(dtype=torch.bfloat16)
             elif self.descriptor.family is ModelFamily.WAN_VIDEO:
                 from diffusers import WanImageToVideoPipeline  # noqa: PLC0415
+                from diffusers.utils import is_ftfy_available  # noqa: PLC0415
 
+                # diffusers 0.38's Wan i2v prompt cleaner calls ftfy.fix_text
+                # without the availability guard the t2v path has, so a missing
+                # ftfy otherwise surfaces as a cryptic mid-run NameError.
+                if not is_ftfy_available():
+                    raise RuntimeError(
+                        "Wan image-to-video needs the 'ftfy' package — install it with "
+                        "`pip install ftfy` (already pinned in requirements-gpu.txt)."
+                    )
                 self._i2v_pipe = WanImageToVideoPipeline.from_pipe(self._pipe)
             else:
                 raise ValueError("this video model does not support image-to-video")
@@ -314,7 +369,8 @@ class DiffusersVideoBackend(VideoBackend):
             codec="libx264",
             quality=7,
             macro_block_size=16,
-            ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart"],
+            pixelformat="yuv420p",  # imageio injects -pix_fmt itself; passing it again warns
+            ffmpeg_params=["-movflags", "+faststart"],
         ) as writer:
             for frame in pil_frames:
                 writer.append_data(np.asarray(frame))

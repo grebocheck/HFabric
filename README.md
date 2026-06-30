@@ -1,16 +1,21 @@
 # HFabric
 
-A **local** AI workspace that pairs a chat **LLM** with **diffusion image
-generation** on a single consumer GPU — without fighting over VRAM. Its core is a
-**VRAM arbiter**: at most one heavy model is resident at a time, and a
-phase-batching scheduler swaps LLM ↔ image models as rarely as possible (ideally
-once per batch). Everything runs on your machine; nothing is sent to a cloud
-service.
+A **local, private AI workspace** for chat LLMs, image generation/editing, video
+generation, RAG, speech tools, and a native voice changer on one consumer GPU. Its
+core is a **VRAM arbiter**: at most one heavy model is resident at a time, so chat,
+image, and video jobs swap cleanly instead of fighting over memory. Everything runs
+on your machine; nothing is sent to a cloud service.
 
-Beyond chat and image generation, the same shell hosts RAG (chat-with-documents),
-chat-native vision through multimodal attachments, text-to-speech, transcription,
-and a native real-time voice changer — all gated through the same GPU arbiter so
-they never collide.
+**Why try it:**
+
+- **One 16 GB GPU, multiple heavy workflows:** LLM ↔ image ↔ video swaps are
+  serialized by the arbiter and visible in the header VRAM meter.
+- **Real creative surfaces:** chat-native `/image`, SDXL/FLUX/Qwen/Z-Image/Anima
+  generation, Edit workspace, LTX/Wan video, RAG, TTS, transcription, and Voice.
+- **Safe local defaults:** loopback bind, optional API token, RAM/VRAM guards before
+  model loads, STUB mode for no-GPU testing, and a repeatable GPU smoke checklist.
+- **Model management built in:** curated downloads, Hugging Face/CivitAI browsing,
+  installed-model cleanup, and hardware-aware compatibility warnings.
 
 ![HFabric — generate images locally with a composer, live result, queue, and history](docs/images/1.png)
 
@@ -29,12 +34,13 @@ they never collide.
   </tr>
 </table>
 
-> **Project status: public beta (v0.2, B+ / 8.2).** This is a `0.2` beta — solid for
-> the author's own daily use and now open to other testers, but it has **not** had
-> wide testing and still has rough edges.
+> **Project status: public beta (v0.3.0, B+).** `v0.1.0`, `v0.2.0`, and `v0.3.0`
+> are tagged and released. The app is solid for the author's own daily use and now
+> open to other testers, but it has **not** had wide hardware coverage yet.
 >
-> - **What works:** the full local pipeline — chat LLM, image generation, the VRAM
->   arbiter, and the workspaces — is real-GPU validated on **NVIDIA / Windows**.
+> - **What works:** the full local pipeline — chat LLM, image/edit generation, video
+>   generation, the VRAM arbiter, and the workspaces — is real-GPU validated on
+>   **NVIDIA / Windows**.
 > - **What's rough:** AMD ROCm and Apple Silicon are **experimental** (unvalidated on
 >   real hardware); first-run validation is much better, but some hardware-specific
 >   model and audio paths still need more tester coverage.
@@ -42,7 +48,7 @@ they never collide.
 >
 > Before reporting, skim [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and the
 > [Platform support](#platform-support) matrix; the
-> [release-readiness audit](docs/audit-2026-06-14.md) is the most candid status
+> [current audit](docs/audit-2026-06-30.md) is the most candid status
 > snapshot. Found a security issue? See [SECURITY.md](SECURITY.md) — please report it
 > privately.
 
@@ -70,11 +76,16 @@ WebSocket → gallery with reproducible metadata) is validated on the GPU today:
 - **Image:** SDXL, FLUX, FLUX.2 [klein], Anima, Qwen-Image, and Z-Image generation;
   a dedicated **Edit** workspace adds img2img, inpaint, outpaint, full-size mask
   painting, A/B comparison, ControlNet, and instruction-edit model support.
+- **Video:** LTX-Video text-to-video and image-to-video plus Wan 2.2 text-to-video,
+  served as seekable MP4 with poster/animated thumbnail history. On the reference
+  16 GB GPU, 480p / 49-frame LTX T2V+I2V and Wan T2V are validated.
 - **Chat LLM:** any GGUF model via `llama-server`, with streaming, personas,
   sampling control, stop/regenerate/edit, attachments, native multimodal
   `mmproj` vision, and a `/image` bridge.
 - **Workspaces:** Edit, RAG, TTS, Transcribe, Notes, Code, and a native RVC Voice
   changer — all model-gated and CPU-first by default.
+- **Models:** a unified manager for curated downloads, Hugging Face/CivitAI search,
+  installed-model inventory, disk checks, and compatibility warnings.
 
 The same pipeline also runs **without** torch or llama.cpp in **STUB mode**
 (`HFAB_STUB_MODE=true`), which returns mock results. STUB mode is how the UI is
@@ -100,7 +111,7 @@ If you're on ROCm or Apple Silicon and willing to help validate, the
 
 | | |
 |---|---|
-| **GPU** | NVIDIA CUDA with 8+ GB VRAM recommended (16+ GB for the full image set). AMD ROCm (Linux) and Apple MPS supported conservatively. No supported GPU → CPU-safe/STUB. |
+| **GPU** | NVIDIA CUDA with 8+ GB VRAM recommended (16+ GB for the full image/video set). AMD ROCm (Linux) and Apple MPS supported conservatively. No supported GPU → CPU-safe/STUB. |
 | **RAM** | 32 GB recommended (≈16 GB for models + 16 GB for OS/processes). |
 | **OS** | Windows 11 (validated CUDA path), Linux (ROCm), macOS Apple Silicon (MPS). |
 | **Disk** | 40+ GB for the starter set; 150 GB for the larger FLUX/SDXL/LLM workspace. |
@@ -383,7 +394,7 @@ python scripts/install_profiles.py --pretty
 | [docs/gpu-smoke.md](docs/gpu-smoke.md) | Real-GPU validation checklist + the validation log |
 | [models/README.md](models/README.md) | Model folder layout + curated download list |
 | [docs/voice-routing.md](docs/voice-routing.md) | Routing the voice changer into Discord/OBS/etc. |
-| [docs/audit-2026-06-14.md](docs/audit-2026-06-14.md) | Current release-readiness audit (weaknesses + plan) |
+| [docs/audit-2026-06-30.md](docs/audit-2026-06-30.md) | Current code-quality and stability audit (weaknesses + plan) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to report a bug + open a PR |
 | [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Beta limitations, by-design behavior, rough edges |
 | [SECURITY.md](SECURITY.md) | Security model + how to report a vulnerability privately |

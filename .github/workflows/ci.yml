@@ -32,7 +32,7 @@ jobs:
       - name: Test (stub mode)
         run: |
           set -o pipefail
-          pytest --cov=app --cov-report=term --cov-report=term-missing:skip-covered --cov-fail-under=63 | tee coverage.txt
+          pytest --cov=app --cov-report=term --cov-report=term-missing:skip-covered --cov-fail-under=68 | tee coverage.txt
           {
             echo "### Backend coverage"
             echo '```'

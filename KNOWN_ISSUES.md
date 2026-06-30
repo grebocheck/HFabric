@@ -48,7 +48,8 @@ The deeper engineering rationale for several of these lives in the
 ## Video generation
 
 - **LTX-Video and Wan 2.2 currently require NVIDIA CUDA.** Their local Diffusers
-  repositories load in 4-bit with tiled VAE decode; non-NVIDIA fallback families
+  repositories load in 4-bit with tiled VAE decode; 480p / 49-frame LTX T2V+I2V and
+  Wan T2V are validated on the RTX 5070 Ti reference box. Non-NVIDIA fallback families
   remain a P27 follow-up.
 - **Wan is measured in minutes, not seconds.** A 720p clip can take several minutes
   on one consumer GPU. Start at 480p with 49 frames while tuning a prompt.
@@ -73,7 +74,7 @@ The deeper engineering rationale for several of these lives in the
 
 - Single-developer beta: expect rough edges in first-run/empty states and error
   messages outside the happy path (tracked as ROADMAP **P24.7**).
-- Documentation can lag the code in spots; the [audit](docs/audit-2026-06-14.md) is
+- Documentation can lag the code in spots; the [audit](docs/audit-2026-06-30.md) is
   the most candid status snapshot.
 - The app is built for a **single local user**. Don't expose it on a hostile
   network without `HFAB_API_TOKEN` (see [SECURITY.md](SECURITY.md)).

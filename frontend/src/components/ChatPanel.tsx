@@ -20,7 +20,7 @@ import {
   promptHistoryLimit,
   type NumOrEmpty,
 } from "./chatHelpers";
-import { setLastAssistant, useChatStream, useConversation } from "./ChatPanelHooks";
+import { imagePromptDraft, useChatActions, useChatStream, useConversation } from "./ChatPanelHooks";
 import { MessageComposer, MessageList } from "./ChatPanelParts";
 
 const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
@@ -125,21 +125,6 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
       const next = [text, ...prev.filter((item) => item !== text)].slice(0, promptHistoryLimit);
       return next;
     });
-  }, []);
-
-  const uploadAttachments = useCallback(async (files: FileList | File[]) => {
-    const list = Array.from(files).filter((file) => file.size > 0);
-    if (!list.length) return;
-    setAttachmentsUploading(true);
-    setAttachmentNote("");
-    try {
-      const uploaded = await Promise.all(list.map((file) => api.uploadChatAttachment(file)));
-      setAttachments((prev) => [...prev, ...uploaded].slice(0, 12));
-    } catch (err) {
-      setAttachmentNote(err instanceof Error ? err.message : "attachment upload failed");
-    } finally {
-      setAttachmentsUploading(false);
-    }
   }, []);
 
   useEffect(() => {
@@ -262,131 +247,52 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
     stop: parseStop(stop),
   }), [system, temperature, maxTokens, topP, topK, minP, repeatPenalty, seed, stop]);
 
-  const submit = useCallback(async (content: string, convId: string, outgoingAttachments: ChatAttachment[] = []) => {
-    const mdl = modelId || llmModels[0]?.id;
-    if (!mdl) return;
-    stickToBottom.current = true;
-    beginStream();
-    setMessages((p) => [
-      ...p,
-      { id: "tmp-u", role: "user", content, attachments: outgoingAttachments },
-      { id: "tmp-a", role: "assistant", content: "" },
-    ]);
-    try {
-      const img = imageTool ? pickImageModel(models) : undefined;
-      const res = await api.sendChatMessage(convId, {
-        content,
-        model_id: mdl,
-        attachments: outgoingAttachments.map((item) => ({ token: item.token })),
-        ...sampling(),
-        ...(imageTool && img ? { image_tool: true, image_model_id: img.id } : {}),
-        ...(documentTool ? { document_tool: true, rag_top_k: ragTopK } : {}),
-      });
-      setActiveJob(res.job_id);
-      setMessages((p) => p.map((m) =>
-        m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
-      ));
-      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
-    } catch (err) {
-      setActiveJob(null);
-      setBusy(false);
-      setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
-    }
-  }, [beginStream, documentTool, imageTool, modelId, llmModels, models, ragTopK, sampling, setActiveJob, setConvs]);
-
-  const submitImage = useCallback(async (prompt: string, convId: string, negative?: string) => {
-    const img = pickImageModel(models);
-    stickToBottom.current = true;
-    if (!img) {
-      setMessages((p) => [...p, { id: "tmp-u", role: "user", content: `/image ${prompt}` },
-        { id: "tmp-a", role: "assistant", content: "⚠ no image model available", error: true }]);
-      return;
-    }
-    beginStream();
-    setMessages((p) => [...p, { id: "tmp-u", role: "user", content: `/image ${prompt}` },
-      { id: "tmp-a", role: "assistant", content: "" }]);
-    try {
-      const res = await api.sendChatImage(convId, { prompt, model_id: img.id, negative });
-      setActiveJob(res.job_id);
-      setMessages((p) => p.map((m) =>
-        m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
-      ));
-      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
-    } catch (err) {
-      setActiveJob(null);
-      setBusy(false);
-      setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
-    }
-  }, [beginStream, models, setActiveJob, setConvs]);
-
-  const send = useCallback(async () => {
-    const content = input.trim();
-    const outgoingAttachments = attachments;
-    if ((!content && outgoingAttachments.length === 0) || busy || attachmentsUploading) return;
-    let cid = activeId;
-    if (!cid) {
-      const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
-      setConvs((p) => [c, ...p]);
-      setActiveId(c.id);
-      cid = c.id;
-    }
-    setInput("");
-    setAttachments([]);
-    setAttachmentNote("");
-    if (content) rememberPrompt(content);
-    const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
-    if (imgCmd && outgoingAttachments.length === 0) {
-      const parsed = parseImageCommand(imgCmd[1].trim());
-      if (!parsed.prompt) return;
-      await submitImage(parsed.prompt, cid, parsed.negative);
-    }
-    else await submit(content, cid, outgoingAttachments);
-  }, [input, attachments, attachmentsUploading, busy, activeId, modelId, llmModels, rememberPrompt, submit, submitImage, setConvs, setInput]);
-
-  const applyImagePromptSnippet = useCallback((body: string, negative?: string | null) => {
-    const prompt = body.trim();
-    if (!prompt) return;
-    const neg = negative?.trim();
-    setInput(`/image ${prompt}${neg ? ` --negative ${neg}` : ""}`);
-    setLibraryOpen(false);
-    inputRef.current?.focus();
-  }, [setInput]);
-
-  const stop_ = useCallback(async () => {
-    await api.stopLlm().catch(() => {});
-    if (activeJob.current) await api.cancelJob(activeJob.current).catch(() => {});
-  }, [activeJob]);
-
-  const regenerate = useCallback(async () => {
-    if (busy || !activeId) return;
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    if (!lastUser || lastUser.id.startsWith("tmp")) return;
-    await api.truncateFrom(activeId, lastUser.id).catch(() => {});
-    const idx = messages.findIndex((m) => m.id === lastUser.id);
-    setMessages((p) => p.slice(0, idx));
-    await submit(lastUser.content, activeId, lastUser.attachments ?? []);
-  }, [busy, activeId, messages, submit]);
-
-  const startEdit = (m: ChatMessage) => { setEditingId(m.id); setEditText(m.content); };
-  const saveEdit = useCallback(async () => {
-    if (!activeId || !editingId) return;
-    const content = editText.trim();
-    const idx = messages.findIndex((m) => m.id === editingId);
-    setEditingId(null);
-    if (!content || idx < 0) return;
-    const editedAttachments = messages[idx]?.attachments ?? [];
-    await api.truncateFrom(activeId, editingId).catch(() => {});
-    setMessages((p) => p.slice(0, idx));
-    await submit(content, activeId, editedAttachments);
-  }, [activeId, editingId, editText, messages, submit]);
+  const {
+    applyImagePromptSnippet,
+    onPaste,
+    regenerate,
+    saveEdit,
+    send,
+    startEdit,
+    stop: stopGeneration,
+    uploadAttachments,
+  } = useChatActions({
+    activeId,
+    activeJob,
+    attachments,
+    attachmentsUploading,
+    beginStream,
+    busy,
+    documentTool,
+    editingId,
+    editText,
+    imageTool,
+    input,
+    inputRef,
+    llmModels,
+    messages,
+    modelId,
+    models,
+    ragTopK,
+    rememberPrompt,
+    sampling,
+    setActiveId,
+    setActiveJob,
+    setAttachmentNote,
+    setAttachments,
+    setAttachmentsUploading,
+    setBusy,
+    setConvs,
+    setEditText,
+    setEditingId,
+    setInput,
+    setLibraryOpen,
+    setMessages,
+    stickToBottom,
+  });
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
-  };
-
-  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = e.clipboardData?.files;
-    if (files?.length) void uploadAttachments(files);
   };
 
   const applyCtx = async () => {
@@ -652,7 +558,7 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
           onRegenerate={() => void regenerate()}
           onSend={() => void send()}
           onPromptLibrary={() => setLibraryOpen(true)}
-          onStop={() => void stop_()}
+          onStop={() => void stopGeneration()}
           personas={personas}
           personasLoading={personasLoading}
           personaId={personaId}
@@ -929,20 +835,6 @@ export function ChatPanel({ models, modelsLoading = false, jump, draft, setDraft
       </aside>
     </div>
   );
-}
-
-function parseImageCommand(value: string): { prompt: string; negative?: string } {
-  const match = value.match(/\s--(?:negative|neg)(?:\s+|=)([\s\S]*)$/i);
-  if (!match || match.index == null) return { prompt: value.trim() };
-  return {
-    prompt: value.slice(0, match.index).trim(),
-    negative: match[1].trim() || undefined,
-  };
-}
-
-function imagePromptDraft(input: string): string {
-  const match = input.match(/^\/(?:image|img)\s+([\s\S]+)/i);
-  return match ? parseImageCommand(match[1].trim()).prompt : "";
 }
 
 function NumOpt({ label: l, v, set, step }: { label: string; v: NumOrEmpty; set: (n: NumOrEmpty) => void; step: number }) {

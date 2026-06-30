@@ -63,10 +63,14 @@ async def test_asset_gets_accept_query_token_but_writes_do_not(monkeypatch):
     async for client in _async_client():
         asset_without_token = await client.get("/api/images/upload/not-a-token")
         asset_with_token = await client.get("/api/images/upload/not-a-token?token=secret-token")
+        video_without_token = await client.get("/api/videos/not-real/poster")
+        video_with_token = await client.get("/api/videos/not-real/poster?token=secret-token")
         write_with_query_token = await client.post("/api/jobs?token=secret-token", json=[])
 
     assert asset_without_token.status_code == 401
     assert asset_with_token.status_code == 404
+    assert video_without_token.status_code == 401
+    assert video_with_token.status_code == 404
     assert write_with_query_token.status_code == 401
 
 

@@ -102,6 +102,11 @@ are close to the baselines below.
      if `mem.status` still leaves the configured safety margin.
    - Seek through each result in the browser (the mp4 endpoint must return HTTP 206
      for byte ranges), cancel one running denoise, and swap Video -> LLM -> Video.
+   - Repeatable app-path check: against a live backend, run
+     `python scripts/video_app_smoke.py`. It asserts websocket events, HTTP 206
+     range replay, poster/thumb fetches, cancel during denoise, and
+     Video -> LLM -> Video resident swap. STUB mode is acceptable for this app-path
+     check after the real-GPU model matrix above has passed.
    - Pass: one heavy resident throughout, no shared-VRAM/pagefile spill, tiled VAE
      decode completes, poster/animated thumbnail exist, and History replays the mp4.
 
@@ -139,6 +144,23 @@ Optional ControlNet depth/pose/scribble/Union and instruction-edit rows require
 their separate model weights; this host did not have those assets installed. Their
 routing, family gating, memory guards, and stub-mode acceptance paths are covered by
 the automated suite rather than being reported here as real-GPU passes.
+
+### P27 real-machine video validation log
+
+| Date | GPU | Family / variant | Path | Result | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 2026-06-30 | RTX 5070 Ti 16 GB | LTX-Video | T2V 832x480 / 49f / 8 steps | PASS | `MODEL=ltx-video MODE=t2v W=832 H=480 FRAMES=49 STEPS=8 scripts/video_vram_probe.py`; peak 6.00 GB VRAM; mp4, poster, thumbnail, metadata written. |
+| 2026-06-30 | RTX 5070 Ti 16 GB | LTX-Video | I2V 832x480 / 49f / 8 steps | PASS | Source upload token `079fb1d04add4d5aa91f77c985c82c2c`; peak 6.76 GB VRAM. This caught and fixed the LTX I2V VAE dtype mismatch. |
+| 2026-06-30 | RTX 5070 Ti 16 GB | Wan 2.2 TI2V-5B | T2V 832x480 / 49f / 8 steps | PASS | `MODEL=wan2.2-ti2v-5b MODE=t2v W=832 H=480 FRAMES=49 STEPS=8 scripts/video_vram_probe.py`; peak 7.83 GB VRAM; tiled VAE decode and mp4 encode completed. |
+
+### P27 live app-path validation log
+
+| Date | Host | Mode | Command | Result | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 2026-06-30 | Windows / RTX 5070 Ti | STUB live backend | `python scripts/video_app_smoke.py --base-url http://127.0.0.1:8274 --api-token ... --timeout 120` | PASS | Isolated temp DB/outputs; validated websocket `job.*`/`video.ready`, HTTP `Accept-Ranges` + `206`, poster/thumb fetches, running-job cancel, and Video -> LLM -> Video resident swap. |
+
+P27.6 app-path and UI polish are covered. Remaining P27 feature breadth is tracked
+in the roadmap: FramePack long-video support and non-NVIDIA fallback validation.
 
 ## Fail Handling
 

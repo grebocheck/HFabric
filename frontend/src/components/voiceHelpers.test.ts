@@ -6,6 +6,7 @@ import {
   feminineVoicePreset,
   formatBytes,
   formatMs,
+  hostApiTag,
   latencyPresets,
   meter,
   nativeRoutingSettingsPatch,
@@ -214,6 +215,19 @@ describe("device helpers", () => {
   it("formats host API and sample rate hints", () => {
     expect(deviceHint("WASAPI", 48000)).toBe("WASAPI, 48k");
     expect(deviceHint("", null)).toBe("");
+  });
+
+  it("tags each Windows host API with a distinct short label and colour", () => {
+    expect(hostApiTag("MME").label).toBe("MME");
+    expect(hostApiTag("Windows DirectSound").label).toBe("DirectSound");
+    expect(hostApiTag("Windows WASAPI").label).toBe("WASAPI");
+    expect(hostApiTag("Windows WDM-KS").label).toBe("WDM-KS");
+    // distinct colours so a mismatched input/output pair stands out
+    const colors = ["MME", "Windows DirectSound", "Windows WASAPI", "Windows WDM-KS"].map((a) => hostApiTag(a).color);
+    expect(new Set(colors).size).toBe(4);
+    // unknown keeps the raw name, empty produces no tag
+    expect(hostApiTag("Jack").label).toBe("Jack");
+    expect(hostApiTag("").label).toBe("");
   });
 
   it("shows the selected device name or a fallback", () => {

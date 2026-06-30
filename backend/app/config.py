@@ -370,9 +370,9 @@ class Settings(BaseSettings):
     video_default_width: int = 832
     video_default_height: int = 480
     video_default_frames: int = 49
-    video_default_fps: int = 16
-    video_default_steps: int = 25
-    video_default_guidance: float = 4.0
+    video_default_fps: int = 24  # LTX/Wan are 24-30 fps models; per-family overrides in video_diffusers
+    video_default_steps: int = 30
+    video_default_guidance: float = 3.0
     video_max_frames: int = 161
     video_max_width: int = 1280
     video_max_height: int = 1280

@@ -22,7 +22,7 @@ from ..config import settings
 from ..core.enums import ModelFamily
 from ..services import accelerator_runtime
 from ..util import imaging
-from .base import GenerationCancelled, ImageBackend, ModelDescriptor, ProgressCb
+from .base import ImageBackend, ModelDescriptor, ProgressCb
 from .image_diffusers_parts import (
     AnimaLoaderMixin,
     DiffusersMemoryMixin,
@@ -32,6 +32,7 @@ from .image_diffusers_parts import (
     QwenZLoaderMixin,
     SdxlLoaderMixin,
 )
+from .image_diffusers_parts.generation import run_real_generation
 
 
 class DiffusersImageBackend(
@@ -293,206 +294,31 @@ class DiffusersImageBackend(
     async def _generate_real(self, params, width, height, steps, seed, i, batch, progress) -> dict[str, Any]:
         import torch  # noqa: PLC0415
 
-        loop = asyncio.get_running_loop()
-
-        def _step_cb(pipe, step, timestep, kw):
-            if self._stop:
-                raise GenerationCancelled()
-            frac = (i + (step + 1) / steps) / batch
-            asyncio.run_coroutine_threadsafe(
-                progress(frac, f"step {step + 1}/{steps} (img {i + 1}/{batch})"), loop
-            )
-            return kw
-
-        def _step_cb_flux2(*cb_args):
-            if self._stop:
-                raise GenerationCancelled()
-            if len(cb_args) == 4:
-                _, step, timestep, kw = cb_args
-            else:
-                step, timestep, kw = cb_args
-            frac = (i + (step + 1) / steps) / batch
-            asyncio.run_coroutine_threadsafe(
-                progress(frac, f"step {step + 1}/{steps} (img {i + 1}/{batch})"), loop
-            )
-            return kw
-
-        init_token = params.get("init_image")
-        mask_token = params.get("mask_image")
-        control_token = params.get("control_image")
-        strength = self._resolved_strength(params, steps)
-        family = self.descriptor.family
-        edit_mode = self._edit_mode(params)
-        has_mask = bool(mask_token or edit_mode == "outpaint")
-
-        def _run():
-            gen = self._runtime().generator(torch, seed)
-            self._apply_runtime_loras(params)
-            callback = (
-                _step_cb_flux2
-                if family in (
-                    ModelFamily.FLUX2,
-                    ModelFamily.QWEN_IMAGE,
-                    ModelFamily.QWEN_IMAGE_EDIT,
-                    ModelFamily.Z_IMAGE,
-                )
-                else _step_cb
-            )
-            common = {
-                "prompt": params.get("prompt", ""),
-                "num_inference_steps": steps,
-                "guidance_scale": self._guidance(params),
-                "generator": gen,
-                "negative_prompt": params.get("negative") or None,
-                "callback_on_step_end": callback,
-            }
-            if family is ModelFamily.FLUX2:
-                common.pop("negative_prompt", None)
-            elif family in (ModelFamily.QWEN_IMAGE, ModelFamily.QWEN_IMAGE_EDIT):
-                common["true_cfg_scale"] = common.pop("guidance_scale")
-            with self._generation_context(steps), self._attention_context(torch):
-                if control_token:
-                    control = self._load_control_image(control_token, width, height, params.get("control_type"))
-                    control_type = str(params.get("control_type") or "canny")
-                    control_mode = self._controlnet_mode_kwargs(control_type)
-                    if init_token and has_mask:
-                        src = self._load_init_image(init_token, width, height, params)
-                        mask = self._load_mask_image(mask_token, width, height, params)
-                        out = self._sdxl_controlnet_pipe(torch, "inpaint", control_type)(
-                            image=src,
-                            mask_image=mask,
-                            control_image=control,
-                            width=width,
-                            height=height,
-                            padding_mask_crop=self._padding_mask_crop(params),
-                            strength=strength,
-                            controlnet_conditioning_scale=self._control_scale(params),
-                            **control_mode,
-                            **common,
-                        )
-                    elif init_token:
-                        src = self._load_init_image(init_token, width, height, params)
-                        out = self._sdxl_controlnet_pipe(torch, "img2img", control_type)(
-                            image=src,
-                            control_image=control,
-                            width=width,
-                            height=height,
-                            strength=strength,
-                            controlnet_conditioning_scale=self._control_scale(params),
-                            **control_mode,
-                            **common,
-                        )
-                    else:
-                        out = self._sdxl_controlnet_pipe(torch, "text2img", control_type)(
-                            image=control,
-                            width=width,
-                            height=height,
-                            controlnet_conditioning_scale=self._control_scale(params),
-                            **control_mode,
-                            **common,
-                        )
-                elif init_token and has_mask:
-                    src = self._load_init_image(init_token, width, height, params)
-                    mask = self._load_mask_image(mask_token, width, height, params)
-                    padding_crop = self._padding_mask_crop(params)
-                    if family is ModelFamily.SDXL:
-                        out = self._sdxl_inpaint_pipe()(
-                            image=src,
-                            mask_image=mask,
-                            width=width,
-                            height=height,
-                            padding_mask_crop=padding_crop,
-                            strength=strength,
-                            **common,
-                        )
-                    elif family is ModelFamily.FLUX:
-                        out = self._flux_inpaint_pipe()(
-                            image=src,
-                            mask_image=mask,
-                            width=width,
-                            height=height,
-                            padding_mask_crop=padding_crop,
-                            strength=strength,
-                            **common,
-                        )
-                    elif family is ModelFamily.FLUX2:
-                        out = self._flux2_inpaint_pipe()(
-                            image=src,
-                            mask_image=mask,
-                            width=width,
-                            height=height,
-                            padding_mask_crop=padding_crop,
-                            strength=strength,
-                            **common,
-                        )
-                    elif family is ModelFamily.QWEN_IMAGE:
-                        out = self._qwen_inpaint_pipe()(
-                            image=src,
-                            mask_image=mask,
-                            width=width,
-                            height=height,
-                            padding_mask_crop=padding_crop,
-                            strength=strength,
-                            **common,
-                        )
-                    else:
-                        out = self._z_image_inpaint_pipe()(
-                            image=src,
-                            mask_image=mask,
-                            width=width,
-                            height=height,
-                            strength=strength,
-                            **common,
-                        )
-                elif init_token:
-                    src = self._load_init_image(init_token, width, height, params)
-                    if family in (ModelFamily.QWEN_IMAGE_EDIT, ModelFamily.FLUX_KONTEXT):
-                        out = self._pipe(image=src, width=width, height=height, **common)
-                    elif family is ModelFamily.SDXL:
-                        out = self._sdxl_img2img_pipe()(image=src, strength=strength, **common)
-                    elif family is ModelFamily.FLUX:
-                        out = self._flux_img2img_pipe()(
-                            image=src, width=width, height=height, strength=strength, **common
-                        )
-                    elif family is ModelFamily.QWEN_IMAGE:
-                        out = self._qwen_img2img_pipe()(
-                            image=src, width=width, height=height, strength=strength, **common
-                        )
-                    elif family is ModelFamily.Z_IMAGE:
-                        out = self._z_image_img2img_pipe()(
-                            image=src, width=width, height=height, strength=strength, **common
-                        )
-                    elif family is ModelFamily.ANIMA:
-                        out = self._pipe(
-                            image=src, width=width, height=height, strength=strength, **common
-                        )
-                    else:
-                        # FLUX.2 klein's pipeline accepts a source/reference
-                        # image but does not expose a denoise-strength knob.
-                        out = self._pipe(image=src, width=width, height=height, **common)
-                else:
-                    call_kwargs = {
-                        **common,
-                        "width": width,
-                        "height": height,
-                    }
-                    out = self._pipe(**call_kwargs)
-            return out.images[0]
-
-        img = await asyncio.to_thread(_run)
+        result = await run_real_generation(
+            self,
+            torch,
+            params,
+            width=width,
+            height=height,
+            steps=steps,
+            seed=seed,
+            i=i,
+            batch=batch,
+            progress=progress,
+        )
         meta = {**self._public_params(params), "seed": seed, "width": width, "height": height,
                 "steps": steps, "guidance": self._guidance(params),
                 "model": self.descriptor.name, "family": self.descriptor.family.value,
                 "acceleration": self._active_features}
         self._add_edit_meta(meta, params, steps)
-        if has_mask:
+        if result.has_mask:
             meta["inpaint"] = True
-        if control_token:
+        if result.control_token:
             meta["controlnet"] = {
                 "type": params.get("control_type") or "canny",
                 "scale": self._control_scale(params),
             }
-        return self._persist(img, meta, seed, width, height)
+        return self._persist(result.image, meta, seed, width, height)
 
     @staticmethod
     def _strength(params: dict[str, Any], family: ModelFamily | None = None) -> float:

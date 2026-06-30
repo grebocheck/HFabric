@@ -11,8 +11,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from sqlalchemy import delete, select
+
+from app.core.arbiter import GpuArbiter
 from app.core.enums import JobType
+from app.core.events import EventBus
 from app.core.scheduler import Worker, friendly_job_error, plan_queue, select_in_tier
+from app.db.models import Job
+from app.db.session import init_db, session_scope
 
 _BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -161,3 +168,95 @@ def test_friendly_job_error_summarizes_oom():
     assert friendly_job_error(RuntimeError("CUDA out of memory while allocating")).startswith(
         "The job ran out of accelerator memory"
     )
+
+
+@pytest.fixture
+async def scheduler_db(monkeypatch):
+    from app.services.voice_engine import realtime
+
+    monkeypatch.setattr(realtime, "session_active", lambda: False)
+    await init_db()
+    async with session_scope() as s:
+        await s.execute(delete(Job))
+    yield
+    async with session_scope() as s:
+        await s.execute(delete(Job))
+
+
+async def test_pick_next_parks_and_resumes_for_resident_pin(scheduler_db):
+    bus = EventBus()
+    arbiter = GpuArbiter(bus)
+    arbiter._resident_pin = {
+        "id": "pin",
+        "label": "Preview",
+        "model_id": "pinned",
+        "model": "Pinned model",
+        "family": "sdxl",
+    }
+    worker = Worker(bus, arbiter, registry=object())
+
+    async with session_scope() as s:
+        s.add(Job(type=JobType.IMAGE, model_id="other", params={}, priority=0))
+
+    async with bus.subscribe() as q:
+        assert await worker._pick_next() is None
+        parked = q.get_nowait()
+        assert parked["reason"] == "resident_pinned"
+        assert parked["model_id"] == "pinned"
+
+        # A second blocked poll should not spam the UI with duplicate notes.
+        assert await worker._pick_next() is None
+        assert q.empty()
+
+        arbiter._resident_pin = None
+        snap = await worker._pick_next()
+        resumed = q.get_nowait()
+
+    assert resumed["reason"] == "idle"
+    assert snap is not None
+    assert snap.model_id == "other"
+    assert snap.type is JobType.IMAGE
+
+    async with session_scope() as s:
+        row = (await s.execute(select(Job.status).where(Job.model_id == "other"))).scalar_one()
+        assert row == "running"
+
+
+async def test_pick_next_runs_pinned_model_when_available(scheduler_db):
+    bus = EventBus()
+    arbiter = GpuArbiter(bus)
+    arbiter._resident_pin = {
+        "id": "pin",
+        "label": "Preview",
+        "model_id": "pinned",
+        "model": "Pinned model",
+        "family": "sdxl",
+    }
+    worker = Worker(bus, arbiter, registry=object())
+
+    async with session_scope() as s:
+        s.add(Job(type=JobType.IMAGE, model_id="other", params={}, priority=10))
+        s.add(Job(type=JobType.IMAGE, model_id="pinned", params={"ok": True}, priority=0))
+
+    snap = await worker._pick_next()
+
+    assert snap is not None
+    assert snap.model_id == "pinned"
+    assert snap.params == {"ok": True}
+
+
+async def test_requeue_orphans_resets_running_jobs_on_restart(scheduler_db):
+    worker = Worker(EventBus(), GpuArbiter(EventBus()), registry=object())
+
+    async with session_scope() as s:
+        s.add(Job(type=JobType.LLM, model_id="llm", status="running", progress=0.75, params={}))
+        s.add(Job(type=JobType.IMAGE, model_id="image", status="queued", progress=0.25, params={}))
+
+    await worker._requeue_orphans()
+
+    async with session_scope() as s:
+        rows = (await s.execute(select(Job.model_id, Job.status, Job.progress))).all()
+
+    by_model = {model_id: (status, progress) for model_id, status, progress in rows}
+    assert by_model["llm"] == ("queued", 0.0)
+    assert by_model["image"] == ("queued", 0.25)

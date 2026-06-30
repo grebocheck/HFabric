@@ -14,6 +14,7 @@ ASSET_TOKEN_PREFIXES = (
     "/api/chat/uploads/",
     "/api/images/",
     "/api/tts/audio/",
+    "/api/videos/",
     "/api/voice/engine/file/",
 )
 
