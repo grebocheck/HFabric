@@ -122,6 +122,27 @@ def test_torch_not_installed_is_a_warning_not_a_failure():
     assert status_of(result, "torch_visible") == WARN
 
 
+def test_require_torch_turns_missing_accelerator_torch_into_failure():
+    result = evaluate(
+        report(
+            "Linux",
+            [{
+                "vendor": "amd",
+                "name": "Radeon RX 7900 XTX",
+                "vram_mb": 24576,
+                "rocm": {"visible": True, "official_targets": ["gfx1100"], "support": "official"},
+            }],
+            torch={"installed": False, "error": "No module named 'torch'"},
+        ),
+        run_verify=False,
+        require_torch=True,
+    )
+
+    assert result["profile"]["selected_profile"] == "amd-rocm-linux"
+    assert result["ok"] is False
+    assert status_of(result, "torch_visible") == ERROR
+
+
 def test_cpu_safe_with_no_accelerator_passes():
     result = evaluate(report("Linux", [], torch={"installed": True, "cuda_available": False}), run_verify=False)
     assert result["profile"]["selected_profile"] == "cpu-safe"

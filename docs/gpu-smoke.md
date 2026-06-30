@@ -20,6 +20,14 @@ python scripts/install_smoke.py --no-verify # skip torch import (pre-install)
 python scripts/install_smoke.py --json      # machine-readable checks
 ```
 
+For P21.4 external accelerator sign-off, pin the expected profile and require the
+installed torch accelerator build:
+
+```
+python scripts/install_smoke.py --prefer amd-rocm-linux --require-torch
+python scripts/install_smoke.py --prefer apple-mps --require-torch
+```
+
 Pass: `Overall: PASS` — the selected profile's backend matches what torch sees
 (CUDA build for `nvidia-cuda`, HIP build for `amd-rocm-linux`, MPS availability
 for `apple-mps`, no accelerator for `cpu-safe`), no `nunchaku_cuda` is offered on a pre-Ampere/non-CUDA card,
@@ -34,8 +42,8 @@ Record every real GPU the installer path is validated on. Keep failures here too
 | Date | GPU | VRAM | Driver | OS | Profile | torch | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-06-14 | RTX 5070 Ti | 16 GB | 610.47 | Win 11 | nvidia-cuda | 2.11.0+cu128 | PASS | `.\.venv\Scripts\python.exe scripts\install_smoke.py`; verify snippet reported `(12, 0)` |
-| 2026-06-?? | AMD ROCm GPU | TODO | TODO | Linux | amd-rocm-linux | TODO | TODO | run `install_smoke.py`; SDXL + CogVideoX fallback until real ROCm validation fills the rows below |
-| 2026-06-?? | Apple Silicon | unified | — | macOS | apple-mps | TODO | TODO | run `install_smoke.py`; SDXL + CogVideoX fallback until real Mac validation fills the rows below |
+| 2026-06-?? | AMD ROCm GPU | TODO | TODO | Linux | amd-rocm-linux | TODO | TODO | run `install_smoke.py --prefer amd-rocm-linux --require-torch`; SDXL + CogVideoX fallback until real ROCm validation fills the rows below |
+| 2026-06-?? | Apple Silicon | unified | — | macOS | apple-mps | TODO | TODO | run `install_smoke.py --prefer apple-mps --require-torch`; SDXL + CogVideoX fallback until real Mac validation fills the rows below |
 
 Record the date, GPU, driver, torch/diffusers/nunchaku versions, and any changed
 environment knobs with the results. A pass means every step finishes without OOM

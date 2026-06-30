@@ -230,6 +230,9 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   the validation log in `docs/gpu-smoke.md`. Promote a profile from experimental to
   supported only after a clean real run. *(Blocks the "supported" claim for the
   `amd-rocm-linux` and `apple-mps` profiles shipped in P20.4 / P20.9.)*
+  **Prepared:** `install_smoke.py --prefer ... --require-torch` now makes the
+  external ROCm/MPS sign-off strict: a CPU-safe/wrong-profile run or missing torch
+  accelerator build cannot be mistaken for a usable hardware PASS.
 
 ---
 

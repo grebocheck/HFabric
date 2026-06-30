@@ -34,7 +34,13 @@ def _check(name: str, status: str, detail: str) -> dict[str, str]:
     return {"name": name, "status": status, "detail": detail}
 
 
-def evaluate(report: dict[str, Any], *, prefer: str | None = None, run_verify: bool = True) -> dict[str, Any]:
+def evaluate(
+    report: dict[str, Any],
+    *,
+    prefer: str | None = None,
+    run_verify: bool = True,
+    require_torch: bool = False,
+) -> dict[str, Any]:
     """Resolve a profile for ``report`` and grade it against torch visibility.
 
     Returns ``{"profile", "checks", "ok"}``. ``ok`` is False when any check has
@@ -52,10 +58,13 @@ def evaluate(report: dict[str, Any], *, prefer: str | None = None, run_verify: b
 
     # Backend vs what torch reports.
     if backend in {"cuda", "rocm", "mps"} and not installed:
-        checks.append(_check(
-            "torch_visible", WARN,
-            "torch is not importable yet; install the profile before verifying the accelerator.",
-        ))
+        status = ERROR if require_torch else WARN
+        detail = (
+            "torch is not importable; strict real-hardware validation requires the installed accelerator build."
+            if require_torch
+            else "torch is not importable yet; install the profile before verifying the accelerator."
+        )
+        checks.append(_check("torch_visible", status, detail))
     elif backend == "cuda":
         if cuda_available and not hip:
             checks.append(_check("torch_visible", OK, "torch.cuda.is_available() is True on a CUDA build"))
@@ -193,6 +202,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report", help="Path to a hardware_probe.py JSON report. If omitted, probe now.")
     parser.add_argument("--prefer", help="Require a specific valid profile id.")
     parser.add_argument("--no-verify", action="store_true", help="Skip running the profile verify snippet (no torch import).")
+    parser.add_argument(
+        "--require-torch",
+        action="store_true",
+        help="Fail instead of warning when an accelerator profile cannot import torch.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit the graded result as JSON.")
     args = parser.parse_args(argv)
 
@@ -202,7 +216,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         report = collect_report()
 
-    result = evaluate(report, prefer=args.prefer, run_verify=not args.no_verify)
+    result = evaluate(
+        report,
+        prefer=args.prefer,
+        run_verify=not args.no_verify,
+        require_torch=args.require_torch,
+    )
 
     if args.json:
         sys.stdout.write(json.dumps({"ok": result["ok"], "checks": result["checks"]}, indent=2) + "\n")
