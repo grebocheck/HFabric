@@ -166,14 +166,14 @@ the automated suite rather than being reported here as real-GPU passes.
 | 2026-06-30 | RTX 5070 Ti 16 GB | LTX-Video | I2V 832x480 / 49f / 8 steps | PASS | Source upload token `079fb1d04add4d5aa91f77c985c82c2c`; peak 6.76 GB VRAM. This caught and fixed the LTX I2V VAE dtype mismatch. |
 | 2026-06-30 | RTX 5070 Ti 16 GB | Wan 2.2 TI2V-5B | T2V 832x480 / 49f / 8 steps | PASS | `MODEL=wan2.2-ti2v-5b MODE=t2v W=832 H=480 FRAMES=49 STEPS=8 scripts/video_vram_probe.py`; peak 7.83 GB VRAM; tiled VAE decode and mp4 encode completed. |
 | 2026-06-30 | RTX 5070 Ti 16 GB | FramePack Hunyuan | I2V 480x832 / 91 requested f / 8 steps | PASS | `MODEL=framepack-hunyuan-i2v MODE=i2v W=480 H=832 FRAMES=91 STEPS=8 scripts/video_vram_probe.py`; bnb-nf4 + model offload; 3 FramePack sections (24 denoise callbacks), 109 output frames, peak 9.67 GB VRAM; mp4, poster, thumbnail, metadata written. |
-| 2026-06-30 | RTX 5070 Ti 16 GB | CogVideoX-2B | T2V 704x480 / 9f / 1 step | PASS | `MODEL=cogvideo-2b MODE=t2v W=704 H=480 FRAMES=9 STEPS=1 scripts/video_vram_probe.py`; bnb-nf4 + model offload; load 14.2s, generation 6.6s, peak 6.45 GB VRAM; mp4, poster, thumbnail, metadata written. |
+| 2026-06-30 | RTX 5070 Ti 16 GB | CogVideoX-2B | T2V 704x480 / 9f / 1 step | PASS | `REQUIRE_BACKEND=cuda MODEL=cogvideo-2b MODE=t2v W=704 H=480 FRAMES=9 STEPS=1 scripts/video_vram_probe.py`; bnb-nf4 + model offload; load 15.7s, generation 5.7s, peak 6.45 GB VRAM; mp4, poster, thumbnail, metadata written. |
 
 Pending P27.5 non-NVIDIA rows:
 
 | Date | Host | Family / variant | Path | Result | Notes |
 | --- | --- | --- | --- | --- | --- |
-| TBD | AMD ROCm Linux | CogVideoX-2B | T2V 704x480 / 49f / 8 steps | TODO | Must use real ROCm torch, local `models/video/cogvideo-2b`, and no CPU/STUB fallback. |
-| TBD | Apple Silicon MPS | CogVideoX-2B | T2V 704x480 / 49f / 8 steps | TODO | Must use real MPS torch, local `models/video/cogvideo-2b`, and no CPU/STUB fallback. |
+| TBD | AMD ROCm Linux | CogVideoX-2B | T2V 704x480 / 49f / 8 steps | TODO | `REQUIRE_BACKEND=rocm MODEL=cogvideo-2b MODE=t2v W=704 H=480 FRAMES=49 STEPS=8 python scripts/video_vram_probe.py`; must use real ROCm torch, local weights, and no CPU/STUB fallback. |
+| TBD | Apple Silicon MPS | CogVideoX-2B | T2V 704x480 / 49f / 8 steps | TODO | `REQUIRE_BACKEND=mps MODEL=cogvideo-2b MODE=t2v W=704 H=480 FRAMES=49 STEPS=8 python scripts/video_vram_probe.py`; must use real MPS torch, local weights, and no CPU/STUB fallback. |
 
 ### P27 live app-path validation log
 

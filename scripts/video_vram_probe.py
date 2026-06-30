@@ -5,7 +5,8 @@ one generation, and reports peak VRAM + timing for each stage. Parameterised by
 env so the same script can A/B the text-encoder offload and resolutions as
 separate processes (VRAM only fully resets across processes).
 
-    OFFLOAD=0|1  MODEL=wan2.2-ti2v-5b|ltx-video|cogvideo-2b  MODE=t2v|i2v
+    REQUIRE_BACKEND=cuda|rocm|mps
+    MODEL=wan2.2-ti2v-5b|ltx-video|cogvideo-2b  MODE=t2v|i2v
     W=832 H=480 FRAMES=25 STEPS=8  python scripts/video_vram_probe.py
 """
 
@@ -71,6 +72,17 @@ def family_for_model(model: str) -> ModelFamily:
     return ModelFamily.LTX_VIDEO
 
 
+def require_backend(runtime: accelerator_runtime.AcceleratorRuntime, expected: str | None) -> None:
+    if not expected:
+        return
+    normalized = expected.strip().lower()
+    if normalized and runtime.backend != normalized:
+        raise RuntimeError(
+            f"REQUIRE_BACKEND={normalized!r} but active backend is {runtime.backend!r}; "
+            "stop rather than accepting the wrong hardware path as a smoke pass."
+        )
+
+
 def source_token(width: int, height: int) -> str:
     token = os.environ.get("INIT_IMAGE")
     if token:
@@ -99,12 +111,16 @@ async def main() -> None:
 
     settings.stub_mode = False
     runtime = accelerator_runtime.current()
+    require_backend(runtime, os.environ.get("REQUIRE_BACKEND"))
 
     path = settings.video_models_dir / model
     desc = ModelDescriptor(id=model, name=model, family=family, path=path, size_bytes=0, quant=settings.video_quant)
     backend = DiffusersVideoBackend(desc)
 
-    print(f"=== probe model={model} mode={mode} {w}x{h} frames={frames} steps={steps} ===")
+    print(
+        f"=== probe model={model} family={family.value} mode={mode} "
+        f"backend={runtime.backend} device={runtime.torch_device} {w}x{h} frames={frames} steps={steps} ==="
+    )
     print(f"[pre-load ] {accel_mem(runtime)}")
     t0 = time.time()
     await backend.load()
