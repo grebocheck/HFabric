@@ -28,6 +28,7 @@ from hardware_probe import collect_report  # noqa: E402
 from install_profiles import resolve_profile  # noqa: E402
 
 SCHEMA_VERSION = 1
+BOOTSTRAPPED_PHASES = frozenset({"post-setup", "post-stub", "post-real"})
 
 BOOTSTRAP_PATHS = (
     ".tools",
@@ -205,7 +206,77 @@ def collect_audit(root: Path, *, phase: str, include_hardware: bool = True) -> d
     }
     if include_hardware:
         out["hardware_profile"] = hardware_profile(root)
+    out["assessment"] = assess_report(out)
     return out
+
+
+def assess_report(report: dict[str, Any]) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+
+    def add(severity: str, code: str, message: str, *, paths: list[str] | None = None) -> None:
+        item: dict[str, Any] = {"severity": severity, "code": code, "message": message}
+        if paths:
+            item["paths"] = paths
+        findings.append(item)
+
+    missing_foundation = [
+        entry["path"] for entry in report.get("foundation_paths") or [] if not entry.get("exists")
+    ]
+    if missing_foundation:
+        add(
+            "blocker",
+            "foundation_paths_missing",
+            "Required repository files are missing from the checkout.",
+            paths=missing_foundation,
+        )
+
+    phase = report.get("phase")
+    clean = report.get("clean_checkout") or {}
+    present_bootstrap = list(clean.get("present_bootstrap_paths") or [])
+    if phase == "pre" and present_bootstrap:
+        add(
+            "blocker",
+            "pre_checkout_not_clean",
+            "Pre-setup snapshot must start before bootstrap/runtime artifacts exist.",
+            paths=present_bootstrap,
+        )
+
+    if phase in BOOTSTRAPPED_PHASES:
+        for key, label in (("venv_python", "managed Python"), ("managed_npm", "managed npm")):
+            entry = (report.get("managed_tools") or {}).get(key) or {}
+            if not _tool_entry_ok(entry):
+                path = entry.get("path")
+                add(
+                    "blocker",
+                    f"{key}_unavailable",
+                    f"{label} is missing or cannot report its version after setup.",
+                    paths=[path] if path else None,
+                )
+
+    if phase == "post-real":
+        profile = ((report.get("hardware_profile") or {}).get("profile")) or {}
+        if not profile:
+            add(
+                "warning",
+                "hardware_profile_skipped",
+                "REAL snapshot does not include hardware/profile data.",
+            )
+        elif not (profile.get("video_policy") or {}).get("recommended"):
+            add(
+                "warning",
+                "video_policy_empty",
+                "Resolved profile did not report a recommended video model family.",
+            )
+
+    status = "fail" if any(item["severity"] == "blocker" for item in findings) else "pass"
+    if status == "pass" and findings:
+        status = "warn"
+    return {"status": status, "findings": findings}
+
+
+def _tool_entry_ok(entry: dict[str, Any]) -> bool:
+    exit_code = entry.get("exit_code")
+    return bool(entry.get("exists")) and not entry.get("error") and exit_code in (None, 0)
 
 
 def next_commands(phase: str) -> list[str]:
@@ -220,11 +291,13 @@ def next_commands(phase: str) -> list[str]:
 
 def render_markdown(report: dict[str, Any]) -> str:
     clean = report["clean_checkout"]
+    assessment = report.get("assessment") or {"status": "unknown", "findings": []}
     lines = [
         "# First-Run Audit Snapshot",
         "",
         f"- Generated: {report['generated_at']}",
         f"- Phase: {report['phase']}",
+        f"- Assessment: {str(assessment.get('status', 'unknown')).upper()}",
         f"- Root: `{report['root']}`",
         f"- Platform: {report['platform']['system']} {report['platform']['release']} ({report['platform']['machine']})",
         f"- Git: {report['git'].get('head') or 'n/a'}"
@@ -233,6 +306,15 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
     if clean["present_bootstrap_paths"]:
         lines.append(f"- Bootstrap paths present: {', '.join(clean['present_bootstrap_paths'])}")
+
+    findings = list(assessment.get("findings") or [])
+    if findings:
+        lines.extend(["", "## Assessment Findings", ""])
+        for item in findings:
+            suffix = ""
+            if item.get("paths"):
+                suffix = f" ({', '.join(item['paths'])})"
+            lines.append(f"- {item['severity'].upper()} {item['code']}: {item['message']}{suffix}")
 
     profile = ((report.get("hardware_profile") or {}).get("profile")) or {}
     if profile:
@@ -300,6 +382,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown")
     parser.add_argument("--output", type=Path, help="Write the report to a file")
     parser.add_argument("--no-hardware", action="store_true", help="Skip hardware/profile probing")
+    parser.add_argument(
+        "--fail-on-blockers",
+        action="store_true",
+        help="Exit with status 1 when the phase assessment contains blockers",
+    )
     return parser.parse_args(argv)
 
 
@@ -316,6 +403,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.output.write_text(text + "\n", encoding="utf-8")
     else:
         sys.stdout.write(text + "\n")
+    if args.fail_on_blockers and report["assessment"]["status"] == "fail":
+        return 1
     return 0
 
 

@@ -10,8 +10,10 @@ if str(SCRIPTS) not in sys.path:
 
 from first_run_audit import (  # noqa: E402
     _managed_npm_path,
+    assess_report,
     clean_checkout_status,
     collect_audit,
+    main,
     render_markdown,
 )
 
@@ -34,6 +36,8 @@ def test_collect_audit_without_hardware_is_side_effect_light(tmp_path, monkeypat
 
     assert report["phase"] == "pre"
     assert report["clean_checkout"]["clean"] is True
+    assert report["assessment"]["status"] == "fail"
+    assert report["assessment"]["findings"][0]["code"] == "foundation_paths_missing"
     assert "hardware_profile" not in report
     assert "setup.bat" in report["next_commands"]
 
@@ -63,6 +67,64 @@ def test_render_markdown_includes_profile_and_bootstrap_paths(tmp_path, monkeypa
     text = render_markdown(report)
 
     assert "First-Run Audit Snapshot" in text
+    assert "- Assessment: FAIL" in text
     assert "amd-rocm-linux / rocm" in text
     assert "cogvideo" in text
     assert "`frontend/node_modules`" in text
+
+
+def test_assess_report_fails_pre_phase_with_bootstrap_artifacts():
+    report = {
+        "phase": "pre",
+        "foundation_paths": [{"path": "setup.bat", "exists": True}],
+        "clean_checkout": {"present_bootstrap_paths": [".venv", "data"]},
+        "managed_tools": {},
+    }
+
+    assessment = assess_report(report)
+
+    assert assessment["status"] == "fail"
+    assert [item["code"] for item in assessment["findings"]] == ["pre_checkout_not_clean"]
+
+
+def test_assess_report_fails_post_setup_without_managed_tools():
+    report = {
+        "phase": "post-setup",
+        "foundation_paths": [{"path": "setup.bat", "exists": True}],
+        "clean_checkout": {"present_bootstrap_paths": [".venv"]},
+        "managed_tools": {
+            "venv_python": {"path": ".venv/Scripts/python.exe", "exists": False},
+            "managed_npm": {"path": ".tools/node/npm.cmd", "exists": True, "exit_code": 1},
+        },
+    }
+
+    assessment = assess_report(report)
+
+    assert assessment["status"] == "fail"
+    assert [item["code"] for item in assessment["findings"]] == [
+        "venv_python_unavailable",
+        "managed_npm_unavailable",
+    ]
+
+
+def test_assess_report_passes_post_setup_with_managed_tools():
+    report = {
+        "phase": "post-setup",
+        "foundation_paths": [{"path": "setup.bat", "exists": True}],
+        "clean_checkout": {"present_bootstrap_paths": [".venv"]},
+        "managed_tools": {
+            "venv_python": {"path": ".venv/Scripts/python.exe", "exists": True, "exit_code": 0},
+            "managed_npm": {"path": ".tools/node/npm.cmd", "exists": True, "exit_code": 0},
+        },
+    }
+
+    assert assess_report(report)["status"] == "pass"
+
+
+def test_main_returns_nonzero_when_fail_on_blockers(tmp_path):
+    output = tmp_path / "audit.md"
+
+    code = main(["--root", str(tmp_path), "--phase", "pre", "--no-hardware", "--fail-on-blockers", "--output", str(output)])
+
+    assert code == 1
+    assert "Assessment: FAIL" in output.read_text(encoding="utf-8")

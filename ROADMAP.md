@@ -207,7 +207,10 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   as a foundation dependency, managed voice/DTLN asset downloads, advanced full-model
   catalog entries, `update.*` scripts for git+dependency refresh, and a repeatable
   [`docs/first-run-audit.md`](docs/first-run-audit.md) checklist plus
-  `scripts/first_run_audit.py` snapshot helper for clean-machine testers.
+  `scripts/first_run_audit.py` snapshot helper for clean-machine testers. The
+  snapshot now includes a phase-aware `Assessment` and `--fail-on-blockers` mode so
+  incomplete checkouts, non-clean pre-setup captures, and missing managed tools are
+  caught with a clear nonzero exit before a tester report is accepted.
   **Remaining:** run that audit on a clean tester Windows machine and revisit any
   OOM-guarded / missing-binary paths testers still hit.
 

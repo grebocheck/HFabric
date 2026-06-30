@@ -39,11 +39,13 @@ Record these before setup:
 4. Capture the pre-setup snapshot:
 
    ```powershell
-   python scripts/first_run_audit.py --phase pre --output first-run-pre.md
+   python scripts/first_run_audit.py --phase pre --fail-on-blockers --output first-run-pre.md
    ```
 
 Expected result: the repo contains source files only, and setup has to bootstrap
-the managed Python/Node/runtime pieces itself.
+the managed Python/Node/runtime pieces itself. The snapshot `Assessment` should
+read `PASS`; `FAIL` means this was not captured from a clean checkout or the
+source tree is incomplete.
 
 ## Setup
 
@@ -65,7 +67,7 @@ Record:
 Capture the post-setup snapshot:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-setup --output first-run-post-setup.md
+.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-setup --fail-on-blockers --output first-run-post-setup.md
 ```
 
 Pass criteria:
@@ -96,7 +98,7 @@ In the browser:
 Capture the post-STUB snapshot:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-stub --output first-run-post-stub.md
+.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-stub --fail-on-blockers --output first-run-post-stub.md
 ```
 
 Pass criteria:
@@ -146,7 +148,7 @@ In the browser:
 Capture the post-REAL snapshot:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-real --output first-run-post-real.md
+.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-real --fail-on-blockers --output first-run-post-real.md
 ```
 
 Pass criteria:
@@ -174,7 +176,8 @@ with a reason.
 Attach or paste:
 
 - The `setup.bat` tail showing success or the exact failure.
-- The `first-run-*.md` snapshots from `scripts/first_run_audit.py`.
+- The `first-run-*.md` snapshots from `scripts/first_run_audit.py`, each with
+  `Assessment: PASS` or an explained warning.
 - The `install_smoke.py` summary block.
 - A screenshot of Setup Doctor.
 - A screenshot of Model Downloads recommendations.
