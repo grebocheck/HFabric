@@ -22,6 +22,8 @@ CUDA_FEATURES = {
     "cuda_llama_binaries",
     "onnxruntime_cuda",
     "realtime_cuda_voice",
+    "video_diffusers_cuda",
+    "video_fp8_fast_paths",
 }
 MPS_FEATURES = {
     "metal_llama_binaries",
@@ -140,6 +142,17 @@ def _features(
             and "onnxruntime_cuda" not in disabled
         ),
         "realtime_cuda_voice": backend == "cuda" and "realtime_cuda_voice" not in disabled,
+        "video_diffusers_cuda": backend == "cuda" and "video_diffusers_cuda" not in disabled,
+        "video_fp8_fast_paths": (
+            backend == "cuda"
+            and bool(defaults.get("video_fp8_fast_paths"))
+            and "video_fp8_fast_paths" not in disabled
+        ),
+        "video_light_fallback": (
+            backend in {"rocm", "mps"}
+            and bool(defaults.get("video_light_fallback"))
+            and "video_light_fallback" not in disabled
+        ),
         "metal_llama_binaries": (
             backend == "mps"
             and "metal_llama_binaries" in optional
@@ -164,6 +177,10 @@ def _disabled_features(
     if backend != "cuda":
         disabled.update(CUDA_FEATURES)
         disabled.add("blackwell_fast_paths")
+    if not defaults.get("video_fp8_fast_paths"):
+        disabled.add("video_fp8_fast_paths")
+    if not defaults.get("video_light_fallback"):
+        disabled.add("video_light_fallback")
     if backend != "mps":
         disabled.update(MPS_FEATURES)
     if not defaults.get("allow_nunchaku"):

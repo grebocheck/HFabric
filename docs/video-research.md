@@ -124,9 +124,12 @@ same spine as image generation, with a different output container. Concretely:
 - **STUB-first** so CI and dev machines exercise the whole flow without weights.
 - **Tests** — pytest for `classify_video_dir`, the sysmon video budget, STUB
   `generate`, and the `/api/videos` range serving; vitest for the player + composer.
-- **Capability gating (P20.5)** — fp8/Blackwell fast paths gated to CUDA≥sm_89;
-  CPU/ROCm/MPS hide them and offer only the lightest path (AnimateDiff-SDXL / CogVideoX-2B),
-  consistent with the SDXL-only posture on those profiles today.
+- **Capability gating (P20.5/P27.5)** — implemented for the runnable video surface:
+  CUDA profiles now expose `model_policy.video`, LTX is recommended, Wan/FramePack are
+  advanced, unimplemented CogVideoX/AnimateDiff are hidden, and Ada+ fp8 video paths
+  are gated separately from Blackwell-only fast paths. CPU/ROCm/MPS still hide real
+  video queueing; AnimateDiff-SDXL / CogVideoX-2B remain the tracked light fallback
+  candidates until their backend path and real hardware validation land.
 - **Model downloads** — add the chosen video models to the in-app download catalog
   (`model_download_service`) as a video category, with the same managed-download UX.
   FramePack is a three-entry composite download so the app can avoid the unused

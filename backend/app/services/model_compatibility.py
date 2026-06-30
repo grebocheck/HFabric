@@ -77,11 +77,12 @@ def compatibility_for_model(
         )
 
     if desc.job_type is JobType.VIDEO:
-        if backend != "cuda":
+        unavailable = _video_unavailable_reason(desc, profile, backend, disabled)
+        if unavailable:
             return {
                 "available": False,
                 "runtime_mode": "disabled",
-                "unavailable_reason": "The installed video generation path currently requires NVIDIA CUDA.",
+                "unavailable_reason": unavailable,
                 "compatibility_warnings": warnings,
                 "recommendation": "hidden",
             }
@@ -109,7 +110,15 @@ def _recommendation(desc: ModelDescriptor, profile: dict[str, Any]) -> str:
     have no per-family policy yet, so they stay neutral.
     """
     if desc.job_type is JobType.VIDEO:
-        return "recommended" if desc.family is ModelFamily.LTX_VIDEO else "advanced"
+        video_policy = ((profile.get("model_policy") or {}).get("video")) or {}
+        family = desc.family.value
+        if family in (video_policy.get("recommended") or []):
+            return "recommended"
+        if family in (video_policy.get("advanced") or []):
+            return "advanced"
+        if not video_policy:
+            return "recommended" if desc.family is ModelFamily.LTX_VIDEO else "advanced"
+        return "neutral"
     if desc.job_type is not JobType.IMAGE:
         return "neutral"
     image_policy = ((profile.get("model_policy") or {}).get("image")) or {}
@@ -187,6 +196,41 @@ def _image_unavailable_reason(
             f"Needs ~{ram_need_gb:.1f} GB system RAM to run with CPU offload, but this "
             f"machine has {total_ram_gb:.1f} GB."
         )
+
+    return None
+
+
+def _video_unavailable_reason(
+    desc: ModelDescriptor,
+    profile: dict[str, Any],
+    backend: str,
+    disabled: set[str],
+) -> str | None:
+    video_policy = ((profile.get("model_policy") or {}).get("video")) or {}
+    hidden = set(video_policy.get("hidden") or [])
+    fallback_candidates = set(video_policy.get("fallback_candidates") or [])
+
+    if backend != "cuda":
+        if desc.family.value in fallback_candidates:
+            return (
+                f"{desc.family.value} is tracked as the light video fallback for non-NVIDIA profiles, "
+                "but that backend path still needs implementation and real ROCm/MPS validation."
+            )
+        return "The installed video generation path currently requires NVIDIA CUDA."
+
+    implemented_cuda = {
+        ModelFamily.LTX_VIDEO,
+        ModelFamily.WAN_VIDEO,
+        ModelFamily.HUNYUAN_VIDEO,
+    }
+    if desc.family not in implemented_cuda:
+        return "This video family is detected on disk, but its Diffusers loader is not implemented yet."
+
+    if "video_diffusers_cuda" in disabled:
+        return "CUDA video generation is disabled by the active hardware profile."
+
+    if desc.family.value in hidden:
+        return "This video family is hidden by the active hardware profile."
 
     return None
 

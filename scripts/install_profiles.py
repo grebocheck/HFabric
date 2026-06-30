@@ -40,6 +40,22 @@ IMAGE_FAMILY_POLICY: dict[str, dict[str, Any]] = {
     "z-image": {"min_tier": "rich_16gb_plus", "needs_nunchaku": True},
 }
 
+VIDEO_FAMILIES = (
+    "ltx-video",
+    "wan-video",
+    "hunyuan-video",
+    "cogvideo",
+    "animatediff",
+)
+
+CUDA_VIDEO_FAMILIES = {
+    "ltx-video": {"min_tier": "safe_8gb", "recommended": True},
+    "wan-video": {"min_tier": "rich_16gb_plus", "recommended": False},
+    "hunyuan-video": {"min_tier": "rich_16gb_plus", "recommended": False},
+}
+
+VIDEO_FALLBACK_CANDIDATES = ("animatediff", "cogvideo")
+
 # Largest LLM (in billions of params) worth preselecting per tier. Lower tiers
 # still *allow* bigger quantized models, but the resolver won't recommend them.
 LLM_RECOMMENDED_PARAMS_B = {
@@ -76,7 +92,13 @@ PROFILE_DEFS: dict[str, dict[str, Any]] = {
         "requirements": ["backend/requirements-rocm.txt"],
         "verify": "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0), torch.version.hip)",
         "optional_features": [],
-        "disabled_features": ["nunchaku_cuda", "cuda_llama_binaries", "onnxruntime_cuda"],
+        "disabled_features": [
+            "nunchaku_cuda",
+            "cuda_llama_binaries",
+            "onnxruntime_cuda",
+            "video_diffusers_cuda",
+            "video_fp8_fast_paths",
+        ],
     },
     "apple-mps": {
         "label": "Apple Silicon (MPS)",
@@ -95,6 +117,8 @@ PROFILE_DEFS: dict[str, dict[str, Any]] = {
             "onnxruntime_cuda",
             "realtime_cuda_voice",
             "blackwell_fast_paths",
+            "video_diffusers_cuda",
+            "video_fp8_fast_paths",
         ],
     },
     "cpu-safe": {
@@ -114,6 +138,10 @@ PROFILE_DEFS: dict[str, dict[str, Any]] = {
             "cuda_llama_binaries",
             "onnxruntime_cuda",
             "realtime_cuda_voice",
+            "blackwell_fast_paths",
+            "video_diffusers_cuda",
+            "video_fp8_fast_paths",
+            "heavy_video_models",
         ],
     },
 }
@@ -375,6 +403,11 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             # First-block step cache relies on the same fp4 fast path nunchaku uses.
             "flux_step_cache": "fb" if viable else "off",
             "blackwell_fast_paths": bool(cap and cap >= (12, 0)),
+            # LTX's fp8-optimized lane is an Ada/Blackwell-class video path.
+            # Keep it separate from blackwell_fast_paths so RTX 40-series cards
+            # can advertise fp8 video without enabling sm_120-only toggles.
+            "video_fp8_fast_paths": bool(cap and cap >= (8, 9) and tier not in {"low_vram", "unknown"}),
+            "video_light_fallback": False,
         })
     elif profile_id == "amd-rocm-linux":
         defaults.update({
@@ -386,6 +419,8 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "allow_nunchaku": False,
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
+            "video_fp8_fast_paths": False,
+            "video_light_fallback": False,
         })
     elif profile_id == "apple-mps":
         defaults.update({
@@ -397,6 +432,8 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "allow_nunchaku": False,
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
+            "video_fp8_fast_paths": False,
+            "video_light_fallback": False,
             "prefer_cpu_offload": False,
         })
     else:
@@ -409,6 +446,8 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "allow_nunchaku": False,
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
+            "video_fp8_fast_paths": False,
+            "video_light_fallback": False,
         })
     return defaults
 
@@ -490,10 +529,73 @@ def _model_policy(profile_id: str, defaults: dict[str, Any], tier: str) -> dict[
             "advanced": advanced,
             "hidden": hidden,
         },
+        "video": _video_policy(defaults, tier, notes),
         "llm": {
             "max_recommended_params_b": LLM_RECOMMENDED_PARAMS_B.get(tier, 8),
         },
         "notes": notes,
+    }
+
+
+def _video_policy(defaults: dict[str, Any], tier: str, notes: list[str]) -> dict[str, Any]:
+    """Bucket runnable video families separately from planned fallback candidates.
+
+    The registry can recognize CogVideoX/AnimateDiff repos, but the real backend
+    currently implements only LTX, Wan, and FramePack Hunyuan. Keep unimplemented
+    families hidden in every profile so queueing fails early with a clear reason
+    instead of reaching a loader branch that cannot run them yet.
+    """
+    backend = str(defaults.get("backend") or "cpu")
+    tier_rank = TIER_RANK.get(tier, 0)
+    recommended: list[str] = []
+    advanced: list[str] = []
+    hidden: list[str] = []
+
+    if backend != "cuda":
+        hidden = list(VIDEO_FAMILIES)
+        if backend in {"rocm", "mps"}:
+            notes.append(
+                "Video on ROCm/MPS is validation-pending: AnimateDiff/CogVideoX are tracked as "
+                "fallback candidates, but real video queueing stays hidden until that backend path is proven."
+            )
+        else:
+            notes.append("CPU-safe/STUB mode hides real video models; use STUB output or an accelerator profile.")
+        return {
+            "recommended": recommended,
+            "advanced": advanced,
+            "hidden": hidden,
+            "fallback_candidates": list(VIDEO_FALLBACK_CANDIDATES),
+        }
+
+    if tier in {"unknown", "low_vram"}:
+        hidden = list(VIDEO_FAMILIES)
+        notes.append("Real video generation is hidden below the 8 GB VRAM safety floor.")
+        return {
+            "recommended": recommended,
+            "advanced": advanced,
+            "hidden": hidden,
+            "fallback_candidates": list(VIDEO_FALLBACK_CANDIDATES),
+        }
+
+    for family, rule in CUDA_VIDEO_FAMILIES.items():
+        if tier_rank >= TIER_RANK[rule["min_tier"]] and rule["recommended"]:
+            recommended.append(family)
+        else:
+            advanced.append(family)
+
+    hidden = [family for family in VIDEO_FAMILIES if family not in recommended and family not in advanced]
+    notes.append(
+        "CUDA video policy: LTX is the default; Wan and FramePack are advanced tiers with per-job RAM/VRAM guards."
+    )
+    if defaults.get("video_fp8_fast_paths"):
+        notes.append("Ada/Blackwell fp8 video fast paths are enabled for compatible LTX loaders.")
+    if defaults.get("blackwell_fast_paths"):
+        notes.append("Blackwell-only fast paths are enabled for sm_120+ kernels.")
+    return {
+        "recommended": recommended,
+        "advanced": advanced,
+        "hidden": hidden,
+        "fallback_candidates": list(VIDEO_FALLBACK_CANDIDATES),
     }
 
 

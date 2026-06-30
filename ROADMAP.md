@@ -21,7 +21,7 @@
 > Marking: `[ ]` not started · `[~]` in progress / partially done · `[x]` done.
 >
 > **Audit basis (2026-06-30):** all gates green — ruff/eslint/tsc clean,
-> vitest 99 green, pytest 426 green at **69.08%** coverage (floor 68%); Alembic at
+> vitest 99 green, pytest 431 green at **69.21%** coverage (floor 68%); Alembic at
 > revision `0005`; frontend type-safety strong (`types.ts` now derives from the
 > OpenAPI-generated `types.generated.ts`; 0 stray `console.*`). Findings below cite
 > exact files and metrics so each item is checkable.
@@ -55,8 +55,9 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ## Next up
 
-1. **P27 portability breadth.** Non-NVIDIA fallback validation remains the real P27
-   feature work after the LTX/Wan/FramePack CUDA surface proved out.
+1. **P27 portability breadth.** Non-NVIDIA video fallback implementation +
+   validation remains the real P27 feature work after the LTX/Wan/FramePack CUDA
+   surface proved out.
 2. **P24.7 clean tester audit.** Re-run first-run/resilience on a clean Windows
    tester machine when one is available.
 3. **P21.4 external hardware breadth.** Recruit ROCm and Apple Silicon testers for
@@ -78,7 +79,7 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   added focused stub/unit coverage for `chat_attachments.py`, `chat_service.py`,
   `rag_service.py`, `video_service.py`, `embedding_service.py`, plus adjacent
   scheduler/event/queue/media safety paths. CI now enforces
-  `--cov-fail-under=68`; local verification: **426 passed, 69.08%**.
+  `--cov-fail-under=68`; local verification: **431 passed, 69.21%**.
 - [x] **Q2 — Decompose the highest-churn monolith first.** Done 2026-06-30:
   `image_diffusers.py::_generate_real` is now a thin metadata/persistence wrapper
   over `image_diffusers_parts/generation.py`, with dispatcher tests for txt2img /
@@ -161,9 +162,14 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   I2V-only queueing and expose FramePack presets. Real-GPU I2V smoke passed at
   480x832 / 91 requested frames / 8 steps (3 FramePack sections, 109 output frames),
   peak 9.67 GB VRAM, mp4 + poster/thumb + metadata written.
-- [~] **P27.5 — Capability gating + non-NVIDIA.** CUDA gating shipped. *Remaining:* the
-  fp8/Blackwell fast-path gate and the CPU/ROCm/MPS lightest-path fallback
-  (AnimateDiff-SDXL / CogVideoX-2B), mirroring today's SDXL-only posture there.
+- [~] **P27.5 — Capability gating + non-NVIDIA.** CUDA video gating now lives in the
+  shared install/runtime capability profile: `model_policy.video` recommends LTX,
+  treats Wan/FramePack as advanced, hides unimplemented CogVideoX/AnimateDiff, and
+  exposes separate Ada+ `video_fp8_fast_paths` vs. Blackwell-only fast-path flags.
+  Queue/UI compatibility now blocks non-CUDA video and detected-but-unimplemented
+  video families early with clear reasons. *Remaining:* implement and real-hardware
+  validate the CPU/ROCm/MPS lightest-path fallback (AnimateDiff-SDXL / CogVideoX-2B),
+  mirroring today's SDXL-only posture there.
 - [x] **P27.6 — Maintenance & polish.** Shipped: in-app download catalog, STUB / range /
   classification / budget + composer/player tests, docs, History, and CLI real-GPU
   video smoke log; `scripts/video_app_smoke.py` now validates live HTTP range replay,

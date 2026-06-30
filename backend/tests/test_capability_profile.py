@@ -33,7 +33,14 @@ def test_cuda_capability_profile_exposes_active_features(monkeypatch):
     assert profile["features"]["cuda"] is True
     assert profile["features"]["nunchaku_cuda"] is True
     assert profile["features"]["blackwell_fast_paths"] is True
+    assert profile["features"]["video_diffusers_cuda"] is True
+    assert profile["features"]["video_fp8_fast_paths"] is True
+    assert profile["features"]["video_light_fallback"] is False
     assert "nunchaku_cuda" not in profile["disabled_features"]
+    assert "video_fp8_fast_paths" not in profile["disabled_features"]
+    video = profile["model_policy"]["video"]
+    assert video["recommended"] == ["ltx-video"]
+    assert {"wan-video", "hunyuan-video"} <= set(video["advanced"])
     labels = {job["label"] for job in profile["starter_models"]["jobs"]}
     assert "SDXL Lightning 4-step checkpoint" in labels
     assert "FLUX.1 dev Nunchaku fp4" in labels
@@ -55,7 +62,10 @@ def test_stub_override_disables_cuda_features_on_cuda_machine(monkeypatch):
     assert profile["effective_stub_mode"] is True
     assert profile["features"]["cuda"] is False
     assert profile["features"]["nunchaku_cuda"] is False
+    assert profile["features"]["video_diffusers_cuda"] is False
+    assert profile["features"]["video_fp8_fast_paths"] is False
     assert "nunchaku_cuda" in profile["disabled_features"]
+    assert "video_diffusers_cuda" in profile["disabled_features"]
     assert any("STUB mode" in warning for warning in profile["warnings"])
 
 
@@ -80,8 +90,13 @@ def test_rocm_capability_profile_disables_cuda_only_features(monkeypatch):
     assert profile["features"]["rocm"] is True
     assert profile["features"]["cuda"] is False
     assert profile["features"]["nunchaku_cuda"] is False
+    assert profile["features"]["video_diffusers_cuda"] is False
+    assert profile["features"]["video_fp8_fast_paths"] is False
     assert "cuda_llama_binaries" in profile["disabled_features"]
     assert "onnxruntime_cuda" in profile["disabled_features"]
+    assert "video_diffusers_cuda" in profile["disabled_features"]
+    assert "video_fp8_fast_paths" in profile["disabled_features"]
+    assert set(profile["model_policy"]["video"]["fallback_candidates"]) == {"animatediff", "cogvideo"}
 
 
 def test_mps_capability_profile_exposes_metal_and_disables_cuda(monkeypatch):
@@ -106,7 +121,9 @@ def test_mps_capability_profile_exposes_metal_and_disables_cuda(monkeypatch):
     assert profile["features"]["mps"] is True
     assert profile["features"]["metal_llama_binaries"] is True
     assert profile["features"]["cuda"] is False
+    assert profile["features"]["video_diffusers_cuda"] is False
     assert "nunchaku_cuda" in profile["disabled_features"]
+    assert "video_diffusers_cuda" in profile["disabled_features"]
     labels = {job["label"] for job in profile["starter_models"]["jobs"]}
     assert "SDXL Lightning 4-step checkpoint" in labels
     assert "FLUX.1 dev Nunchaku fp4" not in labels
@@ -124,6 +141,8 @@ def test_cpu_safe_capability_profile_is_effective_stub_even_when_configured_real
     assert profile["effective_stub_mode"] is True
     assert profile["features"]["cpu_safe"] is True
     assert "heavy_image_models" in profile["disabled_features"]
+    assert "heavy_video_models" in profile["disabled_features"]
+    assert "video_diffusers_cuda" in profile["disabled_features"]
     assert profile["starter_models"]["jobs"] == []
 
 
@@ -143,5 +162,7 @@ async def test_capabilities_endpoint_and_settings_share_profile(monkeypatch, app
     assert capabilities["selected_profile"] == "nvidia-cuda"
     assert capabilities["hardware_tier"] == "safe_8gb"
     assert capabilities["runtime_defaults"]["prefer_cpu_offload"] is True
+    assert capabilities["features"]["video_fp8_fast_paths"] is True
+    assert capabilities["features"]["blackwell_fast_paths"] is False
     assert runtime["capability"]["selected_profile"] == capabilities["selected_profile"]
     assert runtime["capability"]["hardware_tier"] == capabilities["hardware_tier"]

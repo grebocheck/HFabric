@@ -228,6 +228,12 @@ export interface ModelPolicy {
     advanced: ModelFamily[];
     hidden: ModelFamily[];
   };
+  video?: {
+    recommended: ModelFamily[];
+    advanced: ModelFamily[];
+    hidden: ModelFamily[];
+    fallback_candidates?: ModelFamily[];
+  };
   llm: {
     max_recommended_params_b: number;
   };

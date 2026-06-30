@@ -42,7 +42,12 @@ def test_resolves_blackwell_nvidia_cuda_profile():
     assert result["install"]["requirements"] == ["backend/requirements-gpu.txt"]
     assert result["runtime_defaults"]["backend"] == "cuda"
     assert result["runtime_defaults"]["blackwell_fast_paths"] is True
+    assert result["runtime_defaults"]["video_fp8_fast_paths"] is True
     assert result["runtime_defaults"]["allow_nunchaku"] is True
+    video = result["model_policy"]["video"]
+    assert video["recommended"] == ["ltx-video"]
+    assert {"wan-video", "hunyuan-video"} <= set(video["advanced"])
+    assert {"animatediff", "cogvideo"} <= set(video["hidden"])
 
 
 def test_resolves_lower_vram_nvidia_with_safe_tier():
@@ -56,6 +61,7 @@ def test_resolves_lower_vram_nvidia_with_safe_tier():
     assert result["selected_profile"] == "nvidia-cuda"
     assert result["hardware_tier"] == "safe_8gb"
     assert result["runtime_defaults"]["blackwell_fast_paths"] is False
+    assert result["runtime_defaults"]["video_fp8_fast_paths"] is True
     assert result["runtime_defaults"]["prefer_cpu_offload"] is True
 
 
@@ -78,7 +84,11 @@ def test_resolves_linux_amd_rocm_profile_when_official_target_visible():
     assert result["install"]["requirements"] == ["backend/requirements-rocm.txt"]
     assert result["runtime_defaults"]["backend"] == "rocm"
     assert result["runtime_defaults"]["torch_device"] == "cuda"
+    assert result["runtime_defaults"]["video_fp8_fast_paths"] is False
     assert "nunchaku_cuda" in result["disabled_features"]
+    video = result["model_policy"]["video"]
+    assert set(video["hidden"]) == {"ltx-video", "wan-video", "hunyuan-video", "cogvideo", "animatediff"}
+    assert set(video["fallback_candidates"]) == {"animatediff", "cogvideo"}
 
 
 def test_linux_amd_visible_non_official_target_is_experimental_rocm():
@@ -133,6 +143,13 @@ def test_resolves_apple_silicon_mps_profile():
     image = result["model_policy"]["image"]
     assert image["recommended"] == ["sdxl"]
     assert {"flux", "flux2", "qwen-image", "z-image"} <= set(image["hidden"])
+    assert set(result["model_policy"]["video"]["hidden"]) == {
+        "ltx-video",
+        "wan-video",
+        "hunyuan-video",
+        "cogvideo",
+        "animatediff",
+    }
 
 
 def test_cpu_only_report_uses_cpu_safe_profile():
@@ -141,6 +158,13 @@ def test_cpu_only_report_uses_cpu_safe_profile():
     assert result["selected_profile"] == "cpu-safe"
     assert result["install"]["torch"]["index_url"].endswith("/cpu")
     assert result["runtime_defaults"]["stub_mode"] is True
+    assert set(result["model_policy"]["video"]["hidden"]) == {
+        "ltx-video",
+        "wan-video",
+        "hunyuan-video",
+        "cogvideo",
+        "animatediff",
+    }
 
 
 def test_prefer_rejects_invalid_profile_for_report():
@@ -200,6 +224,7 @@ def test_ampere_30xx_enables_fp4_fast_paths_but_not_blackwell():
     assert defaults["attention_backend"] == "auto"
     assert defaults["flux_step_cache"] == "fb"
     assert defaults["blackwell_fast_paths"] is False
+    assert defaults["video_fp8_fast_paths"] is False
     assert defaults["architecture"] == "ampere"
     assert "nunchaku_cuda" in result["optional_features"]
     image = result["model_policy"]["image"]
@@ -214,6 +239,8 @@ def test_ada_40xx_12gb_recommends_flux_but_clamps_heavy_families():
     defaults = result["runtime_defaults"]
     assert defaults["allow_nunchaku"] is True
     assert defaults["architecture"] == "ada"
+    assert defaults["blackwell_fast_paths"] is False
+    assert defaults["video_fp8_fast_paths"] is True
     image = result["model_policy"]["image"]
     assert "sdxl" in image["recommended"]
     assert "flux" in image["recommended"]
@@ -230,9 +257,17 @@ def test_low_vram_nvidia_keeps_sdxl_only_and_disables_fast_paths():
     assert defaults["allow_nunchaku"] is False
     assert defaults["torch_compile"] is False
     assert defaults["prefer_cpu_offload"] is True
+    assert defaults["video_fp8_fast_paths"] is False
     assert "nunchaku_cuda" not in result["optional_features"]
     image = result["model_policy"]["image"]
     assert {"flux", "flux2", "qwen-image", "z-image"} <= set(image["hidden"])
+    assert set(result["model_policy"]["video"]["hidden"]) == {
+        "ltx-video",
+        "wan-video",
+        "hunyuan-video",
+        "cogvideo",
+        "animatediff",
+    }
 
 
 def test_resolver_never_recommends_impossible_image_path():
@@ -249,6 +284,19 @@ def test_resolver_never_recommends_impossible_image_path():
                 assert "nunchaku_cuda" in result["optional_features"], (cap, vram)
             # Hidden + offered must partition the known families with no overlap.
             assert not (offered & set(image["hidden"]))
+
+
+def test_resolver_video_policy_partitions_known_families():
+    caps = [[6, 1], [8, 6], [8, 9], [12, 0]]
+    known = {"ltx-video", "wan-video", "hunyuan-video", "cogvideo", "animatediff"}
+    for cap in caps:
+        for vram in (6144, 8192, 12288, 16303, 24576):
+            result = resolve_profile(nvidia_report("synthetic", vram, cap))
+            video = result["model_policy"]["video"]
+            offered = set(video["recommended"] + video["advanced"])
+            hidden = set(video["hidden"])
+            assert offered | hidden == known
+            assert not (offered & hidden)
 
 
 def test_llm_param_recommendation_scales_with_tier():

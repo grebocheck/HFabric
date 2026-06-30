@@ -163,8 +163,10 @@ the automated suite rather than being reported here as real-GPU passes.
 | --- | --- | --- | --- | --- | --- |
 | 2026-06-30 | Windows / RTX 5070 Ti | STUB live backend | `python scripts/video_app_smoke.py --base-url http://127.0.0.1:8274 --api-token ... --timeout 120` | PASS | Isolated temp DB/outputs; validated websocket `job.*`/`video.ready`, HTTP `Accept-Ranges` + `206`, poster/thumb fetches, running-job cancel, and Video -> LLM -> Video resident swap. |
 
-P27.4/P27.6 app-path and UI polish are covered. Remaining P27 feature breadth is
-tracked in the roadmap: non-NVIDIA fallback validation.
+P27.4/P27.6 app-path and UI polish are covered. P27.5 capability gating now hides
+non-CUDA real video and unimplemented CogVideoX/AnimateDiff queueing with explicit
+compatibility reasons. Remaining P27 feature breadth is tracked in the roadmap:
+implement and validate the non-NVIDIA light video fallback on real ROCm/MPS hardware.
 
 ## Fail Handling
 

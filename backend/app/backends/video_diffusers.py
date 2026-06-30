@@ -96,7 +96,7 @@ class DiffusersVideoBackend(VideoBackend):
         self._accelerator = accelerator_runtime.current()
         self._accelerator.require_available(torch)
         if self._accelerator.backend != "cuda":
-            raise RuntimeError("LTX/Wan video generation currently requires an NVIDIA CUDA profile")
+            raise RuntimeError("Diffusers video generation currently requires an NVIDIA CUDA profile")
 
         start = self._memory_snapshot(torch)
         quant = settings.video_quant.lower().strip()

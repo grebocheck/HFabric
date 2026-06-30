@@ -165,6 +165,18 @@ def test_hidden_policy_bucket_blocks_queueing_even_before_load():
     assert "hidden" in compat["unavailable_reason"]
 
 
+def test_hidden_video_policy_bucket_blocks_queueing_even_before_load():
+    policy = {"video": {"recommended": [], "advanced": [], "hidden": ["wan-video"]}}
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.WAN_VIDEO),
+        profile=profile(backend="cuda", model_policy=policy),
+        estimated_vram_gb=13,
+    )
+
+    assert compat["available"] is False
+    assert "hidden" in compat["unavailable_reason"]
+
+
 def test_vram_excess_offloads_to_ram_instead_of_blocking(monkeypatch):
     # FLUX dev (~17 GB) on a 16 GB card: it streams weights from RAM via CPU
     # offload, so it stays available with a "slower" warning rather than disabled.
@@ -236,15 +248,73 @@ def test_recommendation_is_neutral_for_llm_and_stub():
 
 
 def test_framepack_video_warns_that_it_is_i2v_only():
+    policy = {"video": {"recommended": ["ltx-video"], "advanced": ["hunyuan-video"], "hidden": []}}
     compat = model_compatibility.compatibility_for_model(
         desc(ModelFamily.HUNYUAN_VIDEO, quant="bnb-nf4"),
-        profile=profile(backend="cuda"),
+        profile=profile(backend="cuda", model_policy=policy),
         estimated_vram_gb=13,
     )
 
     assert compat["available"] is True
     assert compat["recommendation"] == "advanced"
     assert any("image-to-video only" in warning for warning in compat["compatibility_warnings"])
+
+
+def test_video_recommendation_reflects_policy_buckets():
+    policy = {
+        "video": {
+            "recommended": ["ltx-video"],
+            "advanced": ["wan-video"],
+            "hidden": ["animatediff", "cogvideo"],
+        }
+    }
+
+    ltx = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.LTX_VIDEO),
+        profile=profile(backend="cuda", model_policy=policy),
+        estimated_vram_gb=12,
+    )
+    wan = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.WAN_VIDEO),
+        profile=profile(backend="cuda", model_policy=policy),
+        estimated_vram_gb=13,
+    )
+
+    assert ltx["available"] is True
+    assert ltx["recommendation"] == "recommended"
+    assert wan["available"] is True
+    assert wan["recommendation"] == "advanced"
+
+
+def test_non_cuda_video_fallback_candidates_are_validation_pending():
+    policy = {
+        "video": {
+            "recommended": [],
+            "advanced": [],
+            "hidden": ["animatediff", "cogvideo"],
+            "fallback_candidates": ["animatediff", "cogvideo"],
+        }
+    }
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.ANIMATEDIFF_VIDEO),
+        profile=profile(backend="mps", model_policy=policy, vram_mb=None),
+        estimated_vram_gb=10,
+    )
+
+    assert compat["available"] is False
+    assert "fallback" in compat["unavailable_reason"]
+    assert "validation" in compat["unavailable_reason"]
+
+
+def test_detected_but_unimplemented_cuda_video_family_is_blocked():
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.COGVIDEO),
+        profile=profile(backend="cuda"),
+        estimated_vram_gb=10,
+    )
+
+    assert compat["available"] is False
+    assert "not implemented" in compat["unavailable_reason"]
 
 
 async def test_create_jobs_rejects_unavailable_model(monkeypatch, app_client):

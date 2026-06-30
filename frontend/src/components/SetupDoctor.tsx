@@ -25,6 +25,9 @@ const FEATURE_LABELS: [string, string][] = [
   ["torch_compile", "torch.compile fast path"],
   ["nunchaku_cuda", "Nunchaku fp4 (FLUX/Qwen/Z)"],
   ["blackwell_fast_paths", "Blackwell-only fast paths"],
+  ["video_diffusers_cuda", "CUDA video pipelines"],
+  ["video_fp8_fast_paths", "Video fp8 fast paths"],
+  ["video_light_fallback", "Video fallback path"],
   ["cuda_llama_binaries", "CUDA llama.cpp binaries"],
   ["metal_llama_binaries", "Metal llama.cpp binaries"],
   ["prefer_cpu_offload", "CPU offload (low VRAM)"],
@@ -138,9 +141,18 @@ export function SetupDoctor() {
             {policy ? (
               <DetailCard title="Recommended models for this hardware">
                 <div className="space-y-2">
+                  <div className="text-[11px] font-medium text-ui-subtle">Images</div>
                   <FamilyRow label="Recommended" tone="good" families={policy.image.recommended} empty="none" />
                   <FamilyRow label="Advanced" tone="neutral" families={policy.image.advanced} empty="none" />
                   <FamilyRow label="Not supported" tone="bad" families={policy.image.hidden} empty="none" />
+                  {policy.video ? (
+                    <>
+                      <div className="pt-1 text-[11px] font-medium text-ui-subtle">Video</div>
+                      <FamilyRow label="Recommended" tone="good" families={policy.video.recommended} empty="none" />
+                      <FamilyRow label="Advanced" tone="neutral" families={policy.video.advanced} empty="none" />
+                      <FamilyRow label="Not supported" tone="bad" families={policy.video.hidden} empty="none" />
+                    </>
+                  ) : null}
                   <div className="text-[11px] text-ui-subtle">
                     LLMs: recommend up to ~{policy.llm.max_recommended_params_b}B params.
                   </div>
