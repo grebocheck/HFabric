@@ -2,8 +2,8 @@
 
 This is the real-hardware counterpart to the fake-probe unit tests: it probes
 the machine, resolves the install profile, and cross-checks that the chosen
-backend agrees with what ``torch`` actually sees. Run it on a real CUDA or ROCm
-box after setup and paste the summary block into ``docs/gpu-smoke.md``.
+backend agrees with what ``torch`` actually sees. Run it on a real CUDA, ROCm, or
+Apple MPS box after setup and paste the summary block into ``docs/gpu-smoke.md``.
 
 The decision logic lives in :func:`evaluate`, which takes a report dict, so the
 NVIDIA/AMD/CPU branches are unit-testable without owning every GPU.
@@ -26,6 +26,8 @@ except ImportError:  # pragma: no cover - exercised only when run as a module
 OK = "ok"
 WARN = "warn"
 ERROR = "error"
+
+VIDEO_FAMILIES = {"ltx-video", "wan-video", "hunyuan-video", "cogvideo", "animatediff"}
 
 
 def _check(name: str, status: str, detail: str) -> dict[str, str]:
@@ -92,6 +94,8 @@ def evaluate(report: dict[str, Any], *, prefer: str | None = None, run_verify: b
     else:
         checks.append(_check("feature_sanity", OK, f"optional features: {', '.join(sorted(optional)) or 'none'}"))
 
+    checks.append(_video_policy_check(profile, backend))
+
     if run_verify:
         checks.append(_run_verify(profile["install"]["verify"]))
 
@@ -112,6 +116,49 @@ def _run_verify(snippet: str) -> dict[str, str]:
         return _check("verify_snippet", ERROR, f"{type(exc).__name__}: {exc}")
     output = buffer.getvalue().strip().replace("\n", " ")
     return _check("verify_snippet", OK, output or "verify snippet ran")
+
+
+def _video_policy_check(profile: dict[str, Any], backend: str) -> dict[str, str]:
+    """Grade the video policy exposed to testers by the selected profile."""
+    video = ((profile.get("model_policy") or {}).get("video")) or {}
+    recommended = set(video.get("recommended") or [])
+    advanced = set(video.get("advanced") or [])
+    hidden = set(video.get("hidden") or [])
+    offered = recommended | advanced
+
+    if offered & hidden:
+        return _check("video_policy", ERROR, f"families are both offered and hidden: {sorted(offered & hidden)}")
+    if offered | hidden != VIDEO_FAMILIES:
+        return _check(
+            "video_policy",
+            ERROR,
+            f"policy does not partition video families: offered={sorted(offered)} hidden={sorted(hidden)}",
+        )
+
+    if backend in {"rocm", "mps"}:
+        defaults = profile.get("runtime_defaults") or {}
+        expected_hidden = {"ltx-video", "wan-video", "hunyuan-video", "animatediff"}
+        if not defaults.get("video_light_fallback"):
+            return _check("video_policy", ERROR, "ROCm/MPS profile did not enable video_light_fallback")
+        if recommended != {"cogvideo"} or not expected_hidden <= hidden:
+            return _check(
+                "video_policy",
+                ERROR,
+                "ROCm/MPS profile must recommend CogVideoX and hide CUDA-only video families",
+            )
+        return _check("video_policy", OK, "CogVideoX T2V fallback exposed; LTX/Wan/FramePack hidden")
+
+    if backend == "cuda":
+        if profile.get("hardware_tier") in {"unknown", "low_vram"}:
+            status = OK if not offered else ERROR
+            return _check("video_policy", status, "real video hidden below the 8 GB safety floor")
+        if "ltx-video" not in recommended or "animatediff" not in hidden:
+            return _check("video_policy", ERROR, "CUDA video policy must recommend LTX and hide AnimateDiff")
+        return _check("video_policy", OK, f"CUDA video offered: {', '.join(sorted(offered))}")
+
+    if offered:
+        return _check("video_policy", ERROR, "CPU-safe profile must hide real video families")
+    return _check("video_policy", OK, "CPU-safe/STUB hides real video families")
 
 
 _STATUS_MARK = {OK: "PASS", WARN: "warn", ERROR: "FAIL"}

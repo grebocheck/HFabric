@@ -12,7 +12,8 @@
 5. Open **System → Model downloads** and fetch a starter model.
 
 Platform support: NVIDIA CUDA is validated; AMD ROCm on Linux and Apple Silicon
-MPS are experimental — testers welcome.
+MPS are experimental with conservative SDXL + CogVideoX fallback paths — testers
+welcome.
 
 More detail: [README.md](https://github.com/grebocheck/HFabric/blob/main/README.md)
 and [CHANGELOG.md](https://github.com/grebocheck/HFabric/blob/main/CHANGELOG.md).

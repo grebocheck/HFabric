@@ -15,6 +15,10 @@ def status_of(result: dict, name: str) -> str:
     return next(c["status"] for c in result["checks"] if c["name"] == name)
 
 
+def detail_of(result: dict, name: str) -> str:
+    return next(c["detail"] for c in result["checks"] if c["name"] == name)
+
+
 def report(system: str, gpus: list[dict], torch: dict | None = None) -> dict:
     return {
         "os": {"system": system},
@@ -37,6 +41,8 @@ def test_nvidia_cuda_torch_match_passes():
     assert result["ok"] is True
     assert status_of(result, "torch_visible") == OK
     assert status_of(result, "feature_sanity") == OK
+    assert status_of(result, "video_policy") == OK
+    assert "cogvideo" in detail_of(result, "video_policy")
 
 
 def test_nvidia_profile_with_rocm_torch_build_fails():
@@ -83,6 +89,8 @@ def test_rocm_profile_matches_hip_build():
     assert result["profile"]["selected_profile"] == "amd-rocm-linux"
     assert result["ok"] is True
     assert status_of(result, "torch_visible") == OK
+    assert status_of(result, "video_policy") == OK
+    assert "CogVideoX" in detail_of(result, "video_policy")
 
 
 def test_mps_profile_matches_torch_mps():
@@ -97,6 +105,8 @@ def test_mps_profile_matches_torch_mps():
     assert result["profile"]["selected_profile"] == "apple-mps"
     assert result["ok"] is True
     assert status_of(result, "torch_visible") == OK
+    assert status_of(result, "video_policy") == OK
+    assert "CogVideoX" in detail_of(result, "video_policy")
 
 
 def test_torch_not_installed_is_a_warning_not_a_failure():
@@ -117,6 +127,7 @@ def test_cpu_safe_with_no_accelerator_passes():
     assert result["profile"]["selected_profile"] == "cpu-safe"
     assert result["ok"] is True
     assert status_of(result, "torch_visible") == OK
+    assert status_of(result, "video_policy") == OK
 
 
 def test_pre_ampere_nvidia_does_not_offer_nunchaku():

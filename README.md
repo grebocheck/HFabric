@@ -76,9 +76,11 @@ WebSocket → gallery with reproducible metadata) is validated on the GPU today:
 - **Image:** SDXL, FLUX, FLUX.2 [klein], Anima, Qwen-Image, and Z-Image generation;
   a dedicated **Edit** workspace adds img2img, inpaint, outpaint, full-size mask
   painting, A/B comparison, ControlNet, and instruction-edit model support.
-- **Video:** LTX-Video text-to-video and image-to-video plus Wan 2.2 text-to-video,
+- **Video:** LTX-Video text-to-video and image-to-video, Wan 2.2 text-to-video,
+  FramePack Hunyuan image-to-video, and CogVideoX-2B text-to-video fallback,
   served as seekable MP4 with poster/animated thumbnail history. On the reference
-  16 GB GPU, 480p / 49-frame LTX T2V+I2V and Wan T2V are validated.
+  16 GB GPU, LTX/Wan/FramePack/CogVideoX are validated; ROCm/MPS CogVideoX
+  validation is still pending real tester hardware.
 - **Chat LLM:** any GGUF model via `llama-server`, with streaming, personas,
   sampling control, stop/regenerate/edit, attachments, native multimodal
   `mmproj` vision, and a `/image` bridge.
@@ -100,8 +102,8 @@ aware of what's actually been validated:
 |----------|---------|--------|
 | **NVIDIA CUDA (Windows)** | `nvidia-cuda` | ✅ **Validated** end-to-end on RTX 5070 Ti 16 GB (Blackwell), 32 GB RAM, Windows 11. The reference path. |
 | NVIDIA CUDA (other tiers) | `nvidia-cuda` | ⚠️ Capability-aware (8 GB = SDXL/small-LLM safe mode, 12 GB +quantized LLMs, 16 GB+ richer set). Fast paths auto-disable below the required compute capability. Not yet validated on non-Blackwell silicon. |
-| **AMD ROCm (Linux)** | `amd-rocm-linux` | 🧪 **Experimental** — implemented and unit-tested, but never run on real ROCm hardware. SDXL-only until validated. CUDA-only features (Nunchaku, etc.) auto-disable. Testers welcome. |
-| **Apple Silicon (MPS)** | `apple-mps` | 🧪 **Experimental** — implemented and unit-tested, never run on a real Mac. SDXL + llama.cpp Metal, fp4 families hidden. Testers welcome. |
+| **AMD ROCm (Linux)** | `amd-rocm-linux` | 🧪 **Experimental** — implemented and unit-tested, but never run on real ROCm hardware. SDXL plus CogVideoX-2B T2V fallback are exposed; CUDA-only features (Nunchaku, LTX/Wan/FramePack video, etc.) auto-disable. Testers welcome. |
+| **Apple Silicon (MPS)** | `apple-mps` | 🧪 **Experimental** — implemented and unit-tested, never run on a real Mac. SDXL + llama.cpp Metal plus CogVideoX-2B T2V fallback are exposed; fp4/CUDA-only families hidden. Testers welcome. |
 | Unsupported / no GPU | `cpu-safe` / STUB | ✅ Always works. CPU-safe falls back gracefully; STUB needs no ML stack at all. |
 
 If you're on ROCm or Apple Silicon and willing to help validate, the

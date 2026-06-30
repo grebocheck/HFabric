@@ -23,8 +23,9 @@ python scripts/install_smoke.py --json      # machine-readable checks
 Pass: `Overall: PASS` — the selected profile's backend matches what torch sees
 (CUDA build for `nvidia-cuda`, HIP build for `amd-rocm-linux`, MPS availability
 for `apple-mps`, no accelerator for `cpu-safe`), no `nunchaku_cuda` is offered on a pre-Ampere/non-CUDA card,
-and the profile verify snippet runs clean. Paste the printed summary block into
-the validation log below.
+the selected video policy matches the profile's supported/fallback families, and
+the profile verify snippet runs clean. Paste the printed summary block into the
+validation log below.
 
 ### Real-machine validation log
 

@@ -104,7 +104,8 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
 - **P20.3 — NVIDIA tiers.** Capability-aware runtime defaults (architecture from
   compute cap); VRAM-tiered model policy (8/12/16 GB).
 - **P20.4 — AMD ROCm (Linux).** First-class profile; CUDA-only features auto-disabled;
-  SDXL-safe until real-ROCm validation. *(Unvalidated → ROADMAP P21.4.)*
+  SDXL plus CogVideoX T2V fallback exposed until real-ROCm validation.
+  *(Unvalidated → ROADMAP P21.4.)*
 - **P20.5 — Capability gates.** `CapabilityProfile` drives model/feature gating;
   `/api/models` marks availability; server-side enforcement; startup autotune.
 - **P20.6–.7 — Setup Doctor + recommendations.** Plain-language detected-hardware
