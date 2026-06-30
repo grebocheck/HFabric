@@ -205,9 +205,10 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   spinner on error; first-run dependency audit tightened Python/Node/version checks,
   launcher self-repair of missing foundation/REAL stack packages, in-app model downloads
   as a foundation dependency, managed voice/DTLN asset downloads, advanced full-model
-  catalog entries, and `update.*` scripts for git+dependency refresh. **Remaining:**
-  re-run the audit on a clean tester Windows machine and revisit any OOM-guarded /
-  missing-binary paths testers still hit.
+  catalog entries, `update.*` scripts for git+dependency refresh, and a repeatable
+  [`docs/first-run-audit.md`](docs/first-run-audit.md) checklist for clean-machine
+  testers. **Remaining:** run that audit on a clean tester Windows machine and
+  revisit any OOM-guarded / missing-binary paths testers still hit.
 
 ### P22 — Voice realtime quality (optional residual)
 

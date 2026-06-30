@@ -394,6 +394,7 @@ python scripts/install_profiles.py --pretty
 | [docs/configuration.md](docs/configuration.md) | All env vars + Settings knobs + security model |
 | [docs/developer.md](docs/developer.md) | Layout, testing, migrations, backup/restore, contributing |
 | [docs/gpu-smoke.md](docs/gpu-smoke.md) | Real-GPU validation checklist + the validation log |
+| [docs/first-run-audit.md](docs/first-run-audit.md) | Clean Windows first-run audit checklist for beta testers |
 | [models/README.md](models/README.md) | Model folder layout + curated download list |
 | [docs/voice-routing.md](docs/voice-routing.md) | Routing the voice changer into Discord/OBS/etc. |
 | [docs/audit-2026-06-30.md](docs/audit-2026-06-30.md) | Current code-quality and stability audit (weaknesses + plan) |
