@@ -28,6 +28,13 @@ const model = {
   available: true,
 } as Model;
 
+const framepackModel = {
+  ...model,
+  id: "framepack",
+  name: "FramePack Hunyuan",
+  family: "hunyuan-video",
+} as Model;
+
 beforeEach(() => {
   for (const fn of Object.values(mocks.api)) fn.mockReset();
   mocks.api.createJobs.mockResolvedValue([]);
@@ -69,6 +76,17 @@ describe("VideoComposer", () => {
       steps: 8,
       guidance: 3,
     });
+  });
+
+  it("forces FramePack models to image-to-video presets", async () => {
+    render(<VideoComposer models={[framepackModel]} modelsLoading={false} onQueued={vi.fn()} onGetModels={vi.fn()} />);
+
+    await waitFor(() => {
+      expect((screen.getByRole("button", { name: "Text to video" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+    expect((screen.getByLabelText("Video clip preset") as HTMLSelectElement).value).toBe("hunyuan-long");
+    expect((screen.getByLabelText("Frames") as HTMLInputElement).value).toBe("91");
+    expect(screen.getByRole("button", { name: "Choose the first frame" })).toBeTruthy();
   });
 
   it("renders the mp4 player with poster and controls", () => {

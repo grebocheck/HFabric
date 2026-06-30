@@ -14,14 +14,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
 import time
 
+from PIL import Image, ImageDraw
 import torch
 
 from app.backends.base import ModelDescriptor
 from app.backends.video_diffusers import DiffusersVideoBackend
 from app.config import settings
 from app.core.enums import ModelFamily
+from app.util import uploads as uploads_util
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -40,19 +43,45 @@ def vram() -> str:
     )
 
 
+def family_for_model(model: str) -> ModelFamily:
+    lowered = model.lower()
+    if "framepack" in lowered or "hunyuan" in lowered:
+        return ModelFamily.HUNYUAN_VIDEO
+    if "wan" in lowered:
+        return ModelFamily.WAN_VIDEO
+    return ModelFamily.LTX_VIDEO
+
+
+def source_token(width: int, height: int) -> str:
+    token = os.environ.get("INIT_IMAGE")
+    if token:
+        return token
+
+    source_path = os.environ.get("INIT_IMAGE_PATH")
+    image = Image.open(source_path).convert("RGB") if source_path else Image.new("RGB", (width, height), "#1d2530")
+    if not source_path:
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((width * 0.12, height * 0.18, width * 0.88, height * 0.82), outline="#e5d7a3", width=4)
+        draw.text((width * 0.18, height * 0.42), "FramePack smoke source", fill="#f7f0d0")
+    token = secrets.token_hex(16)
+    uploads_util.uploads_dir().mkdir(parents=True, exist_ok=True)
+    image.save(uploads_util.uploads_dir() / f"{token}.png", format="PNG")
+    return token
+
+
 async def main() -> None:
     model = os.environ.get("MODEL", "wan2.2-ti2v-5b")
-    mode = os.environ.get("MODE", "t2v")
-    w = int(os.environ.get("W", "832"))
-    h = int(os.environ.get("H", "480"))
-    frames = int(os.environ.get("FRAMES", "25"))
+    family = family_for_model(model)
+    mode = os.environ.get("MODE", "i2v" if family is ModelFamily.HUNYUAN_VIDEO else "t2v")
+    w = int(os.environ.get("W", "480" if family is ModelFamily.HUNYUAN_VIDEO else "832"))
+    h = int(os.environ.get("H", "832" if family is ModelFamily.HUNYUAN_VIDEO else "480"))
+    frames = int(os.environ.get("FRAMES", "91" if family is ModelFamily.HUNYUAN_VIDEO else "25"))
     steps = int(os.environ.get("STEPS", "8"))
 
     settings.stub_mode = False
 
-    family = ModelFamily.WAN_VIDEO if "wan" in model else ModelFamily.LTX_VIDEO
     path = settings.video_models_dir / model
-    desc = ModelDescriptor(id=model, name=model, family=family, path=path, size_bytes=0)
+    desc = ModelDescriptor(id=model, name=model, family=family, path=path, size_bytes=0, quant=settings.video_quant)
     backend = DiffusersVideoBackend(desc)
 
     print(f"=== probe model={model} mode={mode} {w}x{h} frames={frames} steps={steps} ===")
@@ -69,7 +98,7 @@ async def main() -> None:
         "width": w, "height": h, "frames": frames, "steps": steps,
     }
     if mode == "i2v":
-        params["init_image"] = os.environ["INIT_IMAGE"]  # upload token
+        params["init_image"] = source_token(w, h)
 
     last = {"t": time.time()}
 

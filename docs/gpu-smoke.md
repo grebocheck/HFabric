@@ -100,6 +100,9 @@ are close to the baselines below.
    - LTX-Video: one 480p/49-frame T2V job and one I2V job from an uploaded frame.
    - Wan 2.2 TI2V-5B: one 480p/49-frame T2V job, then the same prompt at 720p only
      if `mem.status` still leaves the configured safety margin.
+   - FramePack Hunyuan: install `models/video/framepack-hunyuan-i2v/{base,transformer,redux}`
+     through the video fetch script or Model Manager, then run one I2V draft and one
+     longer 91-frame clip from an uploaded/source frame.
    - Seek through each result in the browser (the mp4 endpoint must return HTTP 206
      for byte ranges), cancel one running denoise, and swap Video -> LLM -> Video.
    - Repeatable app-path check: against a live backend, run
@@ -152,6 +155,7 @@ the automated suite rather than being reported here as real-GPU passes.
 | 2026-06-30 | RTX 5070 Ti 16 GB | LTX-Video | T2V 832x480 / 49f / 8 steps | PASS | `MODEL=ltx-video MODE=t2v W=832 H=480 FRAMES=49 STEPS=8 scripts/video_vram_probe.py`; peak 6.00 GB VRAM; mp4, poster, thumbnail, metadata written. |
 | 2026-06-30 | RTX 5070 Ti 16 GB | LTX-Video | I2V 832x480 / 49f / 8 steps | PASS | Source upload token `079fb1d04add4d5aa91f77c985c82c2c`; peak 6.76 GB VRAM. This caught and fixed the LTX I2V VAE dtype mismatch. |
 | 2026-06-30 | RTX 5070 Ti 16 GB | Wan 2.2 TI2V-5B | T2V 832x480 / 49f / 8 steps | PASS | `MODEL=wan2.2-ti2v-5b MODE=t2v W=832 H=480 FRAMES=49 STEPS=8 scripts/video_vram_probe.py`; peak 7.83 GB VRAM; tiled VAE decode and mp4 encode completed. |
+| 2026-06-30 | RTX 5070 Ti 16 GB | FramePack Hunyuan | I2V 480x832 / 91 requested f / 8 steps | PASS | `MODEL=framepack-hunyuan-i2v MODE=i2v W=480 H=832 FRAMES=91 STEPS=8 scripts/video_vram_probe.py`; bnb-nf4 + model offload; 3 FramePack sections (24 denoise callbacks), 109 output frames, peak 9.67 GB VRAM; mp4, poster, thumbnail, metadata written. |
 
 ### P27 live app-path validation log
 
@@ -159,8 +163,8 @@ the automated suite rather than being reported here as real-GPU passes.
 | --- | --- | --- | --- | --- | --- |
 | 2026-06-30 | Windows / RTX 5070 Ti | STUB live backend | `python scripts/video_app_smoke.py --base-url http://127.0.0.1:8274 --api-token ... --timeout 120` | PASS | Isolated temp DB/outputs; validated websocket `job.*`/`video.ready`, HTTP `Accept-Ranges` + `206`, poster/thumb fetches, running-job cancel, and Video -> LLM -> Video resident swap. |
 
-P27.6 app-path and UI polish are covered. Remaining P27 feature breadth is tracked
-in the roadmap: FramePack long-video support and non-NVIDIA fallback validation.
+P27.4/P27.6 app-path and UI polish are covered. Remaining P27 feature breadth is
+tracked in the roadmap: non-NVIDIA fallback validation.
 
 ## Fail Handling
 

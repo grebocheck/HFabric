@@ -139,6 +139,13 @@ def estimate_ram_need_gb(
     gb = size_bytes / _GB
     if family is ModelFamily.GGUF:
         return 2.0  # llama-server mmaps the gguf (disk-backed) -> low RSS
+    if family is ModelFamily.HUNYUAN_VIDEO:
+        if quant and quant.startswith("bnb-"):
+            # Composite FramePack install is ~43 GB on disk, but the transformer
+            # and text encoders are streamed into 4-bit modules. Keep a healthy
+            # margin for the SigLIP encoder, VAE and mp4 export buffers.
+            return gb * 0.25 + 4.0
+        return gb * 0.8 + 4.0
     if family in _VIDEO_FAMILIES:
         if quant and quant.startswith("bnb-"):
             # Diffusers streams shards while quantizing; bf16 repo size is not
@@ -214,6 +221,8 @@ def estimate_vram_need_gb(
     if family is ModelFamily.LTX_VIDEO:
         return 12.0 if quant and quant.startswith("bnb-") else 16.0
     if family is ModelFamily.WAN_VIDEO:
+        return 13.0 if quant and quant.startswith("bnb-") else 16.0
+    if family is ModelFamily.HUNYUAN_VIDEO:
         return 13.0 if quant and quant.startswith("bnb-") else 16.0
     if family in _VIDEO_FAMILIES:
         return 12.0 if quant and quant.startswith("bnb-") else 16.0

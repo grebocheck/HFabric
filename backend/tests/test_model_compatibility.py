@@ -235,6 +235,18 @@ def test_recommendation_is_neutral_for_llm_and_stub():
     assert stub["recommendation"] == "neutral"
 
 
+def test_framepack_video_warns_that_it_is_i2v_only():
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.HUNYUAN_VIDEO, quant="bnb-nf4"),
+        profile=profile(backend="cuda"),
+        estimated_vram_gb=13,
+    )
+
+    assert compat["available"] is True
+    assert compat["recommendation"] == "advanced"
+    assert any("image-to-video only" in warning for warning in compat["compatibility_warnings"])
+
+
 async def test_create_jobs_rejects_unavailable_model(monkeypatch, app_client):
     def reject(_desc):
         raise ValueError("blocked by capability profile")

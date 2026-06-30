@@ -175,7 +175,7 @@ ADVANCED_IMAGE_JOBS = [
 ]
 
 # Optional P27 catalog entries. They are intentionally not part of setup-all:
-# together they are ~60 GB and should be an explicit Video-workspace choice.
+# together they are large and should be an explicit Video-workspace choice.
 VIDEO_JOBS = [
     FetchJob(
         "Lightricks/LTX-Video",
@@ -205,6 +205,49 @@ VIDEO_JOBS = [
         source="hf-repo",
         local_subdir="wan2.2-ti2v-5b",
         exclude_patterns=("media/*", "examples/*", "assets/*", "*.mp4", "*.gif", "*.png"),
+    ),
+    FetchJob(
+        "hunyuanvideo-community/HunyuanVideo",
+        "",
+        MODELS / "video",
+        "FramePack Hunyuan base components",
+        "base text encoders, tokenizers, scheduler and VAE for the FramePack I2V composite",
+        approx_size_mb=16_300,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="framepack-hunyuan-i2v/base",
+        include_patterns=(
+            "model_index.json", "scheduler/*", "text_encoder/*", "text_encoder_2/*",
+            "tokenizer/*", "tokenizer_2/*", "vae/*",
+        ),
+    ),
+    FetchJob(
+        "lllyasviel/FramePackI2V_HY",
+        "",
+        MODELS / "video",
+        "FramePack Hunyuan I2V transformer",
+        "long image-to-video FramePack transformer for constant-VRAM clips",
+        approx_size_mb=25_800,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="framepack-hunyuan-i2v/transformer",
+        present_markers=("config.json", "diffusion_pytorch_model.safetensors.index.json"),
+    ),
+    FetchJob(
+        "lllyasviel/flux_redux_bfl",
+        "",
+        MODELS / "video",
+        "FramePack SigLIP image encoder",
+        "feature extractor and image encoder required by Diffusers FramePack",
+        approx_size_mb=1_000,
+        license="see model card",
+        profiles=("nvidia-cuda",),
+        source="hf-repo",
+        local_subdir="framepack-hunyuan-i2v/redux",
+        include_patterns=("feature_extractor/*", "image_encoder/*"),
+        present_markers=("feature_extractor/preprocessor_config.json", "image_encoder/config.json"),
     ),
 ]
 

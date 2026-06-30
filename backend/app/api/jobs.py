@@ -10,9 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..backends.base import ModelDescriptor
 from ..backends.registry import ModelRegistry
+from ..backends.video_diffusers import family_video_default, framepack_output_frames
 from ..config import settings
 from ..core.arbiter import GpuArbiter
-from ..core.enums import EventType, JobStatus, JobType
+from ..core.enums import EventType, JobStatus, JobType, ModelFamily
 from ..core.events import EventBus
 from ..core.scheduler import Worker, plan_queue
 from ..schemas import JobCreate, JobOut, PriorityUpdate
@@ -129,18 +130,42 @@ def _normalize_video_params(
             raise HTTPException(400, f"params.{key} must be an integer")
         return max(minimum, min(maximum, value))
 
-    width = integer("width", settings.video_default_width, 256, settings.video_max_width)
-    height = integer("height", settings.video_default_height, 256, settings.video_max_height)
+    width = integer(
+        "width",
+        int(family_video_default(desc.family, "width", settings.video_default_width)),
+        256,
+        settings.video_max_width,
+    )
+    height = integer(
+        "height",
+        int(family_video_default(desc.family, "height", settings.video_default_height)),
+        256,
+        settings.video_max_height,
+    )
     width = max(256, width // 32 * 32)
     height = max(256, height // 32 * 32)
-    frames = integer("frames", settings.video_default_frames, 9, settings.video_max_frames)
-    temporal = 8 if desc.family.value == "ltx-video" else 4
-    frames = max(temporal + 1, (frames - 1) // temporal * temporal + 1)
-    fps = integer("fps", settings.video_default_fps, 4, 30)
-    steps = integer("steps", settings.video_default_steps, 1, 80)
+    frames = integer(
+        "frames",
+        int(family_video_default(desc.family, "frames", settings.video_default_frames)),
+        9,
+        settings.video_max_frames,
+    )
+    latent_window_size = integer(
+        "latent_window_size",
+        int(family_video_default(desc.family, "latent_window_size", 9)),
+        3,
+        17,
+    )
+    if desc.family is not ModelFamily.HUNYUAN_VIDEO:
+        temporal = 8 if desc.family is ModelFamily.LTX_VIDEO else 4
+        frames = max(temporal + 1, (frames - 1) // temporal * temporal + 1)
+    fps = integer("fps", int(family_video_default(desc.family, "fps", settings.video_default_fps)), 4, 30)
+    steps = integer("steps", int(family_video_default(desc.family, "steps", settings.video_default_steps)), 1, 80)
     mode = str(payload.params.get("mode") or ("i2v" if payload.params.get("init_image") else "t2v"))
     if mode not in {"t2v", "i2v"}:
         raise HTTPException(400, "params.mode must be t2v or i2v")
+    if desc.family is ModelFamily.HUNYUAN_VIDEO and mode != "i2v":
+        raise HTTPException(400, "FramePack Hunyuan video requires image-to-video and a source frame")
     init_image = payload.params.get("init_image")
     if mode == "i2v":
         if not isinstance(init_image, str) or not init_image:
@@ -158,6 +183,8 @@ def _normalize_video_params(
         "fps": fps,
         "steps": steps,
     })
+    if desc.family is ModelFamily.HUNYUAN_VIDEO:
+        params["latent_window_size"] = latent_window_size
     payload.params = params
 
     if settings.stub_mode:
@@ -170,7 +197,9 @@ def _normalize_video_params(
         desc.id,
         width=width,
         height=height,
-        frames=frames,
+        frames=framepack_output_frames(frames, latent_window_size)
+        if desc.family is ModelFamily.HUNYUAN_VIDEO
+        else frames,
         model_loaded=bool(existing and existing.loaded),
     )
     if decision["ok"]:

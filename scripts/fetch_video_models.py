@@ -5,12 +5,15 @@ Standalone + resumable: run it any time, it skips what's already on disk
 curated in-app catalog (``fetch_models.py``) for now — that integration is
 ROADMAP P27.6. See ``docs/video-research.md`` for why these models were chosen.
 
-Starter set (fits the 16 GB / RTX 5070 Ti box with fp8/bnb + offload at load):
+Starter set (fits the 16 GB / RTX 5070 Ti box with bnb + offload at load):
   * LTX-Video        — fast default (diffusers components only, ~28 GB).
   * Wan 2.2 TI2V-5B  — quality tier (full diffusers repo, ~34 GB).
+  * FramePack Hunyuan — long I2V composite: Hunyuan base components without the
+    stock transformer (~16 GB), FramePack transformer (~26 GB), and SigLIP image
+    encoder (~1 GB).
 
-FramePack (long video, P27.4) and AnimateDiff (fallback) are intentionally NOT
-fetched here to avoid a large HunyuanVideo pull before the backend can use it.
+AnimateDiff (fallback) is intentionally NOT fetched here until the backend can
+use it.
 
 Usage:  .venv/Scripts/python.exe scripts/fetch_video_models.py
 """
@@ -49,6 +52,32 @@ JOBS: list[tuple[str, str, list[str] | None]] = [
         "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
         "wan2.2-ti2v-5b",
         None,
+    ),
+    (
+        "hunyuanvideo-community/HunyuanVideo",
+        "framepack-hunyuan-i2v/base",
+        [
+            "model_index.json",
+            "scheduler/*",
+            "text_encoder/*",
+            "text_encoder_2/*",
+            "tokenizer/*",
+            "tokenizer_2/*",
+            "vae/*",
+        ],
+    ),
+    (
+        "lllyasviel/FramePackI2V_HY",
+        "framepack-hunyuan-i2v/transformer",
+        None,
+    ),
+    (
+        "lllyasviel/flux_redux_bfl",
+        "framepack-hunyuan-i2v/redux",
+        [
+            "feature_extractor/*",
+            "image_encoder/*",
+        ],
     ),
 ]
 

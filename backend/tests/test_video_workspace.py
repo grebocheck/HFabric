@@ -9,7 +9,8 @@ import pytest
 from app.backends import video_diffusers
 from app.backends.base import ModelDescriptor
 from app.backends.inspect import classify_video_dir
-from app.core.enums import ModelFamily
+from app.core.enums import JobType, ModelFamily
+from app.schemas import JobCreate
 from app.util import sysmon
 
 
@@ -30,11 +31,40 @@ def test_classify_video_diffusers_directories(tmp_path):
         assert classify_video_dir(folder) is expected
 
 
+def test_hunyuan_base_is_not_exposed_without_framepack_layout(tmp_path):
+    base_only = tmp_path / "base-only"
+    base_only.mkdir()
+    (base_only / "model_index.json").write_text(
+        '{"_class_name":"HunyuanVideoPipeline"}', encoding="utf-8"
+    )
+    assert classify_video_dir(base_only) is None
+
+    composite = tmp_path / "framepack"
+    (composite / "base").mkdir(parents=True)
+    (composite / "transformer").mkdir()
+    (composite / "redux" / "feature_extractor").mkdir(parents=True)
+    (composite / "redux" / "image_encoder").mkdir()
+    (composite / "base" / "model_index.json").write_text(
+        '{"_class_name":"HunyuanVideoPipeline"}', encoding="utf-8"
+    )
+    (composite / "transformer" / "config.json").write_text("{}", encoding="utf-8")
+    (composite / "redux" / "feature_extractor" / "preprocessor_config.json").write_text(
+        "{}", encoding="utf-8"
+    )
+    (composite / "redux" / "image_encoder" / "config.json").write_text("{}", encoding="utf-8")
+    assert classify_video_dir(composite) is ModelFamily.HUNYUAN_VIDEO
+
+
 def test_video_decode_budget_scales_with_latent_volume():
     small = sysmon.video_decode_need_gb(512, 320, 17)
     large = sysmon.video_decode_need_gb(1280, 704, 121)
     assert large["ram_gb"] > small["ram_gb"]
     assert large["vram_gb"] > small["vram_gb"]
+
+
+def test_framepack_output_frame_budget_matches_sections():
+    assert video_diffusers.framepack_output_frames(9, 9) == 37
+    assert video_diffusers.framepack_output_frames(91, 9) == 109
 
 
 async def test_stub_video_queue_persists_and_serves_ranges(app_client, wait_jobs_done):
@@ -231,6 +261,129 @@ def test_bnb_video_load_uses_offload_hooks(monkeypatch, tmp_path, offload, expec
     assert backend.load_report and backend.load_report["video"]["placement"] == expected_placement
 
 
+def test_framepack_load_uses_composite_layout_and_bnb_quant(monkeypatch, tmp_path):
+    from app.config import settings
+
+    calls: list[str] = []
+
+    root = tmp_path / "framepack-hunyuan-i2v"
+    (root / "base").mkdir(parents=True)
+    (root / "transformer").mkdir()
+    (root / "redux" / "feature_extractor").mkdir(parents=True)
+    (root / "redux" / "image_encoder").mkdir()
+    (root / "base" / "model_index.json").write_text("{}", encoding="utf-8")
+    (root / "transformer" / "config.json").write_text("{}", encoding="utf-8")
+    (root / "redux" / "feature_extractor" / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+    (root / "redux" / "image_encoder" / "config.json").write_text("{}", encoding="utf-8")
+
+    class FakeVae:
+        def enable_tiling(self) -> None:
+            calls.append("tiling")
+
+        def enable_slicing(self) -> None:
+            calls.append("slicing")
+
+    class FakePipe:
+        def __init__(self) -> None:
+            self.vae = FakeVae()
+
+    class FakeFramepackPipeline:
+        @classmethod
+        def from_pretrained(cls, path, **kwargs):
+            calls.append(f"pipe:{Path(path).name}:{kwargs['quantization_config'].kwargs['components_to_quantize']}")
+            calls.append(f"has-transformer:{'transformer' in kwargs}")
+            calls.append(f"has-image-encoder:{'image_encoder' in kwargs}")
+            return FakePipe()
+
+    class FakeTransformer:
+        @classmethod
+        def from_pretrained(cls, path, **kwargs):
+            calls.append(f"transformer:{Path(path).name}:{'quantization_config' in kwargs}")
+            return object()
+
+    class FakeProcessor:
+        @classmethod
+        def from_pretrained(cls, path, **kwargs):
+            calls.append(f"processor:{Path(path).name}:{kwargs.get('subfolder')}")
+            return object()
+
+    class FakeImageEncoder:
+        @classmethod
+        def from_pretrained(cls, path, **kwargs):
+            calls.append(f"image-encoder:{Path(path).name}:{kwargs.get('subfolder')}")
+            return object()
+
+    class FakeQuantConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeBnbConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeAccelerator:
+        backend = "cuda"
+        memory_key = "cuda_process"
+
+        def require_available(self, torch) -> None:
+            calls.append("require")
+
+        def enable_model_cpu_offload(self, pipe) -> None:
+            calls.append("model")
+
+        def enable_sequential_cpu_offload(self, pipe) -> None:
+            calls.append("sequential")
+
+        def move(self, pipe) -> None:
+            calls.append("move")
+
+        def public(self) -> dict:
+            return {"backend": "cuda"}
+
+        def process_memory(self, torch) -> dict:
+            return {"reserved_gb": 1.0}
+
+    fake_diffusers = types.SimpleNamespace(
+        PipelineQuantizationConfig=FakeQuantConfig,
+        BitsAndBytesConfig=FakeBnbConfig,
+        HunyuanVideoFramepackPipeline=FakeFramepackPipeline,
+        HunyuanVideoFramepackTransformer3DModel=FakeTransformer,
+    )
+    fake_transformers = types.SimpleNamespace(
+        SiglipImageProcessor=FakeProcessor,
+        SiglipVisionModel=FakeImageEncoder,
+    )
+    fake_torch = types.SimpleNamespace(bfloat16="bf16", float16="fp16", float32="fp32")
+    monkeypatch.setitem(sys.modules, "diffusers", fake_diffusers)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(video_diffusers.accelerator_runtime, "current", lambda: FakeAccelerator())
+    monkeypatch.setattr(video_diffusers.sysmon, "snapshot", lambda: {})
+    monkeypatch.setattr(settings, "stub_mode", False)
+    monkeypatch.setattr(settings, "video_quant", "bnb-nf4")
+    monkeypatch.setattr(settings, "video_offload", "model")
+
+    backend = video_diffusers.DiffusersVideoBackend(
+        ModelDescriptor(
+            id="framepack",
+            name="FramePack",
+            family=ModelFamily.HUNYUAN_VIDEO,
+            path=root,
+            size_bytes=1,
+            quant="bnb-nf4",
+        )
+    )
+
+    backend._load_pipeline_sync()
+
+    assert "transformer:transformer:True" in calls
+    assert "pipe:base:['text_encoder', 'text_encoder_2']" in calls
+    assert "has-transformer:True" in calls
+    assert "has-image-encoder:True" in calls
+    assert "model" in calls
+    assert backend.load_report and backend.load_report["video"]["placement"] == "bnb+model-offload"
+
+
 def test_ltx_i2v_pipeline_aligns_vae_dtype(monkeypatch, tmp_path):
     calls: list[str] = []
 
@@ -290,3 +443,40 @@ async def test_video_guidance_is_clamped_in_stub_metadata(isolated_runtime, monk
     assert high["params"]["guidance"] == 20.0
     assert low["params"]["guidance"] == 0.0
     assert fallback["params"]["guidance"] == 5.0
+
+
+async def test_framepack_rejects_text_to_video_before_stub_generation(isolated_runtime, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "stub_mode", True)
+    backend = video_diffusers.DiffusersVideoBackend(
+        ModelDescriptor(id="framepack", name="FramePack", family=ModelFamily.HUNYUAN_VIDEO, path=Path("."), size_bytes=1)
+    )
+
+    async def progress(_frac: float, _note: str | None) -> None:
+        return None
+
+    with pytest.raises(ValueError, match="image-to-video only"):
+        await backend.generate({"prompt": "p", "mode": "t2v"}, progress)
+
+
+def test_framepack_api_normalization_rejects_t2v(monkeypatch):
+    from app.api import jobs
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "stub_mode", True)
+    payload = JobCreate(
+        type=JobType.VIDEO,
+        model_id="framepack",
+        params={"prompt": "p", "mode": "t2v"},
+    )
+    desc = ModelDescriptor(
+        id="framepack",
+        name="FramePack",
+        family=ModelFamily.HUNYUAN_VIDEO,
+        path=Path("."),
+        size_bytes=1,
+    )
+
+    with pytest.raises(jobs.HTTPException, match="image-to-video"):
+        jobs._normalize_video_params(object(), desc, payload)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import json
+from pathlib import Path
 import random
 from typing import Any
 
@@ -30,9 +31,32 @@ from .base import GenerationCancelled, ModelDescriptor, ProgressCb, VideoBackend
 # trained range and produced temporal artifacts. Wan 2.2 TI2V-5B is likewise a
 # 24 fps model and prefers stronger guidance than LTX.
 _FAMILY_GEN_DEFAULTS: dict[ModelFamily, dict[str, Any]] = {
-    ModelFamily.LTX_VIDEO: {"fps": 24, "steps": 30, "guidance": 3.0},
-    ModelFamily.WAN_VIDEO: {"fps": 24, "steps": 30, "guidance": 5.0},
+    ModelFamily.LTX_VIDEO: {"width": 704, "height": 512, "frames": 49, "fps": 24, "steps": 30, "guidance": 3.0},
+    ModelFamily.WAN_VIDEO: {"width": 832, "height": 480, "frames": 49, "fps": 24, "steps": 30, "guidance": 5.0},
+    ModelFamily.HUNYUAN_VIDEO: {
+        "width": 480,
+        "height": 832,
+        "frames": 91,
+        "fps": 30,
+        "steps": 30,
+        "guidance": 9.0,
+        "latent_window_size": 9,
+    },
 }
+
+
+def family_video_default(family: ModelFamily, key: str, fallback: Any) -> Any:
+    return _FAMILY_GEN_DEFAULTS.get(family, {}).get(key, fallback)
+
+
+def framepack_sections(frames: int, latent_window_size: int = 9) -> int:
+    window_frames = (latent_window_size - 1) * 4 + 1
+    return max(1, (max(1, frames) + window_frames - 1) // window_frames)
+
+
+def framepack_output_frames(frames: int, latent_window_size: int = 9) -> int:
+    return framepack_sections(frames, latent_window_size) * latent_window_size * 4 + 1
+
 
 # The heavy work does not stop at the last denoise step: a (fp32, tiled) VAE
 # decode and the mp4 encode follow, and neither emits step callbacks. Wan's
@@ -82,23 +106,34 @@ class DiffusersVideoBackend(VideoBackend):
                 f"(got {settings.video_quant!r})"
             )
         use_bnb = quant in {"bnb-nf4", "bnb-fp4"}
-        kwargs: dict[str, Any] = {"torch_dtype": torch.bfloat16, "local_files_only": True}
-        if use_bnb:
-            kwargs["quantization_config"] = PipelineQuantizationConfig(
-                quant_backend="bitsandbytes_4bit",
-                quant_kwargs={
-                    "load_in_4bit": True,
-                    "bnb_4bit_quant_type": "nf4" if quant == "bnb-nf4" else "fp4",
-                    "bnb_4bit_compute_dtype": torch.bfloat16,
-                },
-                components_to_quantize=["transformer", "text_encoder"],
+        def pipeline_kwargs(components: list[str]) -> dict[str, Any]:
+            kwargs: dict[str, Any] = {"torch_dtype": torch.bfloat16, "local_files_only": True}
+            if use_bnb:
+                kwargs["quantization_config"] = PipelineQuantizationConfig(
+                    quant_backend="bitsandbytes_4bit",
+                    quant_kwargs={
+                        "load_in_4bit": True,
+                        "bnb_4bit_quant_type": "nf4" if quant == "bnb-nf4" else "fp4",
+                        "bnb_4bit_compute_dtype": torch.bfloat16,
+                    },
+                    components_to_quantize=components,
+                )
+            return kwargs
+
+        def bnb_model_config():
+            from diffusers import BitsAndBytesConfig  # noqa: PLC0415
+
+            return BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4" if quant == "bnb-nf4" else "fp4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
             )
 
         path = str(self.descriptor.path)
         if self.descriptor.family is ModelFamily.LTX_VIDEO:
             from diffusers import LTXPipeline  # noqa: PLC0415
 
-            pipe = LTXPipeline.from_pretrained(path, **kwargs)
+            pipe = LTXPipeline.from_pretrained(path, **pipeline_kwargs(["transformer", "text_encoder"]))
         elif self.descriptor.family is ModelFamily.WAN_VIDEO:
             from diffusers import AutoencoderKLWan, WanPipeline  # noqa: PLC0415
 
@@ -108,7 +143,49 @@ class DiffusersVideoBackend(VideoBackend):
                 torch_dtype=torch.float32,
                 local_files_only=True,
             )
-            pipe = WanPipeline.from_pretrained(path, vae=vae, **kwargs)
+            pipe = WanPipeline.from_pretrained(path, vae=vae, **pipeline_kwargs(["transformer", "text_encoder"]))
+        elif self.descriptor.family is ModelFamily.HUNYUAN_VIDEO:
+            from diffusers import (  # noqa: PLC0415
+                HunyuanVideoFramepackPipeline,
+                HunyuanVideoFramepackTransformer3DModel,
+            )
+            from transformers import SiglipImageProcessor, SiglipVisionModel  # noqa: PLC0415
+
+            layout = self._framepack_layout(Path(path))
+            if layout is None:
+                pipe = HunyuanVideoFramepackPipeline.from_pretrained(
+                    path,
+                    **pipeline_kwargs(["transformer", "text_encoder", "text_encoder_2"]),
+                )
+            else:
+                transformer_kwargs: dict[str, Any] = {
+                    "torch_dtype": torch.bfloat16,
+                    "local_files_only": True,
+                }
+                if use_bnb:
+                    transformer_kwargs["quantization_config"] = bnb_model_config()
+                transformer = HunyuanVideoFramepackTransformer3DModel.from_pretrained(
+                    str(layout["transformer"]),
+                    **transformer_kwargs,
+                )
+                feature_extractor = SiglipImageProcessor.from_pretrained(
+                    str(layout["redux"]),
+                    subfolder="feature_extractor",
+                    local_files_only=True,
+                )
+                image_encoder = SiglipVisionModel.from_pretrained(
+                    str(layout["redux"]),
+                    subfolder="image_encoder",
+                    torch_dtype=torch.float16,
+                    local_files_only=True,
+                )
+                pipe = HunyuanVideoFramepackPipeline.from_pretrained(
+                    str(layout["base"]),
+                    transformer=transformer,
+                    feature_extractor=feature_extractor,
+                    image_encoder=image_encoder,
+                    **pipeline_kwargs(["text_encoder", "text_encoder_2"]),
+                )
         else:
             raise ValueError(f"video family {self.descriptor.family.value!r} is not implemented yet")
 
@@ -151,6 +228,20 @@ class DiffusersVideoBackend(VideoBackend):
             },
             "memory": {"start": start, "end": self._memory_snapshot(torch)},
         }
+
+    @staticmethod
+    def _framepack_layout(path: Path) -> dict[str, Path] | None:
+        base = path / "base"
+        transformer = path / "transformer"
+        redux = path / "redux"
+        if (
+            (base / "model_index.json").is_file()
+            and (transformer / "config.json").is_file()
+            and (redux / "feature_extractor" / "preprocessor_config.json").is_file()
+            and (redux / "image_encoder" / "config.json").is_file()
+        ):
+            return {"base": base, "transformer": transformer, "redux": redux}
+        return None
 
     async def unload(self) -> None:
         if not self._loaded:
@@ -205,6 +296,8 @@ class DiffusersVideoBackend(VideoBackend):
         if seed < 0:
             seed = random.randint(0, 2**31 - 1)
         mode = "i2v" if params.get("init_image") or params.get("mode") == "i2v" else "t2v"
+        if self.descriptor.family is ModelFamily.HUNYUAN_VIDEO and mode != "i2v":
+            raise ValueError("FramePack Hunyuan video is image-to-video only; upload a source frame")
         if mode == "i2v" and not params.get("init_image"):
             raise ValueError("image-to-video requires a source image")
 
@@ -220,7 +313,7 @@ class DiffusersVideoBackend(VideoBackend):
         )
 
     def _gen_default(self, key: str, fallback: Any) -> Any:
-        return _FAMILY_GEN_DEFAULTS.get(self.descriptor.family, {}).get(key, fallback)
+        return family_video_default(self.descriptor.family, key, fallback)
 
     async def _generate_stub(
         self,
@@ -276,18 +369,28 @@ class DiffusersVideoBackend(VideoBackend):
         import torch  # noqa: PLC0415
 
         loop = asyncio.get_running_loop()
+        latent_window_size = self._bounded_int(
+            params.get("latent_window_size"),
+            self._gen_default("latent_window_size", 9),
+            3,
+            17,
+        )
+        total_steps = steps
+        if self.descriptor.family is ModelFamily.HUNYUAN_VIDEO:
+            total_steps *= framepack_sections(frames, latent_window_size)
+        denoise = {"done": 0}
 
         def callback(*args):
             if self._stop:
                 raise GenerationCancelled()
-            step = int(args[-3] if len(args) >= 4 else args[0])
-            done = step + 1
-            if done >= steps:
+            denoise["done"] = min(total_steps, denoise["done"] + 1)
+            done = denoise["done"]
+            if done >= total_steps:
                 # Final step end — sampling is over and the slow VAE decode begins
                 # with no callbacks of its own; label it so the bar isn't a frozen 100%.
                 frac, note = _DENOISE_END, "decoding frames (VAE)…"
             else:
-                frac, note = _DENOISE_END * done / steps, f"step {done}/{steps}"
+                frac, note = _DENOISE_END * done / total_steps, f"step {done}/{total_steps}"
             asyncio.run_coroutine_threadsafe(progress(frac, note), loop)
             return args[-1] if args and isinstance(args[-1], dict) else None
 
@@ -306,8 +409,16 @@ class DiffusersVideoBackend(VideoBackend):
             }
             if self.descriptor.family is ModelFamily.LTX_VIDEO:
                 kwargs["frame_rate"] = fps
+            elif self.descriptor.family is ModelFamily.HUNYUAN_VIDEO:
+                kwargs["latent_window_size"] = latent_window_size
+                if params.get("negative"):
+                    kwargs["true_cfg_scale"] = self._bounded_float(
+                        params.get("true_cfg_scale"), 1.0, 1.0, 20.0
+                    )
             if mode == "i2v":
                 kwargs["image"] = self._source_image(str(params["init_image"]), width, height)
+                if self.descriptor.family is ModelFamily.HUNYUAN_VIDEO and params.get("last_image"):
+                    kwargs["last_image"] = self._source_image(str(params["last_image"]), width, height)
             output = pipe(**kwargs)
             return list(output.frames[0])
 
@@ -321,6 +432,8 @@ class DiffusersVideoBackend(VideoBackend):
 
     def _pipeline_for_mode(self, mode: str):
         if mode != "i2v":
+            return self._pipe
+        if self.descriptor.family is ModelFamily.HUNYUAN_VIDEO:
             return self._pipe
         if self._i2v_pipe is None:
             if self.descriptor.family is ModelFamily.LTX_VIDEO:
@@ -441,10 +554,13 @@ class DiffusersVideoBackend(VideoBackend):
 
     def _dimensions(self, params: dict[str, Any]) -> tuple[int, int]:
         width = self._bounded_int(
-            params.get("width"), settings.video_default_width, 256, settings.video_max_width
+            params.get("width"), self._gen_default("width", settings.video_default_width), 256, settings.video_max_width
         )
         height = self._bounded_int(
-            params.get("height"), settings.video_default_height, 256, settings.video_max_height
+            params.get("height"),
+            self._gen_default("height", settings.video_default_height),
+            256,
+            settings.video_max_height,
         )
         # Both implemented families accept 32-aligned canvases; normalization is
         # deterministic and keeps encoders/ffmpeg on friendly dimensions.
@@ -452,8 +568,10 @@ class DiffusersVideoBackend(VideoBackend):
 
     def _frames(self, params: dict[str, Any]) -> int:
         frames = self._bounded_int(
-            params.get("frames"), settings.video_default_frames, 9, settings.video_max_frames
+            params.get("frames"), self._gen_default("frames", settings.video_default_frames), 9, settings.video_max_frames
         )
+        if self.descriptor.family is ModelFamily.HUNYUAN_VIDEO:
+            return frames
         temporal = 8 if self.descriptor.family is ModelFamily.LTX_VIDEO else 4
         return max(temporal + 1, (frames - 1) // temporal * temporal + 1)
 

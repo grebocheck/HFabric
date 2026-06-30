@@ -90,8 +90,14 @@ same spine as image generation, with a different output container. Concretely:
   (a few labelled frames) so queue → arbiter swap → progress → history all work with no GPU,
   exactly how the image STUB path bootstrapped P0.
 - **Registry/inspect** — `classify_video_dir` (read `model_index.json._class_name` for
-  `Wan`/`LTX`/`Hunyuan`/`CogVideoX`/`AnimateDiff`) + single-file detection; scan a new
-  `models/video/` dir (`settings.video_models_dir`).
+  `Wan`/`LTX`/FramePack/`CogVideoX`/`AnimateDiff`) + single-file detection; scan a new
+  `models/video/` dir (`settings.video_models_dir`). The plain
+  `HunyuanVideoPipeline` base repo is deliberately *not* exposed as runnable; the
+  supported FramePack layout is
+  `models/video/framepack-hunyuan-i2v/{base,transformer,redux}`:
+  `base` = Hunyuan text encoders/tokenizers/VAE/scheduler with the stock transformer
+  excluded, `transformer` = `lllyasviel/FramePackI2V_HY`, and `redux` =
+  `lllyasviel/flux_redux_bfl` SigLIP feature extractor/image encoder.
 - **Arbiter** — unchanged invariant: a video model is one heavy resident, swapped in
   like any other. No new concurrency.
 - **sysmon budget** — add video families to `estimate_ram_need_gb` /
@@ -123,6 +129,8 @@ same spine as image generation, with a different output container. Concretely:
   consistent with the SDXL-only posture on those profiles today.
 - **Model downloads** — add the chosen video models to the in-app download catalog
   (`model_download_service`) as a video category, with the same managed-download UX.
+  FramePack is a three-entry composite download so the app can avoid the unused
+  25 GB stock Hunyuan transformer while still scanning one runnable local model.
 - **Docs** — `KNOWN_ISSUES.md` (honest limits: generation time in minutes, length/res
   caps, no audio, one-resident swap pause), a `docs/gpu-smoke.md` video checklist row,
   and `CHANGELOG.md` on ship.

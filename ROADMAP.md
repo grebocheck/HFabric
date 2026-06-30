@@ -11,9 +11,9 @@
 > bought.** Five feature workstreams landed back-to-back (P25 → P26 → P27) and the
 > codebase now shows it: a coverage floor sitting flush against the actual number,
 > four service modules with no test file, several files too large to review safely,
-> and an in-flight video workspace (P27) still uncommitted. So this plan leads with a
-> **code-quality & stability track (Q1–Q7)** ahead of new features, then finishes the
-> genuinely-remaining feature/validation work (FramePack, non-NVIDIA breadth).
+> and a freshly broadened video workspace (P27) that needs portability validation.
+> So this plan leads with a **code-quality & stability track (Q1–Q7)** ahead of new
+> features, then finishes the genuinely-remaining validation work (non-NVIDIA breadth).
 >
 > This file is the **forward plan only** — completed phases move to
 > `docs/history.md` so the plan stays legible.
@@ -21,7 +21,7 @@
 > Marking: `[ ]` not started · `[~]` in progress / partially done · `[x]` done.
 >
 > **Audit basis (2026-06-30):** all gates green — ruff/eslint/tsc clean,
-> vitest 98 green, pytest 420 green at **69.07%** coverage (floor 68%); Alembic at
+> vitest 99 green, pytest 426 green at **69.08%** coverage (floor 68%); Alembic at
 > revision `0005`; frontend type-safety strong (`types.ts` now derives from the
 > OpenAPI-generated `types.generated.ts`; 0 stray `console.*`). Findings below cite
 > exact files and metrics so each item is checkable.
@@ -55,8 +55,8 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ## Next up
 
-1. **P27 feature breadth.** FramePack long-video support and the non-NVIDIA fallback
-   remain the real P27 feature work after the LTX/Wan surface proved out.
+1. **P27 portability breadth.** Non-NVIDIA fallback validation remains the real P27
+   feature work after the LTX/Wan/FramePack CUDA surface proved out.
 2. **P24.7 clean tester audit.** Re-run first-run/resilience on a clean Windows
    tester machine when one is available.
 3. **P21.4 external hardware breadth.** Recruit ROCm and Apple Silicon testers for
@@ -78,7 +78,7 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   added focused stub/unit coverage for `chat_attachments.py`, `chat_service.py`,
   `rag_service.py`, `video_service.py`, `embedding_service.py`, plus adjacent
   scheduler/event/queue/media safety paths. CI now enforces
-  `--cov-fail-under=68`; local verification: **420 passed, 69.07%**.
+  `--cov-fail-under=68`; local verification: **426 passed, 69.08%**.
 - [x] **Q2 — Decompose the highest-churn monolith first.** Done 2026-06-30:
   `image_diffusers.py::_generate_real` is now a thin metadata/persistence wrapper
   over `image_diffusers_parts/generation.py`, with dispatcher tests for txt2img /
@@ -154,8 +154,13 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   Wan 2.1 T2V-1.3B as the lightweight variant. Video families + the VAE-decode peak are in
   `sysmon.estimate_*` and the "minutes per clip" note is in `KNOWN_ISSUES.md`;
   Wan 2.2 real-GPU T2V validated 2026-06-30 at 832x480 / 49f / 8 steps, peak 7.83 GB.
-- [ ] **P27.4 — Long video: FramePack (HunyuanVideo).** `HunyuanVideoFramepackPipeline`
-  for memory-flat I2V clips (10 s+) on 16 GB — slow but constant-VRAM. Not started.
+- [x] **P27.4 — Long video: FramePack (HunyuanVideo).** Done 2026-06-30:
+  `HunyuanVideoFramepackPipeline` loads the local composite layout
+  `models/video/framepack-hunyuan-i2v/{base,transformer,redux}`, with the FramePack
+  transformer and Hunyuan text encoders on bnb 4-bit + model offload; API/UI force
+  I2V-only queueing and expose FramePack presets. Real-GPU I2V smoke passed at
+  480x832 / 91 requested frames / 8 steps (3 FramePack sections, 109 output frames),
+  peak 9.67 GB VRAM, mp4 + poster/thumb + metadata written.
 - [~] **P27.5 — Capability gating + non-NVIDIA.** CUDA gating shipped. *Remaining:* the
   fp8/Blackwell fast-path gate and the CPU/ROCm/MPS lightest-path fallback
   (AnimateDiff-SDXL / CogVideoX-2B), mirroring today's SDXL-only posture there.

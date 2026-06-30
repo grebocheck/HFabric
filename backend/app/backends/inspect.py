@@ -88,6 +88,8 @@ def classify_diffusers_dir(path: Path) -> ModelFamily | None:
 
 def classify_video_dir(path: Path) -> ModelFamily | None:
     """Classify a local video Diffusers repository without opening its weights."""
+    if is_framepack_composite_dir(path):
+        return ModelFamily.HUNYUAN_VIDEO
     cls = _diffusers_pipeline_class(path)
     if cls is None:
         return None
@@ -95,13 +97,29 @@ def classify_video_dir(path: Path) -> ModelFamily | None:
         return ModelFamily.LTX_VIDEO
     if cls.startswith("Wan"):
         return ModelFamily.WAN_VIDEO
-    if cls.startswith("HunyuanVideo"):
+    if cls == "HunyuanVideoFramepackPipeline":
         return ModelFamily.HUNYUAN_VIDEO
     if cls.startswith("CogVideoX"):
         return ModelFamily.COGVIDEO
     if "AnimateDiff" in cls:
         return ModelFamily.ANIMATEDIFF_VIDEO
     return None
+
+
+def is_framepack_composite_dir(path: Path) -> bool:
+    """A runnable local FramePack install is assembled from three repos:
+
+    ``base`` carries Hunyuan text encoders/VAE/scheduler, ``transformer`` carries
+    the FramePack transformer shards, and ``redux`` carries the SigLIP image
+    encoder from the Diffusers example. The base Hunyuan repo alone is *not*
+    runnable by this backend, so only this composite layout is exposed.
+    """
+    return (
+        (path / "base" / "model_index.json").is_file()
+        and (path / "transformer" / "config.json").is_file()
+        and (path / "redux" / "feature_extractor" / "preprocessor_config.json").is_file()
+        and (path / "redux" / "image_encoder" / "config.json").is_file()
+    )
 
 
 def is_flux2_dir(path: Path) -> bool:

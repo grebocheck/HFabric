@@ -96,6 +96,28 @@ const CLIP_PRESETS: ClipPreset[] = [
     steps: 30,
     guidance: 5,
   },
+  {
+    id: "hunyuan-long",
+    label: "FramePack portrait long",
+    families: ["hunyuan-video"],
+    width: 480,
+    height: 832,
+    frames: 91,
+    fps: 30,
+    steps: 30,
+    guidance: 9,
+  },
+  {
+    id: "hunyuan-draft",
+    label: "FramePack square draft",
+    families: ["hunyuan-video"],
+    width: 512,
+    height: 512,
+    frames: 49,
+    fps: 30,
+    steps: 8,
+    guidance: 9,
+  },
 ];
 
 // Per-family clip defaults — mirror the backend's validated recipe so queued
@@ -105,6 +127,7 @@ const CLIP_PRESETS: ClipPreset[] = [
 const FAMILY_DEFAULT_PRESET: Record<string, string> = {
   "ltx-video": "ltx-standard",
   "wan-video": "wan-standard",
+  "hunyuan-video": "hunyuan-long",
 };
 const DEFAULT_PRESET = CLIP_PRESETS[0];
 
@@ -180,11 +203,16 @@ export function VideoComposer({
   }, [available, modelId, applyFamilyDefaults]);
 
   const selected = videoModels.find((model) => model.id === modelId);
+  const framepackSelected = selected?.family === "hunyuan-video";
   const clipPresets = useMemo(() => {
     const family = selected?.family;
     return CLIP_PRESETS.filter((preset) => !family || preset.families.includes(family));
   }, [selected?.family]);
   const duration = frames / Math.max(1, fps);
+
+  useEffect(() => {
+    if (framepackSelected && mode !== "i2v") setMode("i2v");
+  }, [framepackSelected, mode]);
 
   const chooseModel = (id: string) => {
     setModelId(id);
@@ -260,7 +288,11 @@ export function VideoComposer({
           {([ ["t2v", "Text to video"], ["i2v", "Image to video"] ] as const).map(([value, label]) => (
             <button
               key={value}
-              onClick={() => setMode(value)}
+              onClick={() => {
+                if (framepackSelected && value === "t2v") return;
+                setMode(value);
+              }}
+              disabled={framepackSelected && value === "t2v"}
               className={`rounded-md px-2 py-1.5 text-xs font-medium ${mode === value ? "bg-accent text-ui-inverse" : "text-ui-muted hover:bg-control-hover"}`}
             >
               {label}
@@ -275,6 +307,11 @@ export function VideoComposer({
         {selected?.family === "wan-video" ? (
           <div className="rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs leading-5 text-warn-fg">
             Wan 2.2 is the quality tier. A clip can take several minutes on a single GPU.
+          </div>
+        ) : null}
+        {framepackSelected ? (
+          <div className="rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs leading-5 text-warn-fg">
+            FramePack is image-to-video only. Use a first frame and start with the draft preset before longer clips.
           </div>
         ) : null}
 

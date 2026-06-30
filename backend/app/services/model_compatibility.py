@@ -81,13 +81,17 @@ def compatibility_for_model(
             return {
                 "available": False,
                 "runtime_mode": "disabled",
-                "unavailable_reason": "The installed LTX/Wan video path currently requires NVIDIA CUDA.",
+                "unavailable_reason": "The installed video generation path currently requires NVIDIA CUDA.",
                 "compatibility_warnings": warnings,
                 "recommendation": "hidden",
             }
         warnings.append("Video generation can take several minutes; only one heavy model stays resident.")
         if desc.family is ModelFamily.WAN_VIDEO:
             warnings.append("Wan 2.2 5B is the quality tier and may take roughly minutes per clip.")
+        if desc.family is ModelFamily.HUNYUAN_VIDEO:
+            warnings.append("FramePack Hunyuan is image-to-video only; upload a first frame before queueing.")
+            if not (desc.quant or "").startswith("bnb-"):
+                warnings.append("FramePack bf16 can exceed this machine's RAM; bnb 4-bit is the validated path.")
 
     return {
         "available": True,

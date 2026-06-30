@@ -31,9 +31,21 @@ def comp_bytes(module) -> float:
 async def main() -> None:
     model = os.environ.get("MODEL", "wan2.2-ti2v-5b")
     settings.stub_mode = False
-    family = ModelFamily.WAN_VIDEO if "wan" in model else ModelFamily.LTX_VIDEO
-    desc = ModelDescriptor(id=model, name=model, family=family,
-                           path=settings.video_models_dir / model, size_bytes=0)
+    lowered = model.lower()
+    if "framepack" in lowered or "hunyuan" in lowered:
+        family = ModelFamily.HUNYUAN_VIDEO
+    elif "wan" in lowered:
+        family = ModelFamily.WAN_VIDEO
+    else:
+        family = ModelFamily.LTX_VIDEO
+    desc = ModelDescriptor(
+        id=model,
+        name=model,
+        family=family,
+        path=settings.video_models_dir / model,
+        size_bytes=0,
+        quant=settings.video_quant,
+    )
     backend = DiffusersVideoBackend(desc)
     await backend.load()
     pipe = backend._pipe
@@ -46,7 +58,7 @@ async def main() -> None:
 
     print(f"=== {model} component footprint ===")
     print(f"total CUDA alloc: {round(torch.cuda.memory_allocated()/1024**3,2)} GB")
-    for name in ("text_encoder", "transformer", "transformer_2", "vae"):
+    for name in ("text_encoder", "text_encoder_2", "image_encoder", "transformer", "transformer_2", "vae"):
         m = getattr(pipe, name, None)
         print(f"  {name:14s} {comp_bytes(m):6.2f} GB  [{dev_dtype(m)}]")
     vae = pipe.vae
