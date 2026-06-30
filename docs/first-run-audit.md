@@ -36,6 +36,11 @@ Record these before setup:
    - `data`
    - `models`
 3. Open a normal terminal, not an already-activated Python or Node shell.
+4. Capture the pre-setup snapshot:
+
+   ```powershell
+   python scripts/first_run_audit.py --phase pre --output first-run-pre.md
+   ```
 
 Expected result: the repo contains source files only, and setup has to bootstrap
 the managed Python/Node/runtime pieces itself.
@@ -57,12 +62,18 @@ Record:
 - Whether frontend dependencies installed.
 - Any warning or retry prompt.
 
+Capture the post-setup snapshot:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-setup --output first-run-post-setup.md
+```
+
 Pass criteria:
 
 - Setup finishes without manual PATH edits.
 - `.\.venv\Scripts\python.exe --version` prints Python 3.12.x.
-- `.\.tools\node\npm.cmd --version` or `npm.cmd --version` works through the
-  project-managed Node path.
+- `.\.tools\node-v*-win-x64\npm.cmd --version` or `npm.cmd --version` works
+  through the project-managed Node path.
 
 ## STUB First Launch
 
@@ -81,6 +92,12 @@ In the browser:
 5. Open Video and queue one STUB video job.
 6. Open History and confirm both outputs are visible.
 7. Refresh the browser and confirm the app recovers.
+
+Capture the post-STUB snapshot:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-stub --output first-run-post-stub.md
+```
 
 Pass criteria:
 
@@ -126,6 +143,12 @@ In the browser:
 4. Use the disk preflight before starting any large download.
 5. If starter weights are already available, queue one small real image job.
 
+Capture the post-REAL snapshot:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\first_run_audit.py --phase post-real --output first-run-post-real.md
+```
+
 Pass criteria:
 
 - Model compatibility warnings are visible before queueing.
@@ -151,6 +174,7 @@ with a reason.
 Attach or paste:
 
 - The `setup.bat` tail showing success or the exact failure.
+- The `first-run-*.md` snapshots from `scripts/first_run_audit.py`.
 - The `install_smoke.py` summary block.
 - A screenshot of Setup Doctor.
 - A screenshot of Model Downloads recommendations.
