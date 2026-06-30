@@ -33,6 +33,7 @@ from .base import GenerationCancelled, ModelDescriptor, ProgressCb, VideoBackend
 _FAMILY_GEN_DEFAULTS: dict[ModelFamily, dict[str, Any]] = {
     ModelFamily.LTX_VIDEO: {"width": 704, "height": 512, "frames": 49, "fps": 24, "steps": 30, "guidance": 3.0},
     ModelFamily.WAN_VIDEO: {"width": 832, "height": 480, "frames": 49, "fps": 24, "steps": 30, "guidance": 5.0},
+    ModelFamily.COGVIDEO: {"width": 704, "height": 480, "frames": 49, "fps": 8, "steps": 30, "guidance": 6.0},
     ModelFamily.HUNYUAN_VIDEO: {
         "width": 480,
         "height": 832,
@@ -95,7 +96,7 @@ class DiffusersVideoBackend(VideoBackend):
 
         self._accelerator = accelerator_runtime.current()
         self._accelerator.require_available(torch)
-        if self._accelerator.backend != "cuda":
+        if self._accelerator.backend != "cuda" and self.descriptor.family is not ModelFamily.COGVIDEO:
             raise RuntimeError("Diffusers video generation currently requires an NVIDIA CUDA profile")
 
         start = self._memory_snapshot(torch)
@@ -105,9 +106,12 @@ class DiffusersVideoBackend(VideoBackend):
                 "HFAB_VIDEO_QUANT must be one of: bnb-nf4, bnb-fp4, none "
                 f"(got {settings.video_quant!r})"
             )
-        use_bnb = quant in {"bnb-nf4", "bnb-fp4"}
+        dtype = torch.float16 if self._accelerator.backend == "mps" else torch.bfloat16
+        use_bnb = quant in {"bnb-nf4", "bnb-fp4"} and self._accelerator.backend == "cuda"
+        effective_quant = quant if use_bnb else ("fp16" if self._accelerator.backend == "mps" else "bf16")
+
         def pipeline_kwargs(components: list[str]) -> dict[str, Any]:
-            kwargs: dict[str, Any] = {"torch_dtype": torch.bfloat16, "local_files_only": True}
+            kwargs: dict[str, Any] = {"torch_dtype": dtype, "local_files_only": True}
             if use_bnb:
                 kwargs["quantization_config"] = PipelineQuantizationConfig(
                     quant_backend="bitsandbytes_4bit",
@@ -186,6 +190,10 @@ class DiffusersVideoBackend(VideoBackend):
                     image_encoder=image_encoder,
                     **pipeline_kwargs(["text_encoder", "text_encoder_2"]),
                 )
+        elif self.descriptor.family is ModelFamily.COGVIDEO:
+            from diffusers import CogVideoXPipeline  # noqa: PLC0415
+
+            pipe = CogVideoXPipeline.from_pretrained(path, **pipeline_kwargs(["transformer", "text_encoder"]))
         else:
             raise ValueError(f"video family {self.descriptor.family.value!r} is not implemented yet")
 
@@ -210,19 +218,20 @@ class DiffusersVideoBackend(VideoBackend):
                 self._accelerator.enable_model_cpu_offload(pipe)
                 placement = "bnb+model-offload"
         else:
-            if offload == "sequential":
+            if offload == "sequential" and self._accelerator.cuda_family:
                 self._accelerator.enable_sequential_cpu_offload(pipe)
             elif offload in {"", "none"}:
                 self._accelerator.move(pipe)
             else:
                 self._accelerator.enable_model_cpu_offload(pipe)
-            placement = offload or "none"
+            placement = offload if offload != "sequential" or self._accelerator.cuda_family else "model"
+            placement = placement or "none"
 
         self._pipe = pipe
         self._load_report = {
             "accelerator": self._accelerator.public(),
             "video": {
-                "quant": quant or "bf16",
+                "quant": effective_quant,
                 "placement": placement,
                 "vae_tiling": True,
             },
@@ -298,6 +307,8 @@ class DiffusersVideoBackend(VideoBackend):
         mode = "i2v" if params.get("init_image") or params.get("mode") == "i2v" else "t2v"
         if self.descriptor.family is ModelFamily.HUNYUAN_VIDEO and mode != "i2v":
             raise ValueError("FramePack Hunyuan video is image-to-video only; upload a source frame")
+        if self.descriptor.family is ModelFamily.COGVIDEO and mode == "i2v":
+            raise ValueError("CogVideoX fallback is text-to-video only")
         if mode == "i2v" and not params.get("init_image"):
             raise ValueError("image-to-video requires a source image")
 
@@ -433,6 +444,8 @@ class DiffusersVideoBackend(VideoBackend):
     def _pipeline_for_mode(self, mode: str):
         if mode != "i2v":
             return self._pipe
+        if self.descriptor.family is ModelFamily.COGVIDEO:
+            raise ValueError("CogVideoX fallback is text-to-video only")
         if self.descriptor.family is ModelFamily.HUNYUAN_VIDEO:
             return self._pipe
         if self._i2v_pipe is None:

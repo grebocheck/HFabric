@@ -33,8 +33,8 @@ Record every real GPU the installer path is validated on. Keep failures here too
 | Date | GPU | VRAM | Driver | OS | Profile | torch | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-06-14 | RTX 5070 Ti | 16 GB | 610.47 | Win 11 | nvidia-cuda | 2.11.0+cu128 | PASS | `.\.venv\Scripts\python.exe scripts\install_smoke.py`; verify snippet reported `(12, 0)` |
-| 2026-06-?? | AMD ROCm GPU | TODO | TODO | Linux | amd-rocm-linux | TODO | TODO | run `install_smoke.py`; SDXL-only until real-ROCm validation |
-| 2026-06-?? | Apple Silicon | unified | — | macOS | apple-mps | TODO | TODO | run `install_smoke.py`; SDXL-only until real-Mac validation |
+| 2026-06-?? | AMD ROCm GPU | TODO | TODO | Linux | amd-rocm-linux | TODO | TODO | run `install_smoke.py`; SDXL + CogVideoX fallback until real ROCm validation fills the rows below |
+| 2026-06-?? | Apple Silicon | unified | — | macOS | apple-mps | TODO | TODO | run `install_smoke.py`; SDXL + CogVideoX fallback until real Mac validation fills the rows below |
 
 Record the date, GPU, driver, torch/diffusers/nunchaku versions, and any changed
 environment knobs with the results. A pass means every step finishes without OOM
@@ -103,6 +103,9 @@ are close to the baselines below.
    - FramePack Hunyuan: install `models/video/framepack-hunyuan-i2v/{base,transformer,redux}`
      through the video fetch script or Model Manager, then run one I2V draft and one
      longer 91-frame clip from an uploaded/source frame.
+   - CogVideoX-2B: install `models/video/cogvideo-2b`, then run one T2V fallback
+     clip. On ROCm/MPS, this is the required P27.5 non-NVIDIA validation row; do
+     not count unit/profile gating as real hardware proof.
    - Seek through each result in the browser (the mp4 endpoint must return HTTP 206
      for byte ranges), cancel one running denoise, and swap Video -> LLM -> Video.
    - Repeatable app-path check: against a live backend, run
@@ -162,6 +165,14 @@ the automated suite rather than being reported here as real-GPU passes.
 | 2026-06-30 | RTX 5070 Ti 16 GB | LTX-Video | I2V 832x480 / 49f / 8 steps | PASS | Source upload token `079fb1d04add4d5aa91f77c985c82c2c`; peak 6.76 GB VRAM. This caught and fixed the LTX I2V VAE dtype mismatch. |
 | 2026-06-30 | RTX 5070 Ti 16 GB | Wan 2.2 TI2V-5B | T2V 832x480 / 49f / 8 steps | PASS | `MODEL=wan2.2-ti2v-5b MODE=t2v W=832 H=480 FRAMES=49 STEPS=8 scripts/video_vram_probe.py`; peak 7.83 GB VRAM; tiled VAE decode and mp4 encode completed. |
 | 2026-06-30 | RTX 5070 Ti 16 GB | FramePack Hunyuan | I2V 480x832 / 91 requested f / 8 steps | PASS | `MODEL=framepack-hunyuan-i2v MODE=i2v W=480 H=832 FRAMES=91 STEPS=8 scripts/video_vram_probe.py`; bnb-nf4 + model offload; 3 FramePack sections (24 denoise callbacks), 109 output frames, peak 9.67 GB VRAM; mp4, poster, thumbnail, metadata written. |
+| 2026-06-30 | RTX 5070 Ti 16 GB | CogVideoX-2B | T2V 704x480 / 9f / 1 step | PASS | `MODEL=cogvideo-2b MODE=t2v W=704 H=480 FRAMES=9 STEPS=1 scripts/video_vram_probe.py`; bnb-nf4 + model offload; load 14.2s, generation 6.6s, peak 6.45 GB VRAM; mp4, poster, thumbnail, metadata written. |
+
+Pending P27.5 non-NVIDIA rows:
+
+| Date | Host | Family / variant | Path | Result | Notes |
+| --- | --- | --- | --- | --- | --- |
+| TBD | AMD ROCm Linux | CogVideoX-2B | T2V 704x480 / 49f / 8 steps | TODO | Must use real ROCm torch, local `models/video/cogvideo-2b`, and no CPU/STUB fallback. |
+| TBD | Apple Silicon MPS | CogVideoX-2B | T2V 704x480 / 49f / 8 steps | TODO | Must use real MPS torch, local `models/video/cogvideo-2b`, and no CPU/STUB fallback. |
 
 ### P27 live app-path validation log
 
@@ -169,10 +180,11 @@ the automated suite rather than being reported here as real-GPU passes.
 | --- | --- | --- | --- | --- | --- |
 | 2026-06-30 | Windows / RTX 5070 Ti | STUB live backend | `python scripts/video_app_smoke.py --base-url http://127.0.0.1:8274 --api-token ... --timeout 120` | PASS | Isolated temp DB/outputs; validated websocket `job.*`/`video.ready`, HTTP `Accept-Ranges` + `206`, poster/thumb fetches, running-job cancel, and Video -> LLM -> Video resident swap. |
 
-P27.4/P27.6 app-path and UI polish are covered. P27.5 capability gating now hides
-non-CUDA real video and unimplemented CogVideoX/AnimateDiff queueing with explicit
-compatibility reasons. Remaining P27 feature breadth is tracked in the roadmap:
-implement and validate the non-NVIDIA light video fallback on real ROCm/MPS hardware.
+P27.4/P27.6 app-path and UI polish are covered. P27.5 capability gating now exposes
+CogVideoX-2B as the ROCm/MPS light fallback while hiding CUDA-only LTX/Wan/FramePack
+and still-unimplemented AnimateDiff with explicit compatibility reasons. Remaining
+P27 feature breadth is tracked in the roadmap: validate CogVideoX on real ROCm/MPS
+hardware, then decide whether to wire the AnimateDiff-SDXL fallback.
 
 ## Fail Handling
 

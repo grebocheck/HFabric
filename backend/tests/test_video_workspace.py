@@ -261,6 +261,88 @@ def test_bnb_video_load_uses_offload_hooks(monkeypatch, tmp_path, offload, expec
     assert backend.load_report and backend.load_report["video"]["placement"] == expected_placement
 
 
+def test_cogvideo_fallback_loads_without_bnb_on_mps(monkeypatch, tmp_path):
+    from app.config import settings
+
+    calls: list[str] = []
+
+    class FakeVae:
+        def enable_tiling(self) -> None:
+            calls.append("tiling")
+
+        def enable_slicing(self) -> None:
+            calls.append("slicing")
+
+    class FakePipe:
+        def __init__(self) -> None:
+            self.vae = FakeVae()
+
+    class FakeCogVideoXPipeline:
+        @classmethod
+        def from_pretrained(cls, path, **kwargs):
+            calls.append(f"load:{Path(path).name}:{kwargs.get('torch_dtype')}")
+            calls.append(f"quantized:{'quantization_config' in kwargs}")
+            return FakePipe()
+
+    class FakeQuantConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeAccelerator:
+        backend = "mps"
+        memory_key = "accelerator_process"
+
+        def require_available(self, torch) -> None:
+            calls.append("require")
+
+        def enable_model_cpu_offload(self, pipe) -> None:
+            calls.append("model")
+
+        def enable_sequential_cpu_offload(self, pipe) -> None:
+            calls.append("sequential")
+
+        def move(self, pipe) -> None:
+            calls.append("move")
+
+        def public(self) -> dict:
+            return {"backend": "mps"}
+
+        def process_memory(self, torch) -> dict:
+            return {"reserved_gb": 1.0}
+
+    fake_diffusers = types.SimpleNamespace(
+        PipelineQuantizationConfig=FakeQuantConfig,
+        CogVideoXPipeline=FakeCogVideoXPipeline,
+    )
+    fake_torch = types.SimpleNamespace(bfloat16="bf16", float16="fp16", float32="fp32")
+    monkeypatch.setitem(sys.modules, "diffusers", fake_diffusers)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(video_diffusers.accelerator_runtime, "current", lambda: FakeAccelerator())
+    monkeypatch.setattr(video_diffusers.sysmon, "snapshot", lambda: {})
+    monkeypatch.setattr(settings, "stub_mode", False)
+    monkeypatch.setattr(settings, "video_quant", "bnb-nf4")
+    monkeypatch.setattr(settings, "video_offload", "model")
+
+    backend = video_diffusers.DiffusersVideoBackend(
+        ModelDescriptor(
+            id="cogvideo",
+            name="CogVideoX",
+            family=ModelFamily.COGVIDEO,
+            path=tmp_path / "cogvideo-2b",
+            size_bytes=1,
+            quant="bf16",
+        )
+    )
+
+    backend._load_pipeline_sync()
+
+    assert "load:cogvideo-2b:fp16" in calls
+    assert "quantized:False" in calls
+    assert "model" in calls
+    assert "tiling" in calls and "slicing" in calls
+    assert backend.load_report and backend.load_report["video"]["quant"] == "fp16"
+
+
 def test_framepack_load_uses_composite_layout_and_bnb_quant(monkeypatch, tmp_path):
     from app.config import settings
 
@@ -460,6 +542,21 @@ async def test_framepack_rejects_text_to_video_before_stub_generation(isolated_r
         await backend.generate({"prompt": "p", "mode": "t2v"}, progress)
 
 
+async def test_cogvideo_rejects_image_to_video_before_stub_generation(isolated_runtime, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "stub_mode", True)
+    backend = video_diffusers.DiffusersVideoBackend(
+        ModelDescriptor(id="cogvideo", name="CogVideoX", family=ModelFamily.COGVIDEO, path=Path("."), size_bytes=1)
+    )
+
+    async def progress(_frac: float, _note: str | None) -> None:
+        return None
+
+    with pytest.raises(ValueError, match="text-to-video only"):
+        await backend.generate({"prompt": "p", "mode": "i2v", "init_image": "token"}, progress)
+
+
 def test_framepack_api_normalization_rejects_t2v(monkeypatch):
     from app.api import jobs
     from app.config import settings
@@ -479,4 +576,26 @@ def test_framepack_api_normalization_rejects_t2v(monkeypatch):
     )
 
     with pytest.raises(jobs.HTTPException, match="image-to-video"):
+        jobs._normalize_video_params(object(), desc, payload)
+
+
+def test_cogvideo_api_normalization_rejects_i2v(monkeypatch):
+    from app.api import jobs
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "stub_mode", True)
+    payload = JobCreate(
+        type=JobType.VIDEO,
+        model_id="cogvideo",
+        params={"prompt": "p", "mode": "i2v", "init_image": "token"},
+    )
+    desc = ModelDescriptor(
+        id="cogvideo",
+        name="CogVideoX",
+        family=ModelFamily.COGVIDEO,
+        path=Path("."),
+        size_bytes=1,
+    )
+
+    with pytest.raises(jobs.HTTPException, match="text-to-video only"):
         jobs._normalize_video_params(object(), desc, payload)

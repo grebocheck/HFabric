@@ -1,11 +1,11 @@
 """Direct VRAM/perf probe for the local video backend.
 
-Loads the real Wan/LTX Diffusers pipeline (no FastAPI), runs one generation, and
-reports peak VRAM + timing for each stage. Parameterised by env so the same
-script can A/B the text-encoder offload and resolutions as separate processes
-(VRAM only fully resets across processes).
+Loads the real Wan/LTX/FramePack/CogVideo Diffusers pipeline (no FastAPI), runs
+one generation, and reports peak VRAM + timing for each stage. Parameterised by
+env so the same script can A/B the text-encoder offload and resolutions as
+separate processes (VRAM only fully resets across processes).
 
-    OFFLOAD=0|1  MODEL=wan2.2-ti2v-5b|ltx-video  MODE=t2v|i2v
+    OFFLOAD=0|1  MODEL=wan2.2-ti2v-5b|ltx-video|cogvideo-2b  MODE=t2v|i2v
     W=832 H=480 FRAMES=25 STEPS=8  python scripts/video_vram_probe.py
 """
 
@@ -14,17 +14,25 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 import secrets
+import sys
 import time
 
 from PIL import Image, ImageDraw
 import torch
 
-from app.backends.base import ModelDescriptor
-from app.backends.video_diffusers import DiffusersVideoBackend
-from app.config import settings
-from app.core.enums import ModelFamily
-from app.util import uploads as uploads_util
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "backend"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
+
+from app.backends.base import ModelDescriptor  # noqa: E402
+from app.backends.video_diffusers import DiffusersVideoBackend  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.core.enums import ModelFamily  # noqa: E402
+from app.services import accelerator_runtime  # noqa: E402
+from app.util import uploads as uploads_util  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -33,20 +41,31 @@ def gb(n: float) -> float:
     return round(n / 1024**3, 2)
 
 
-def vram() -> str:
-    free, total = torch.cuda.mem_get_info()
-    return (
-        f"alloc={gb(torch.cuda.memory_allocated())} "
-        f"peak={gb(torch.cuda.max_memory_allocated())} "
-        f"reserved={gb(torch.cuda.memory_reserved())} "
-        f"device_free={gb(free)}/{gb(total)}"
-    )
+def accel_mem(runtime: accelerator_runtime.AcceleratorRuntime) -> str:
+    if runtime.cuda_available(torch):
+        free, total = torch.cuda.mem_get_info()
+        return (
+            f"alloc={gb(torch.cuda.memory_allocated())} "
+            f"peak={gb(torch.cuda.max_memory_allocated())} "
+            f"reserved={gb(torch.cuda.memory_reserved())} "
+            f"device_free={gb(free)}/{gb(total)}"
+        )
+    if runtime.mps and hasattr(torch, "mps"):
+        parts = []
+        if hasattr(torch.mps, "current_allocated_memory"):
+            parts.append(f"alloc={gb(torch.mps.current_allocated_memory())}")
+        if hasattr(torch.mps, "driver_allocated_memory"):
+            parts.append(f"reserved={gb(torch.mps.driver_allocated_memory())}")
+        return " ".join(parts) or "mps_mem=unavailable"
+    return "accelerator_mem=unavailable"
 
 
 def family_for_model(model: str) -> ModelFamily:
     lowered = model.lower()
     if "framepack" in lowered or "hunyuan" in lowered:
         return ModelFamily.HUNYUAN_VIDEO
+    if "cogvideo" in lowered:
+        return ModelFamily.COGVIDEO
     if "wan" in lowered:
         return ModelFamily.WAN_VIDEO
     return ModelFamily.LTX_VIDEO
@@ -73,23 +92,24 @@ async def main() -> None:
     model = os.environ.get("MODEL", "wan2.2-ti2v-5b")
     family = family_for_model(model)
     mode = os.environ.get("MODE", "i2v" if family is ModelFamily.HUNYUAN_VIDEO else "t2v")
-    w = int(os.environ.get("W", "480" if family is ModelFamily.HUNYUAN_VIDEO else "832"))
+    w = int(os.environ.get("W", "480" if family is ModelFamily.HUNYUAN_VIDEO else ("704" if family is ModelFamily.COGVIDEO else "832")))
     h = int(os.environ.get("H", "832" if family is ModelFamily.HUNYUAN_VIDEO else "480"))
     frames = int(os.environ.get("FRAMES", "91" if family is ModelFamily.HUNYUAN_VIDEO else "25"))
     steps = int(os.environ.get("STEPS", "8"))
 
     settings.stub_mode = False
+    runtime = accelerator_runtime.current()
 
     path = settings.video_models_dir / model
     desc = ModelDescriptor(id=model, name=model, family=family, path=path, size_bytes=0, quant=settings.video_quant)
     backend = DiffusersVideoBackend(desc)
 
     print(f"=== probe model={model} mode={mode} {w}x{h} frames={frames} steps={steps} ===")
-    print(f"[pre-load ] {vram()}")
+    print(f"[pre-load ] {accel_mem(runtime)}")
     t0 = time.time()
     await backend.load()
-    torch.cuda.reset_peak_memory_stats()
-    print(f"[loaded {time.time()-t0:5.1f}s] {vram()}")
+    runtime.reset_peak_memory_stats(torch)
+    print(f"[loaded {time.time()-t0:5.1f}s] {accel_mem(runtime)}")
 
     params = {
         "prompt": "a cinematic shot of a paper boat sailing down a rain puddle, soft light",
@@ -104,16 +124,18 @@ async def main() -> None:
 
     async def progress(frac: float, note: str | None) -> None:
         now = time.time()
-        print(f"  {frac*100:5.1f}% {note or '':28s} | {vram()} | +{now-last['t']:.1f}s")
+        print(f"  {frac*100:5.1f}% {note or '':28s} | {accel_mem(runtime)} | +{now-last['t']:.1f}s")
         last["t"] = now
 
     t1 = time.time()
     try:
         rec = await backend.generate(params, progress)
-        print(f"[done {time.time()-t1:5.1f}s] peak={gb(torch.cuda.max_memory_allocated())} GB -> {rec['path']}")
+        peak = runtime.peak_memory(torch).get("peak_allocated_gb")
+        peak_text = f"peak={peak} GB" if peak is not None else accel_mem(runtime)
+        print(f"[done {time.time()-t1:5.1f}s] {peak_text} -> {rec['path']}")
     except Exception as exc:  # noqa: BLE001
         print(f"[FAILED {time.time()-t1:5.1f}s] {type(exc).__name__}: {exc}")
-        print(f"[at-fail ] {vram()}")
+        print(f"[at-fail ] {accel_mem(runtime)}")
         raise
     finally:
         await backend.unload()

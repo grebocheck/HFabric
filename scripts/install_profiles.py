@@ -52,9 +52,10 @@ CUDA_VIDEO_FAMILIES = {
     "ltx-video": {"min_tier": "safe_8gb", "recommended": True},
     "wan-video": {"min_tier": "rich_16gb_plus", "recommended": False},
     "hunyuan-video": {"min_tier": "rich_16gb_plus", "recommended": False},
+    "cogvideo": {"min_tier": "safe_8gb", "recommended": False},
 }
 
-VIDEO_FALLBACK_CANDIDATES = ("animatediff", "cogvideo")
+VIDEO_FALLBACK_CANDIDATES = ("cogvideo", "animatediff")
 
 # Largest LLM (in billions of params) worth preselecting per tier. Lower tiers
 # still *allow* bigger quantized models, but the resolver won't recommend them.
@@ -420,7 +421,7 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
             "video_fp8_fast_paths": False,
-            "video_light_fallback": False,
+            "video_light_fallback": True,
         })
     elif profile_id == "apple-mps":
         defaults.update({
@@ -433,7 +434,7 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
             "video_fp8_fast_paths": False,
-            "video_light_fallback": False,
+            "video_light_fallback": True,
             "prefer_cpu_offload": False,
         })
     else:
@@ -540,10 +541,9 @@ def _model_policy(profile_id: str, defaults: dict[str, Any], tier: str) -> dict[
 def _video_policy(defaults: dict[str, Any], tier: str, notes: list[str]) -> dict[str, Any]:
     """Bucket runnable video families separately from planned fallback candidates.
 
-    The registry can recognize CogVideoX/AnimateDiff repos, but the real backend
-    currently implements only LTX, Wan, and FramePack Hunyuan. Keep unimplemented
-    families hidden in every profile so queueing fails early with a clear reason
-    instead of reaching a loader branch that cannot run them yet.
+    The registry can recognize CogVideoX/AnimateDiff repos. CogVideoX-2B is the
+    light fallback path for ROCm/MPS; AnimateDiff stays hidden until its SDXL
+    adapter composition is implemented and validated.
     """
     backend = str(defaults.get("backend") or "cpu")
     tier_rank = TIER_RANK.get(tier, 0)
@@ -552,13 +552,15 @@ def _video_policy(defaults: dict[str, Any], tier: str, notes: list[str]) -> dict
     hidden: list[str] = []
 
     if backend != "cuda":
-        hidden = list(VIDEO_FAMILIES)
-        if backend in {"rocm", "mps"}:
+        if backend in {"rocm", "mps"} and defaults.get("video_light_fallback"):
+            recommended = ["cogvideo"]
+            hidden = [family for family in VIDEO_FAMILIES if family not in recommended]
             notes.append(
-                "Video on ROCm/MPS is validation-pending: AnimateDiff/CogVideoX are tracked as "
-                "fallback candidates, but real video queueing stays hidden until that backend path is proven."
+                "ROCm/MPS video exposes CogVideoX-2B as the light T2V fallback; "
+                "LTX/Wan/FramePack remain CUDA-only and real-machine fallback smoke is still required."
             )
         else:
+            hidden = list(VIDEO_FAMILIES)
             notes.append("CPU-safe/STUB mode hides real video models; use STUB output or an accelerator profile.")
         return {
             "recommended": recommended,

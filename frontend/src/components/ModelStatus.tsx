@@ -11,6 +11,8 @@ const familyColor: Record<string, string> = {
   sdxl: "bg-pink-600",
   "ltx-video": "bg-cyan-600",
   "wan-video": "bg-violet-600",
+  "hunyuan-video": "bg-indigo-600",
+  cogvideo: "bg-sky-600",
   gguf: "bg-emerald-600",
 };
 

@@ -166,6 +166,8 @@ def _normalize_video_params(
         raise HTTPException(400, "params.mode must be t2v or i2v")
     if desc.family is ModelFamily.HUNYUAN_VIDEO and mode != "i2v":
         raise HTTPException(400, "FramePack Hunyuan video requires image-to-video and a source frame")
+    if desc.family is ModelFamily.COGVIDEO and mode == "i2v":
+        raise HTTPException(400, "CogVideoX fallback is text-to-video only")
     init_image = payload.params.get("init_image")
     if mode == "i2v":
         if not isinstance(init_image, str) or not init_image:

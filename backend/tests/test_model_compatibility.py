@@ -31,6 +31,7 @@ def profile(
     disabled: list[str] | None = None,
     vram_mb: int | None = 16384,
     model_policy: dict | None = None,
+    features: dict | None = None,
 ) -> dict:
     return {
         "backend": backend,
@@ -38,6 +39,7 @@ def profile(
         "disabled_features": disabled or [],
         "primary_gpu": {"vram_mb": vram_mb} if vram_mb else None,
         "model_policy": model_policy or {},
+        "features": features or {},
     }
 
 
@@ -306,9 +308,45 @@ def test_non_cuda_video_fallback_candidates_are_validation_pending():
     assert "validation" in compat["unavailable_reason"]
 
 
-def test_detected_but_unimplemented_cuda_video_family_is_blocked():
+def test_cogvideo_is_available_as_cuda_t2v_loader():
     compat = model_compatibility.compatibility_for_model(
         desc(ModelFamily.COGVIDEO),
+        profile=profile(backend="cuda"),
+        estimated_vram_gb=10,
+    )
+
+    assert compat["available"] is True
+    assert any("text-to-video only" in warning for warning in compat["compatibility_warnings"])
+
+
+def test_cogvideo_is_available_as_mps_light_fallback():
+    policy = {
+        "video": {
+            "recommended": ["cogvideo"],
+            "advanced": [],
+            "hidden": ["ltx-video", "wan-video", "hunyuan-video", "animatediff"],
+            "fallback_candidates": ["cogvideo", "animatediff"],
+        }
+    }
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.COGVIDEO),
+        profile=profile(
+            backend="mps",
+            model_policy=policy,
+            features={"video_light_fallback": True},
+            vram_mb=None,
+        ),
+        estimated_vram_gb=10,
+    )
+
+    assert compat["available"] is True
+    assert compat["recommendation"] == "recommended"
+    assert any("ROCm/MPS smoke validation" in warning for warning in compat["compatibility_warnings"])
+
+
+def test_detected_but_unimplemented_cuda_video_family_is_blocked():
+    compat = model_compatibility.compatibility_for_model(
+        desc(ModelFamily.ANIMATEDIFF_VIDEO),
         profile=profile(backend="cuda"),
         estimated_vram_gb=10,
     )

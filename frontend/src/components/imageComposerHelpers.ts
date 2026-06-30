@@ -159,6 +159,8 @@ export function familyColor(family: string): string {
   if (family === "gguf") return "bg-amber-700/50 text-amber-100";
   if (family === "ltx-video") return "bg-cyan-700/50 text-cyan-100";
   if (family === "wan-video") return "bg-violet-700/50 text-violet-100";
+  if (family === "hunyuan-video") return "bg-indigo-700/50 text-indigo-100";
+  if (family === "cogvideo") return "bg-sky-700/50 text-sky-100";
   return "bg-white/10 text-white/65";
 }
 

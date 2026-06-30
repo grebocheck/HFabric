@@ -146,6 +146,8 @@ def estimate_ram_need_gb(
             # margin for the SigLIP encoder, VAE and mp4 export buffers.
             return gb * 0.25 + 4.0
         return gb * 0.8 + 4.0
+    if family is ModelFamily.COGVIDEO:
+        return gb * 0.6 + 3.0
     if family in _VIDEO_FAMILIES:
         if quant and quant.startswith("bnb-"):
             # Diffusers streams shards while quantizing; bf16 repo size is not
@@ -224,6 +226,8 @@ def estimate_vram_need_gb(
         return 13.0 if quant and quant.startswith("bnb-") else 16.0
     if family is ModelFamily.HUNYUAN_VIDEO:
         return 13.0 if quant and quant.startswith("bnb-") else 16.0
+    if family is ModelFamily.COGVIDEO:
+        return 12.0
     if family in _VIDEO_FAMILIES:
         return 12.0 if quant and quant.startswith("bnb-") else 16.0
     return None

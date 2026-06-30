@@ -21,7 +21,7 @@
 > Marking: `[ ]` not started · `[~]` in progress / partially done · `[x]` done.
 >
 > **Audit basis (2026-06-30):** all gates green — ruff/eslint/tsc clean,
-> vitest 99 green, pytest 431 green at **69.23%** coverage (floor 68%); Alembic at
+> vitest 100 green, pytest 436 green at **69.32%** coverage (floor 68%); Alembic at
 > revision `0005`; frontend type-safety strong (`types.ts` now derives from the
 > OpenAPI-generated `types.generated.ts`; 0 stray `console.*`). Findings below cite
 > exact files and metrics so each item is checkable.
@@ -55,9 +55,9 @@ Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
 
 ## Next up
 
-1. **P27 portability breadth.** Non-NVIDIA video fallback implementation +
-   validation remains the real P27 feature work after the LTX/Wan/FramePack CUDA
-   surface proved out.
+1. **P27 portability breadth.** CogVideoX fallback implementation is in place,
+   but non-NVIDIA real-hardware validation remains the real P27 feature work
+   after the LTX/Wan/FramePack CUDA surface proved out.
 2. **P24.7 clean tester audit.** Re-run first-run/resilience on a clean Windows
    tester machine when one is available.
 3. **P21.4 external hardware breadth.** Recruit ROCm and Apple Silicon testers for
@@ -79,7 +79,7 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   added focused stub/unit coverage for `chat_attachments.py`, `chat_service.py`,
   `rag_service.py`, `video_service.py`, `embedding_service.py`, plus adjacent
   scheduler/event/queue/media safety paths. CI now enforces
-  `--cov-fail-under=68`; local verification: **431 passed, 69.23%**.
+  `--cov-fail-under=68`; local verification: **436 passed, 69.32%**.
 - [x] **Q2 — Decompose the highest-churn monolith first.** Done 2026-06-30:
   `image_diffusers.py::_generate_real` is now a thin metadata/persistence wrapper
   over `image_diffusers_parts/generation.py`, with dispatcher tests for txt2img /
@@ -139,7 +139,9 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
 >
 > **Recommended model order:** LTX-Video (fast default that fits with room) →
 > Wan 2.2 TI2V-5B (quality tier, fp8/bnb + offload, minutes/clip) → FramePack
-> (memory-flat long clips). AnimateDiff-SDXL is the lightweight + non-NVIDIA fallback.
+> (memory-flat long clips). CogVideoX-2B is the lightweight T2V + non-NVIDIA
+> fallback; AnimateDiff-SDXL remains the second fallback candidate once its SDXL
+> motion-adapter path is wired.
 
 - [x] **P27.1 — Plumbing + STUB end-to-end.** Shipped & tested in STUB: `JobType.VIDEO`,
   per-architecture video `ModelFamily` entries, `video_models_dir`, a `VideoBackend`
@@ -164,12 +166,17 @@ testers), and the **P24.7** resilience audit on a clean tester machine.
   peak 9.67 GB VRAM, mp4 + poster/thumb + metadata written.
 - [~] **P27.5 — Capability gating + non-NVIDIA.** CUDA video gating now lives in the
   shared install/runtime capability profile: `model_policy.video` recommends LTX,
-  treats Wan/FramePack as advanced, hides unimplemented CogVideoX/AnimateDiff, and
-  exposes separate Ada+ `video_fp8_fast_paths` vs. Blackwell-only fast-path flags.
-  Queue/UI compatibility now blocks non-CUDA video and detected-but-unimplemented
-  video families early with clear reasons. *Remaining:* implement and real-hardware
-  validate the CPU/ROCm/MPS lightest-path fallback (AnimateDiff-SDXL / CogVideoX-2B),
-  mirroring today's SDXL-only posture there.
+  treats Wan/FramePack/CogVideoX as advanced, and exposes separate Ada+
+  `video_fp8_fast_paths` vs. Blackwell-only fast-path flags. ROCm/MPS profiles
+  expose `video_light_fallback` and recommend `cogvideo` while hiding CUDA-only
+  LTX/Wan/FramePack plus still-unimplemented AnimateDiff. `CogVideoXPipeline`
+  now loads local `models/video/cogvideo-2b` as a T2V-only fallback without
+  CUDA-only bnb quantization on ROCm/MPS, and API/UI prevent unsupported I2V
+  queueing early. CUDA smoke passed on 2026-06-30 at 704x480 / 9f / 1 step
+  (bnb-nf4 + model offload, peak 6.45 GB VRAM).
+  *Remaining:* real-hardware validate CogVideoX-2B on ROCm and Apple Silicon MPS,
+  then wire/validate the AnimateDiff-SDXL fallback candidate if it still earns
+  its place.
 - [x] **P27.6 — Maintenance & polish.** Shipped: in-app download catalog, STUB / range /
   classification / budget + composer/player tests, docs, History, and CLI real-GPU
   video smoke log; `scripts/video_app_smoke.py` now validates live HTTP range replay,

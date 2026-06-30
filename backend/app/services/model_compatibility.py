@@ -93,6 +93,10 @@ def compatibility_for_model(
             warnings.append("FramePack Hunyuan is image-to-video only; upload a first frame before queueing.")
             if not (desc.quant or "").startswith("bnb-"):
                 warnings.append("FramePack bf16 can exceed this machine's RAM; bnb 4-bit is the validated path.")
+        if desc.family is ModelFamily.COGVIDEO:
+            warnings.append("CogVideoX fallback is text-to-video only.")
+            if backend in {"rocm", "mps"}:
+                warnings.append("CogVideoX fallback is enabled on this profile but still needs real ROCm/MPS smoke validation.")
 
     return {
         "available": True,
@@ -211,10 +215,17 @@ def _video_unavailable_reason(
     fallback_candidates = set(video_policy.get("fallback_candidates") or [])
 
     if backend != "cuda":
+        if desc.family is ModelFamily.COGVIDEO and backend in {"rocm", "mps"}:
+            features = profile.get("features") or {}
+            if not features.get("video_light_fallback"):
+                return "The light video fallback is disabled by the active hardware profile."
+            if desc.family.value in hidden:
+                return "This video family is hidden by the active hardware profile."
+            return None
         if desc.family.value in fallback_candidates:
             return (
-                f"{desc.family.value} is tracked as the light video fallback for non-NVIDIA profiles, "
-                "but that backend path still needs implementation and real ROCm/MPS validation."
+                f"{desc.family.value} is tracked as a light video fallback, but that backend path "
+                "still needs implementation and real ROCm/MPS validation."
             )
         return "The installed video generation path currently requires NVIDIA CUDA."
 
@@ -222,6 +233,7 @@ def _video_unavailable_reason(
         ModelFamily.LTX_VIDEO,
         ModelFamily.WAN_VIDEO,
         ModelFamily.HUNYUAN_VIDEO,
+        ModelFamily.COGVIDEO,
     }
     if desc.family not in implemented_cuda:
         return "This video family is detected on disk, but its Diffusers loader is not implemented yet."

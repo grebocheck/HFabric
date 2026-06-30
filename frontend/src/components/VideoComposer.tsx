@@ -118,6 +118,28 @@ const CLIP_PRESETS: ClipPreset[] = [
     steps: 8,
     guidance: 9,
   },
+  {
+    id: "cogvideo-standard",
+    label: "CogVideoX 480p standard",
+    families: ["cogvideo"],
+    width: 704,
+    height: 480,
+    frames: 49,
+    fps: 8,
+    steps: 30,
+    guidance: 6,
+  },
+  {
+    id: "cogvideo-draft",
+    label: "CogVideoX 480p draft",
+    families: ["cogvideo"],
+    width: 704,
+    height: 480,
+    frames: 25,
+    fps: 8,
+    steps: 8,
+    guidance: 6,
+  },
 ];
 
 // Per-family clip defaults — mirror the backend's validated recipe so queued
@@ -128,6 +150,7 @@ const FAMILY_DEFAULT_PRESET: Record<string, string> = {
   "ltx-video": "ltx-standard",
   "wan-video": "wan-standard",
   "hunyuan-video": "hunyuan-long",
+  cogvideo: "cogvideo-standard",
 };
 const DEFAULT_PRESET = CLIP_PRESETS[0];
 
@@ -204,6 +227,7 @@ export function VideoComposer({
 
   const selected = videoModels.find((model) => model.id === modelId);
   const framepackSelected = selected?.family === "hunyuan-video";
+  const textOnlySelected = selected?.family === "cogvideo";
   const clipPresets = useMemo(() => {
     const family = selected?.family;
     return CLIP_PRESETS.filter((preset) => !family || preset.families.includes(family));
@@ -212,7 +236,8 @@ export function VideoComposer({
 
   useEffect(() => {
     if (framepackSelected && mode !== "i2v") setMode("i2v");
-  }, [framepackSelected, mode]);
+    if (textOnlySelected && mode !== "t2v") setMode("t2v");
+  }, [framepackSelected, mode, textOnlySelected]);
 
   const chooseModel = (id: string) => {
     setModelId(id);
@@ -290,9 +315,10 @@ export function VideoComposer({
               key={value}
               onClick={() => {
                 if (framepackSelected && value === "t2v") return;
+                if (textOnlySelected && value === "i2v") return;
                 setMode(value);
               }}
-              disabled={framepackSelected && value === "t2v"}
+              disabled={(framepackSelected && value === "t2v") || (textOnlySelected && value === "i2v")}
               className={`rounded-md px-2 py-1.5 text-xs font-medium ${mode === value ? "bg-accent text-ui-inverse" : "text-ui-muted hover:bg-control-hover"}`}
             >
               {label}
@@ -312,6 +338,11 @@ export function VideoComposer({
         {framepackSelected ? (
           <div className="rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs leading-5 text-warn-fg">
             FramePack is image-to-video only. Use a first frame and start with the draft preset before longer clips.
+          </div>
+        ) : null}
+        {textOnlySelected ? (
+          <div className="rounded-md border border-info-border bg-info-bg px-3 py-2 text-xs leading-5 text-info-fg">
+            CogVideoX fallback is text-to-video only. Use it for the light ROCm/MPS path and CUDA smoke checks.
           </div>
         ) : null}
 

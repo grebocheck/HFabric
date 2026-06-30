@@ -123,7 +123,8 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
 - **P21.2 — Version stamp + changelog + contributing.** `app.__version__` single
   source, surfaced in `/api/health` + System tab; `CHANGELOG.md` + `CONTRIBUTING.md`.
 - **P21.3 — Label experimental paths in the UI.** Setup Doctor reads ROCm/MPS as
-  "(experimental)" with an info tone and an "SDXL-only, not yet validated" line.
+  "(experimental)" with an info tone and a "SDXL + CogVideoX fallback, not yet
+  validated" line.
 - **P21.5 — Packaged release.** *(Resolved by P24.3.)* Clone-and-run; tag-triggered
   GitHub pre-release with a `git archive` source zip + checksum; one-page
   "download → run" (`docs/release-footer.md`).
