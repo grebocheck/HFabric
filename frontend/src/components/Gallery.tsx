@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Select, type SelectOption } from "./Select";
+import { ResilientImage } from "./ResilientImage";
 import { toast } from "./Toast";
 import { Chip, DetailModal, familyLabel } from "./GalleryParts";
 import type { ImageItem, ImageStats, Model } from "../types";
@@ -89,7 +90,9 @@ export function Gallery({
   const loadingRef = useRef(false);
 
   const refreshStats = useCallback(() => {
-    api.imageStats().then(setStats).catch(() => {});
+    api.imageStats()
+      .then(setStats)
+      .catch((error: unknown) => console.warn("Could not load image statistics", error));
   }, []);
 
   const fetchPage = useCallback(
@@ -341,16 +344,16 @@ export function Gallery({
             </button>
           </div>
           <div className="w-40">
-            <Select value={applied.model} options={modelOptions} onChange={(v) => setApplied((a) => ({ ...a, model: v }))} />
+            <Select ariaLabel="Model filter" value={applied.model} options={modelOptions} onChange={(v) => setApplied((a) => ({ ...a, model: v }))} />
           </div>
           <div className="w-32">
-            <Select value={applied.family} options={familyOptions} onChange={(v) => setApplied((a) => ({ ...a, family: v }))} />
+            <Select ariaLabel="Family filter" value={applied.family} options={familyOptions} onChange={(v) => setApplied((a) => ({ ...a, family: v }))} />
           </div>
           <div className="w-32">
-            <Select value={applied.size} options={SIZE_FILTERS} onChange={(v) => setApplied((a) => ({ ...a, size: v }))} />
+            <Select ariaLabel="Size filter" value={applied.size} options={SIZE_FILTERS} onChange={(v) => setApplied((a) => ({ ...a, size: v }))} />
           </div>
           <div className="w-40">
-            <Select value={applied.lora} options={loraOptions} onChange={(v) => setApplied((a) => ({ ...a, lora: v }))} />
+            <Select ariaLabel="LoRA filter" value={applied.lora} options={loraOptions} onChange={(v) => setApplied((a) => ({ ...a, lora: v }))} />
           </div>
           <button
             onClick={() => setApplied((a) => ({ ...a, favorite: !a.favorite }))}
@@ -361,10 +364,10 @@ export function Gallery({
             Favorites
           </button>
           <div className="w-36">
-            <Select value={applied.tag} options={tagOptions} onChange={(v) => setApplied((a) => ({ ...a, tag: v }))} />
+            <Select ariaLabel="Tag filter" value={applied.tag} options={tagOptions} onChange={(v) => setApplied((a) => ({ ...a, tag: v }))} />
           </div>
           <div className="w-36">
-            <Select value={applied.range} options={DATE_RANGES} onChange={(v) => setApplied((a) => ({ ...a, range: v }))} />
+            <Select ariaLabel="Date filter" value={applied.range} options={DATE_RANGES} onChange={(v) => setApplied((a) => ({ ...a, range: v }))} />
           </div>
           <button
             onClick={() => {
@@ -457,7 +460,13 @@ export function Gallery({
                             isSel ? "border-accent ring-2 ring-accent/40" : "border-line hover:border-border-strong"
                           }`}
                         >
-                          <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          <ResilientImage
+                            sources={[img.thumb_url, img.url]}
+                            alt=""
+                            loading="lazy"
+                            placeholder="preview unavailable"
+                            className="h-full w-full object-cover"
+                          />
                           {img.favorite && (
                             <span className="absolute right-1.5 top-1.5 rounded border border-amber-200/30 bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-100">
                               Fav

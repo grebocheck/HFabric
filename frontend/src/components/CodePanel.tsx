@@ -113,8 +113,8 @@ export function CodePanel({
         <StatusPill label={modelsLoading && !llmModels.length ? "models loading" : llmModels.find((m) => m.id === modelId)?.name ?? "no LLM"} tone={modelId ? "info" : modelsLoading ? "neutral" : "warn"} />
       </WorkspaceHeader>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3">
-      <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3 max-[980px]:block max-[980px]:overflow-x-hidden max-[980px]:overflow-y-auto">
+      <Panel className="flex min-h-0 flex-col overflow-hidden max-[980px]:mb-3 max-[980px]:h-[360px]">
         <SectionTitle title="Repository files" subtitle="Search and select up to 8 files" />
         <div className="border-b border-border p-3">
           <input
@@ -145,7 +145,7 @@ export function CodePanel({
         </div>
       </Panel>
 
-      <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <Panel className="flex min-h-0 flex-col overflow-hidden max-[980px]:mb-3 max-[980px]:h-[420px]">
         <SectionTitle
           title="File preview"
           subtitle={active?.path || selected[0] || "No file selected"}
@@ -160,7 +160,7 @@ export function CodePanel({
         )}
       </Panel>
 
-      <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <Panel className="flex min-h-0 flex-col overflow-hidden max-[980px]:h-[500px]">
         <SectionTitle title="Ask LLM" subtitle={selected.length ? `${selected.length} files in context` : "No files selected"} />
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         <label>
@@ -169,6 +169,7 @@ export function CodePanel({
             <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
           ) : (
             <Select
+              ariaLabel="LLM model"
               value={modelId}
               onChange={setModelId}
               placeholder="no LLM models"

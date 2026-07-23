@@ -11,20 +11,9 @@ from __future__ import annotations
 
 import asyncio
 
-from httpx import ASGITransport, AsyncClient
-import pytest
+from httpx import AsyncClient
 
 from app.main import app
-
-
-@pytest.fixture
-async def client():
-    # Run the real lifespan (init DB, scan models, start the worker) around the
-    # ASGI client so requests hit the same app.state the worker uses.
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
 
 
 class _BusCollector:
@@ -76,21 +65,21 @@ async def _wait_done(client: AsyncClient, job_ids: list[str], timeout: float = 3
     raise AssertionError(f"jobs did not finish in {timeout}s: {statuses}")
 
 
-async def test_health_reports_stub_mode(client):
-    body = (await client.get("/api/health")).json()
+async def test_health_reports_stub_mode(app_client):
+    body = (await app_client.get("/api/health")).json()
     assert body["status"] == "ok"
     assert body["stub_mode"] is True
     assert body["models"] >= 2  # the seeded SDXL + GGUF
 
 
-async def test_models_discovered(client):
-    models = (await client.get("/api/models")).json()
+async def test_models_discovered(app_client):
+    models = (await app_client.get("/api/models")).json()
     job_types = {m["job_type"] for m in models}
     assert {"llm", "image", "video"} <= job_types
 
 
-async def test_mixed_batch_runs_with_one_swap(client):
-    models = (await client.get("/api/models")).json()
+async def test_mixed_batch_runs_with_one_swap(app_client):
+    models = (await app_client.get("/api/models")).json()
     llm = next(m["id"] for m in models if m["job_type"] == "llm")
     img = next(m["id"] for m in models if m["job_type"] == "image")
 
@@ -103,10 +92,10 @@ async def test_mixed_batch_runs_with_one_swap(client):
     ]
 
     async with _BusCollector(app.state.bus) as collector:
-        created = (await client.post("/api/jobs", json=batch)).json()
+        created = (await app_client.post("/api/jobs", json=batch)).json()
         job_ids = [j["id"] for j in created]
         assert len(job_ids) == 4
-        statuses = await _wait_done(client, job_ids)
+        statuses = await _wait_done(app_client, job_ids)
 
     assert statuses == ["done"] * 4
     # Phase-batching: each family loads once (2), with exactly one swap between.
@@ -114,15 +103,15 @@ async def test_mixed_batch_runs_with_one_swap(client):
     assert collector.swaps == 1, f"expected 1 swap, saw {collector.swaps}"
 
     # The two image jobs landed in the gallery.
-    images = (await client.get("/api/images")).json()
+    images = (await app_client.get("/api/images")).json()
     assert len(images) >= 2
 
 
-async def test_plan_endpoint_previews_one_swap(client):
+async def test_plan_endpoint_previews_one_swap(app_client):
     """The /api/jobs/plan preview must agree with the live scheduler on a mixed
     batch. Asserted on a paused queue (lowest priority + idle worker drains it,
     so we check the pure prediction via a fresh batch read right after enqueue)."""
-    models = (await client.get("/api/models")).json()
+    models = (await app_client.get("/api/models")).json()
     llm = next(m["id"] for m in models if m["job_type"] == "llm")
     img = next(m["id"] for m in models if m["job_type"] == "image")
 
@@ -134,7 +123,41 @@ async def test_plan_endpoint_previews_one_swap(client):
         {"type": "image", "model_id": img, "params": {"prompt": "b", "steps": 2}},
         {"type": "llm", "model_id": llm, "params": {"prompt": "c"}},
     ]
-    created = (await client.post("/api/jobs", json=batch)).json()
-    plan = (await client.get("/api/jobs/plan")).json()
+    created = (await app_client.post("/api/jobs", json=batch)).json()
+    plan = (await app_client.get("/api/jobs/plan")).json()
     assert plan["swaps"] <= 1
-    await _wait_done(client, [j["id"] for j in created])
+    await _wait_done(app_client, [j["id"] for j in created])
+
+
+async def test_request_id_follows_job_events_without_leaking_internal_params(app_client):
+    models = (await app_client.get("/api/models")).json()
+    llm = next(model["id"] for model in models if model["job_type"] == "llm")
+    request_id = "ui.queue-observability"
+
+    async with app.state.bus.subscribe() as events:
+        response = await app_client.post(
+            "/api/jobs",
+            headers={"X-Request-ID": request_id},
+            json=[{"type": "llm", "model_id": llm, "params": {"prompt": "trace me"}}],
+        )
+        created = response.json()[0]
+        assert response.headers["X-Request-ID"] == request_id
+        assert created["request_id"] == request_id
+        assert "_request_id" not in created["params"]
+
+        observed = []
+        while not any(event["type"] == "job.done" for event in observed):
+            observed.append(await asyncio.wait_for(events.get(), timeout=10))
+
+    correlated = [
+        event
+        for event in observed
+        if event.get("job_id") == created["id"]
+        and event["type"] in {"job.started", "job.progress", "llm.token", "job.done"}
+    ]
+    assert correlated
+    assert all(event["request_id"] == request_id for event in correlated)
+    started = next(event for event in correlated if event["type"] == "job.started")
+    assert started["queue_age_s"] >= 0
+    loaded = next(event for event in observed if event["type"] == "model.loaded")
+    assert loaded["duration_s"] >= 0

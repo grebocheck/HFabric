@@ -8,9 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Preset
 from ..schemas import PresetCreate, PresetImportIn, PresetImportOut, PresetOut
+from .contracts import ERROR_RESPONSES, DeleteOut
 from .deps import get_session
 
-router = APIRouter(prefix="/api/presets", tags=["presets"])
+router = APIRouter(
+    prefix="/api/presets",
+    tags=["presets"],
+    responses=ERROR_RESPONSES,
+)
 
 
 def _unique_name(name: str, existing: set[str]) -> str:
@@ -75,8 +80,11 @@ async def import_presets(
     )
 
 
-@router.delete("/{preset_id}")
-async def delete_preset(preset_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+@router.delete("/{preset_id}", response_model=DeleteOut)
+async def delete_preset(
+    preset_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> DeleteOut:
     preset = await session.get(Preset, preset_id)
     if not preset:
         raise HTTPException(404, "preset not found")

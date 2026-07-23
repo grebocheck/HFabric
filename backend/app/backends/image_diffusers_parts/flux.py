@@ -67,7 +67,7 @@ class FluxLoaderMixin:
         """SVDQuant fp4 FLUX (Blackwell turbo): ~8 s/1024, peak RAM ~13 GB.
 
         Assembled from light components so a single load stays well within the RAM
-        budget (P0.1): nunchaku fp4 transformer + int4 T5 (~3 GB, not ~10 GB bf16),
+        budget: nunchaku fp4 transformer + int4 T5 (~3 GB, not ~10 GB bf16),
         with CLIP/VAE/tokenizers/scheduler from the non-gated config repo. We do
         NOT read the local 16 GB fp8 checkpoint here."""
         from diffusers import FluxPipeline  # noqa: PLC0415

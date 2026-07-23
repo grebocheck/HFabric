@@ -40,7 +40,7 @@ def get_capability_profile(*, refresh: bool = False) -> dict[str, Any]:
 def resolved_install_profile(*, refresh: bool = False) -> dict[str, Any]:
     """The raw resolved install profile (selected_profile, optional_features, …).
 
-    The model-download manager (P18.4) needs the unmassaged resolver output to
+    The model-download manager needs the unmassaged resolver output to
     compute which starter jobs are recommended for this machine.
     """
     if refresh:

@@ -1,0 +1,6 @@
+coverage/
+playwright-report/
+test-results/
+bundle-sizes.json
+preview.log
+vitest.txt

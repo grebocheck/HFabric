@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Badge } from "./Badge";
+import { toast } from "./Toast";
 import type { ArbiterNote, Job, QueuePlan } from "../types";
 
 const statusColor: Record<string, string> = {
@@ -208,7 +209,13 @@ function JobCard({
           ) : null}
           <div className="mt-2 flex justify-end">
             <button
-              onClick={() => api.cancelJob(job.id).then(onChanged).catch(() => {})}
+              onClick={() => {
+                void api.cancelJob(job.id)
+                  .then(onChanged)
+                  .catch((error: unknown) => {
+                    toast.error(error instanceof Error ? error.message : "Could not stop job");
+                  });
+              }}
               className="rounded-md border border-error-border px-2.5 py-1 text-xs text-error-fg hover:bg-error-bg"
             >
               Stop

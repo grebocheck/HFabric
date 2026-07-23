@@ -113,7 +113,6 @@ export const feminineVoicePreset = {
 } as const;
 
 export const waveformSlots = 64;
-export const timingLabels = ["prep", "f0", "infer", "post", "io", "mix"];
 
 export type VoiceControlState = {
   pitch: number;
@@ -328,7 +327,7 @@ export function deviceNumericId(device: Pick<VoiceAudioDevice, "id" | "index">):
   return num(device.id, device.index);
 }
 
-export function findDevice(devices: Pick<VoiceAudioDevice, "id" | "index">[], id: number): Pick<VoiceAudioDevice, "id" | "index"> | undefined {
+function findDevice(devices: Pick<VoiceAudioDevice, "id" | "index">[], id: number): Pick<VoiceAudioDevice, "id" | "index"> | undefined {
   return devices.find((device) => deviceNumericId(device) === id);
 }
 

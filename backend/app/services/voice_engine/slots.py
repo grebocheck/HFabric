@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -157,8 +158,19 @@ def discover_slots(*, include_private: bool = False) -> list[dict[str, Any]]:
     return [slot.public() for slot in slots]
 
 
+async def discover_slots_async(
+    *,
+    include_private: bool = False,
+) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(discover_slots, include_private=include_private)
+
+
 def get_slot(model_id: str) -> dict[str, Any] | None:
     for slot in discover_slots(include_private=True):
         if slot["id"] == model_id:
             return slot
     return None
+
+
+async def get_slot_async(model_id: str) -> dict[str, Any] | None:
+    return await asyncio.to_thread(get_slot, model_id)

@@ -7,8 +7,10 @@ what decides which one is actually resident in VRAM.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import re
+import threading
 
 from ..config import settings
 from ..core.enums import ModelFamily
@@ -116,8 +118,53 @@ class ModelRegistry:
         self._descriptors: dict[str, ModelDescriptor] = {}
         self._loras: dict[str, LoraDescriptor] = {}
         self._backends: dict[str, GpuBackend] = {}
+        self._scan_lock = asyncio.Lock()
+        self._scan_thread_lock = threading.Lock()
 
     def scan(self) -> None:
+        """Refresh the inventory synchronously.
+
+        CLI/tests may use this entrypoint when no event loop is running. Async
+        application paths should use :meth:`scan_async`, which builds the same
+        snapshot in a worker thread and publishes it atomically.
+        """
+        descriptors, loras = self._build_inventory_serialized()
+        self._descriptors = descriptors
+        self._loras = loras
+
+    async def scan_async(self) -> None:
+        """Refresh model metadata without blocking WebSocket/HTTP progress.
+
+        A scan builds isolated dictionaries off-loop. Readers therefore keep
+        seeing the previous complete snapshot until the replacement is ready,
+        instead of observing the registry half-cleared during a long disk walk.
+        The lock coalesces concurrent API/download-triggered refreshes into
+        sequential snapshots and bounds filesystem pressure.
+        """
+        async with self._scan_lock:
+            descriptors, loras = await asyncio.to_thread(
+                self._build_inventory_serialized
+            )
+            self._descriptors = descriptors
+            self._loras = loras
+
+    def _build_inventory_serialized(
+        self,
+    ) -> tuple[dict[str, ModelDescriptor], dict[str, LoraDescriptor]]:
+        # asyncio cancellation cannot stop an already-running OS walk. Retain a
+        # thread-side guard as well as the async lock so a disconnected request
+        # cannot accidentally start a second concurrent scan.
+        with self._scan_thread_lock:
+            return self._build_inventory()
+
+    def _build_inventory(
+        self,
+    ) -> tuple[dict[str, ModelDescriptor], dict[str, LoraDescriptor]]:
+        staging = ModelRegistry()
+        staging._scan_in_place()
+        return staging._descriptors, staging._loras
+
+    def _scan_in_place(self) -> None:
         self._descriptors.clear()
         self._loras.clear()
         diffusers_dirs = sorted(

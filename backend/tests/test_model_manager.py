@@ -4,7 +4,18 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import threading
+from types import SimpleNamespace
+
+import pytest
+
+from app.api import models as models_api
 from app.config import settings
+from app.core.enums import JobStatus, JobType
+from app.db.models import Job
+from app.db.session import session_scope
 from app.services import model_download_service as downloads
 from app.services import model_storage
 
@@ -123,6 +134,38 @@ def test_validate_custom_handles_subdir_and_whole_repo():
     assert traversal is not None
 
 
+def test_direct_download_ssrf_policy_rejects_private_and_mixed_dns(monkeypatch):
+    for url in (
+        "http://127.0.0.1/model.gguf",
+        "http://[::1]/model.gguf",
+        "http://169.254.169.254/latest/meta-data",
+        "http://service.internal/model.gguf",
+        "http://user:pass@example.com/model.gguf",
+    ):
+        with pytest.raises(ValueError):
+            downloads._assert_public_download_url(url)
+
+    monkeypatch.setattr(
+        downloads.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (downloads.socket.AF_INET, downloads.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (downloads.socket.AF_INET, downloads.socket.SOCK_STREAM, 6, "", ("10.0.0.2", 443)),
+        ],
+    )
+    with pytest.raises(ValueError, match="local or private"):
+        downloads._assert_public_download_url("https://models.example/model.gguf")
+
+    monkeypatch.setattr(
+        downloads.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (downloads.socket.AF_INET, downloads.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+        ],
+    )
+    downloads._assert_public_download_url("https://models.example/model.gguf")
+
+
 def test_model_storage_delete_refuses_in_use(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "llm_models_dir", tmp_path)
     weight = tmp_path / "resident.gguf"
@@ -134,3 +177,197 @@ def test_model_storage_delete_refuses_in_use(tmp_path, monkeypatch):
     except model_storage.ModelInUseError:
         pass
     assert weight.exists()  # not deleted
+
+
+def test_model_storage_busy_check_covers_ancestors_and_descendants(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "image_models_dir", tmp_path)
+    repo = tmp_path / "repo"
+    nested_weight = repo / "transformer" / "model.safetensors"
+    nested_weight.parent.mkdir(parents=True)
+    nested_weight.write_bytes(b"weights")
+
+    listed = model_storage.installed(in_use={nested_weight})
+    assert next(item for item in listed if item["path"] == "repo")["in_use"] is True
+
+    with pytest.raises(model_storage.ModelInUseError):
+        model_storage.delete("image", "repo", in_use={nested_weight})
+    with pytest.raises(model_storage.ModelInUseError):
+        model_storage.delete("image", "repo", in_use={tmp_path})
+    assert repo.exists()
+
+
+def test_model_storage_refuses_symlink_entries(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    outside = tmp_path / "outside.gguf"
+    outside.write_bytes(b"GGUF")
+    link = root / "linked.gguf"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+    monkeypatch.setattr(settings, "llm_models_dir", root)
+
+    with pytest.raises(ValueError, match="symlink or junction"):
+        model_storage.delete("llm", "linked.gguf")
+    assert outside.exists()
+
+
+def test_model_storage_rolls_back_visible_path_on_locked_delete(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "llm_models_dir", tmp_path)
+    weight = tmp_path / "locked.gguf"
+    weight.write_bytes(b"GGUF")
+
+    def fail_remove(_staged: Path) -> None:
+        raise PermissionError("locked")
+
+    monkeypatch.setattr(model_storage, "_remove_staged", fail_remove)
+    with pytest.raises(
+        model_storage.ModelDeleteError,
+        match="remaining visible model path was restored",
+    ):
+        model_storage.delete("llm", "locked.gguf")
+
+    assert weight.exists()
+    assert model_storage.reserved_paths() == set()
+
+
+def test_model_storage_reservation_blocks_parallel_delete(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "llm_models_dir", tmp_path)
+    weight = tmp_path / "parallel.gguf"
+    weight.write_bytes(b"GGUF")
+    removal_started = threading.Event()
+    allow_removal = threading.Event()
+    real_remove = model_storage._remove_staged
+
+    def paused_remove(staged: Path) -> None:
+        removal_started.set()
+        assert allow_removal.wait(timeout=5)
+        real_remove(staged)
+
+    monkeypatch.setattr(model_storage, "_remove_staged", paused_remove)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(model_storage.delete, "llm", "parallel.gguf")
+        assert removal_started.wait(timeout=5)
+        assert any(
+            model_storage.paths_overlap(path, weight)
+            for path in model_storage.reserved_paths()
+        )
+        with pytest.raises(model_storage.ModelInUseError):
+            model_storage.delete("llm", "parallel.gguf")
+        allow_removal.set()
+        assert future.result()["freed_bytes"] == 4
+
+    assert model_storage.reserved_paths() == set()
+
+
+def test_model_storage_reports_rescan_failure_after_completed_delete(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "llm_models_dir", tmp_path)
+    weight = tmp_path / "rescan-error.gguf"
+    weight.write_bytes(b"GGUF")
+
+    def fail_rescan() -> None:
+        raise RuntimeError("registry failed")
+
+    with pytest.raises(
+        model_storage.ModelInventoryError,
+        match="was deleted.*Rescan Models",
+    ):
+        model_storage.delete(
+            "llm",
+            weight.name,
+            after_delete=fail_rescan,
+        )
+
+    assert not weight.exists()
+    assert model_storage.reserved_paths() == set()
+
+
+def test_related_registry_paths_protects_mmproj_companion(tmp_path):
+    model = tmp_path / "chat.gguf"
+    projector = tmp_path / "mmproj-chat.gguf"
+    descriptor = SimpleNamespace(
+        path=model,
+        mmproj_path=projector,
+        job_type=SimpleNamespace(value="llm"),
+    )
+    registry = SimpleNamespace(descriptors=lambda: [descriptor], loras=lambda: [])
+
+    protected = models_api._related_registry_paths(registry, {model})
+
+    assert protected == {model, projector}
+
+
+def test_related_registry_paths_protects_warm_adapter_cache(tmp_path):
+    model = tmp_path / "image.safetensors"
+    lora = tmp_path / "style.safetensors"
+    descriptor = SimpleNamespace(
+        path=model,
+        mmproj_path=None,
+        job_type=SimpleNamespace(value="image"),
+    )
+    registry = SimpleNamespace(
+        descriptors=lambda: [descriptor],
+        loras=lambda: [SimpleNamespace(path=lora)],
+    )
+
+    protected = models_api._related_registry_paths(registry, {model})
+
+    assert protected == {model, lora}
+
+
+async def test_delete_blocks_queued_model_and_active_download(
+    app_client,
+    monkeypatch,
+):
+    weight = settings.llm_models_dir / "queued-guard.gguf"
+    weight.write_bytes(b"GGUF")
+    try:
+        await app_client.post("/api/models/rescan")
+        models = (await app_client.get("/api/models")).json()
+        model_id = next(item["id"] for item in models if item["name"] == "queued-guard")
+        async with session_scope() as session:
+            session.add(
+                Job(
+                    id="queued-delete-guard",
+                    type=JobType.LLM,
+                    status=JobStatus.QUEUED,
+                    model_id=model_id,
+                    params={},
+                )
+            )
+
+        queued = await app_client.request(
+            "DELETE",
+            "/api/models/installed",
+            params={"kind": "llm", "path": weight.name},
+        )
+        assert queued.status_code == 409
+        assert weight.exists()
+
+        async with session_scope() as session:
+            job = await session.get(Job, "queued-delete-guard")
+            if job is not None:
+                await session.delete(job)
+        monkeypatch.setattr(downloads, "is_downloading", lambda: True)
+        downloading = await app_client.request(
+            "DELETE",
+            "/api/models/installed",
+            params={"kind": "llm", "path": weight.name},
+        )
+        assert downloading.status_code == 409
+        assert weight.exists()
+    finally:
+        weight.unlink(missing_ok=True)

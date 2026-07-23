@@ -41,6 +41,14 @@ def embedding_model_map() -> dict[str, dict[str, Any]]:
     return {m["id"]: m for m in list_embedding_models()}
 
 
+async def list_embedding_models_async() -> list[dict[str, Any]]:
+    return await asyncio.to_thread(list_embedding_models)
+
+
+async def embedding_model_map_async() -> dict[str, dict[str, Any]]:
+    return await asyncio.to_thread(embedding_model_map)
+
+
 def _normalize(vec: list[float]) -> list[float]:
     norm = math.sqrt(sum(x * x for x in vec))
     if norm <= 0:
@@ -66,7 +74,7 @@ class LocalEmbeddingService:
         clean = [text.strip() for text in texts if text.strip()]
         if not clean:
             return []
-        models = embedding_model_map()
+        models = await embedding_model_map_async()
         if not models:
             raise RuntimeError(f"no embedding models found in {settings.embed_models_dir}")
         model = models.get(model_id or "") or next(iter(models.values()))

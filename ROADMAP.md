@@ -1,288 +1,184 @@
-# HFabric — Roadmap & Backlog
+# HFabric — підсумок стабілізації та release roadmap
 
-> **Status:** working app at **v0.3.0** (tags `v0.1.0`/`v0.2.0`/`v0.3.0` shipped),
-> real-GPU validated on NVIDIA/Windows, with a green CI safety net on every push/PR
-> (ruff + eslint + `tsc` + build + pytest@68% floor + vitest). The audit-driven
-> foundation (P0–P24), the unified Model Manager (P25), the Edit workspace (P26),
-> and CivitAI integration have all shipped — see [`docs/history.md`](docs/history.md)
-> for the full record and [`CHANGELOG.md`](CHANGELOG.md) for release notes.
->
-> **The beta is launched; the next chapter is paying down the debt that velocity
-> bought.** Five feature workstreams landed back-to-back (P25 → P26 → P27) and the
-> codebase now shows it: a coverage floor sitting flush against the actual number,
-> four service modules with no test file, several files too large to review safely,
-> and a freshly broadened video workspace (P27) that needs portability validation.
-> So this plan leads with a **code-quality & stability track (Q1–Q7)** ahead of new
-> features, then finishes the genuinely-remaining validation work (non-NVIDIA breadth).
->
-> This file is the **forward plan only** — completed phases move to
-> `docs/history.md` so the plan stays legible.
->
-> Marking: `[ ]` not started · `[~]` in progress / partially done · `[x]` done.
->
-> **Audit basis (2026-06-30):** all gates green — ruff/eslint/tsc clean,
-> vitest 99 green, pytest 431 green at **69.23%** coverage (floor 68%); Alembic at
-> revision `0005`; frontend type-safety strong (`types.ts` now derives from the
-> OpenAPI-generated `types.generated.ts`; 0 stray `console.*`). Findings below cite
-> exact files and metrics so each item is checkable.
+> Станом на 2026-07-23 попередній план повністю замінено.
+> Усі пункти, які можна реалізувати й перевірити локально, завершені.
+> Незакритими залишені лише перевірки, для яких потрібні окремі ОС або реальне
+> GPU-обладнання.
 
-## Objectives (priority order)
+## 1. Результат
 
-1. **RAM frugality** — every load must fit so the app never OOMs, hangs, or spills
-   to the pagefile. Hard budget: peak ≈ **≤ 26 GB of 32 GB**.
-2. **VRAM frugality** — exactly **one resident heavy model** at a time (≤ 16 GB)
-   with a safety margin; never overflow into shared/system VRAM.
-3. **Speed on Blackwell** — fp4/fp8 compute, `torch.compile`, step-caching.
-4. **Trustworthy by default** — safe to leave running: not reachable by strangers,
-   debuggable after a crash, restorable after a disk failure.
-5. **Usable beyond this machine** *(release goal)* — the installer makes the hard
-   choices; a normal user sees "Recommended", not CUDA/ROCm wheel archaeology.
+Проєкт приведено до стабільнішої та простішої для підтримки структури:
 
-## Memory invariants (do not break these)
+- життєвий цикл GPU, Voice і зовнішніх процесів канонізовано та покрито
+  детермінованими тестами;
+- локальні налаштування, секрети, пресети й SQLite захищено від часткових записів,
+  пошкодження та конкурентного доступу;
+- видалення моделей, завантаження файлів, ZIP-розпакування, asset-доступ і LAN-bind
+  отримали fail-closed перевірки;
+- OpenAPI, Pydantic-схеми та frontend-типи синхронізовано;
+- великі backend/frontend-модулі розділено за відповідальністю;
+- UI отримав boundary помилок, адаптивність, клавіатурну доступність, відновлення
+  після WebSocket reconnect і стійкість до некоректних API-відповідей;
+- залежності розкладено за профілями з відтворюваними lock-файлами;
+- CI перевіряє тести, контракти, безпеку, залежності, dead code і shell-скрипти.
 
-- VRAM: exactly one resident heavy model (LLM **or** one image model).
-- RAM: a guard checks predicted peak vs. available RAM **before** a load; if it
-  wouldn't fit it reports clearly and waits/queues — never pushes the OS into the
-  pagefile. Killing is **not** a routine memory tactic.
-- Switching frees the previous model cleanly: llama-server is shut down; diffusers
-  pipelines are `del` + `gc.collect()` + `empty_cache()` + `ipc_collect()`.
-- Telemetry: process RSS + system available RAM + VRAM are surfaced in
-  `/api/health` and over the WebSocket (`mem.status`).
+## 2. Фінальна перевірена базова лінія
 
-Code anchors: `backend/app/core/arbiter.py`, `backend/app/util/sysmon.py`.
+| Контур | Результат |
+| --- | --- |
+| Backend tests | 612 зібрано: **611 passed, 1 skipped** |
+| Детермінізм backend | coverage-прогін, повторний прогін і shuffled seed `20260723` — green |
+| Backend coverage | **82.73%** lines/statements, **65.81%** branches, **79.25%** combined |
+| Frontend unit tests | **125/125** у 27 test files |
+| Frontend coverage | 30.32% statements, 25.97% branches, 26.86% functions, 31.37% lines |
+| Browser E2E | **10/10** |
+| Accessibility | axe green у dark, dim і light themes |
+| Responsive UI | перевірено 320, 360, 390, 768, 1024 і 1440 px |
+| Initial JS bundle | 258.09 KB / **80.16 KB gzip**, без warning про завеликий initial chunk |
+| Backend quality | Ruff, Vulture, `pip check`, lock/profile consistency — green |
+| Frontend quality | ESLint, strict TypeScript, OpenAPI freshness, Knip, build — green |
+| Security | secret scan, production/dev `pip-audit`, `npm audit` — green з контрольованими винятками нижче |
+| Launch scripts | PowerShell parser, Git Bash `bash -n`, ownership tests — green |
 
----
+### Покриття критичних backend-модулів
 
-## Next up
+| Модуль | Lines | Branches | Combined |
+| --- | ---: | ---: | ---: |
+| GPU arbiter | 95.5% | 90.5% | 94.1% |
+| Scheduler | 100% | 94.1% | 98.6% |
+| Atomic JSON store | 95.0% | 96.9% | 95.3% |
+| Settings overrides | 99.2% | 88.5% | 95.9% |
+| Model storage | 87.8% | 88.3% | 87.9% |
+| Security policy | 100% | 100% | 100% |
+| Queue service | 100% | 100% | 100% |
 
-1. **P27 portability breadth.** Non-NVIDIA video fallback implementation +
-   validation remains the real P27 feature work after the LTX/Wan/FramePack CUDA
-   surface proved out.
-2. **P24.7 clean tester audit.** Re-run first-run/resilience on a clean Windows
-   tester machine when one is available.
-3. **P21.4 external hardware breadth.** Recruit ROCm and Apple Silicon testers for
-   real install + GPU smoke validation.
+## 3. Реалізований план
 
-Then the long-pole items that need other people/hardware: **P21.4** (ROCm + Apple
-testers), and the **P24.7** resilience audit on a clean tester machine.
+### P0 — стабільність життєвого циклу
 
-## Active backlog
+- [x] Ізолювати runtime і БД кожного тесту; усунути order/state dependence.
+- [x] Перетворити GPU arbiter на типізований state machine з явними lease,
+  pin/free/handoff і rollback.
+- [x] Зробити Voice ексклюзивною GPU lane та заборонити паралельний важкий
+  resident.
+- [x] Додати bounded shutdown для scheduler, Voice, LLM і зовнішніх процесів.
+- [x] Канонізувати запуск процесів, PID metadata та перевірку ownership.
+- [x] Прибрати глобальні `pkill`, `fuser -k` і завершення сторонніх власників портів.
+- [x] Зробити non-loopback bind без автентифікації fail-closed.
+- [x] Додати регресійні тести busy, cancellation, retry, shutdown і rollback paths.
 
-### Q — Code quality & stability hardening *(lead priority)*
+### P1 — дані, сховище та мережа
 
-> **Why this is the lead track:** the app works and ships, but P25→P26→P27 added
-> ~7k lines fast and the seams show. None of these are user-visible bugs today; each
-> is a place where the *next* change is more likely to break something or where a
-> failure would be hard to debug. Ordered by risk-reduction per hour.
+- [x] Запровадити спільний `AtomicJSONStore` з lock, fsync, backup і quarantine.
+- [x] Перевести settings, secrets і presets на атомарне збереження.
+- [x] Увімкнути SQLite WAL, foreign keys, busy timeout і bounded retry.
+- [x] Додати reconciliation для DB/media та fallback thumbnail → original.
+- [x] Захистити model deletion від parent/child, symlink, active model, LoRA,
+  `mmproj` і check/use race.
+- [x] Винести блокувальні файлові операції з async event loop.
+- [x] Додати обмеження upload/ZIP, path traversal і ZIP-bomb перевірки.
+- [x] Додати SSRF policy з DNS/IP revalidation для зовнішніх завантажень.
+- [x] Замінити bearer token у URL на короткоживучу підписану HttpOnly asset session.
+- [x] Виключити секрети й runtime-файли з Code API.
 
-- [x] **Q1 — Get the coverage floor off the tripwire.** Done 2026-06-30:
-  added focused stub/unit coverage for `chat_attachments.py`, `chat_service.py`,
-  `rag_service.py`, `video_service.py`, `embedding_service.py`, plus adjacent
-  scheduler/event/queue/media safety paths. CI now enforces
-  `--cov-fail-under=68`; local verification: **431 passed, 69.23%**.
-- [x] **Q2 — Decompose the highest-churn monolith first.** Done 2026-06-30:
-  `image_diffusers.py::_generate_real` is now a thin metadata/persistence wrapper
-  over `image_diffusers_parts/generation.py`, with dispatcher tests for txt2img /
-  img2img / inpaint / controlnet family branches. Follow-up split the next backend
-  tier too: settings schema metadata lives in `settings_specs.py` (`settings_overrides.py`
-  is now 159 lines), and the realtime voice chunk core lives in `realtime_processor.py`
-  (`voice_engine/realtime.py` is now 561 lines).
-- [x] **Q3 — Frontend monolith split (resume P17).** Done 2026-06-30:
-  `ChatPanel.tsx` is down to **854** after moving send/edit/attachment/manual-image
-  workflow actions into `ChatPanelHooks.ts`; `VoicePanel.tsx` is down to **985** after
-  moving Live Console / Tuning / Routing / Presets / Offline Convert / Diagnostics into
-  `VoicePanelSections.tsx`. `types.ts` (946) is **not** in scope — it is now mostly thin
-  re-exports over the generated schema.
-- [x] **Q4 — Stabilize & land the P27 video WIP.** Done 2026-06-30: P27's family
-  defaults, bnb offload selection, guidance clamping, decode/encode progress phases,
-  LTX I2V dtype fix, app-path smoke script, richer presets, and History filters are
-  covered by STUB/unit/frontend tests. Real-GPU CLI smoke passed for LTX T2V, LTX I2V,
-  and Wan T2V; live app-path smoke passed for range replay, cancel, and
-  Video -> LLM -> Video swap. The WIP was landed as part of this quality pass.
-- [x] **Q5 — Exception-handling observability sweep.** 278 `except` blocks across 52
-  files; most are deliberate best-effort (annotated `# noqa: BLE001`), but a handful
-  swallow with a bare `pass` and **no log** — `core/events.py` (L44, L61, the event
-  bus itself) and `voice_engine/realtime.py` (L597, L608, stream teardown). For the
-  "debuggable after a crash" promise, every swallow should at least `logger.debug(...,
-  exc_info=True)`. Make the convention enforceable: require the `noqa: BLE001` to carry
-  a reason comment (most already do). Done: event bus and realtime teardown now log
-  debug exceptions with reason comments and tests cover event-bus failure paths.
-- [x] **Q6 — Cover the load-bearing safety paths explicitly.** The arbiter/scheduler
-  invariants are the product's core promise; confirm each recovery branch has a named
-  STUB test and add the gaps: RAM-budget refusal + warm-evict ladder
-  (`arbiter._guard_budget`), resident-pin park/resume (`scheduler._pick_next`), and
-  orphan requeue on restart (`scheduler._requeue_orphans`). These must never silently
-  regress. Done: the RAM guard tests already existed; resident-pin and orphan-requeue
-  tests were added 2026-06-30.
-- [x] **Q7 — Truth-in-docs cadence.** The roadmap had drifted three releases (claimed
-  pre-`v0.1.0` while `v0.3.0` was tagged) and `docs/audit-2026-06-14.md` predates
-  P25/P26/P27. Adopt a one-line rule: **refresh the audit snapshot + prune this
-  roadmap on every minor release.** Fold a fresh `docs/audit-2026-06-30.md` (this
-  pass) in as the current baseline. Done for this pass.
+### P1 — API, помилки та спостережуваність
 
-### P27 — Video generation workspace (text-to-video / image-to-video)
+- [x] Замінити generic успішні відповіді на іменовані Pydantic response models.
+- [x] Канонізувати помилки як структурований API contract.
+- [x] Генерувати TypeScript API types з актуального OpenAPI.
+- [x] Додати перевірку freshness контракту в CI.
+- [x] Додати request ID до HTTP/WebSocket потоку й структурованих логів.
+- [x] Додати метрики черги, scheduler, GPU handoff, reconnect і помилок.
+- [x] Зберегти сумісність зовнішніх download/model test hooks після декомпозиції.
 
-> **Why it's feasible now:** the REAL stack already carries it — `diffusers 0.38`
-> ships `LTXPipeline`/`WanPipeline`/`HunyuanVideoFramepackPipeline`/`CogVideoX*` +
-> `export_to_video`, on torch 2.11+cu128 / Blackwell / `nunchaku 1.3`. This is
-> integration, not new ML. **Full investigation + the 16 GB model matrix:**
-> [`docs/video-research.md`](docs/video-research.md).
->
-> **Hardware fit (the non-negotiable):** a video model is *one heavy resident*
-> under the existing arbiter — same one-at-a-time rule, no new concurrency. The new
-> cost is **latent volume**: VAE decode of N frames spikes VRAM *and* RAM, so
-> **`vae.enable_tiling()` + chunked decode is mandatory** and the sysmon guard must
-> budget that decode peak and refuse a too-long/too-large clip up front (≤16 GB VRAM,
-> ≤26 GB RAM peak). fp8 / bnb-nf4 transformer + `enable_model_cpu_offload` is how a
-> 5B-class model fits 16 GB (fp16 ≈ 27 GB does not). Nunchaku-fp4 for video stays
-> *track-upstream / experimental*, like the FLUX.2 nunchaku sidecar.
->
-> **Recommended model order:** LTX-Video (fast default that fits with room) →
-> Wan 2.2 TI2V-5B (quality tier, fp8/bnb + offload, minutes/clip) → FramePack
-> (memory-flat long clips). AnimateDiff-SDXL is the lightweight + non-NVIDIA fallback.
+### P1 — UI та UX
 
-- [x] **P27.1 — Plumbing + STUB end-to-end.** Shipped & tested in STUB: `JobType.VIDEO`,
-  per-architecture video `ModelFamily` entries, `video_models_dir`, a `VideoBackend`
-  (STUB writes a placeholder mp4), a `Video` DB row, `/api/videos/{id}/file` with **HTTP
-  range**, a **Video** tab (`VideoComposer` + mp4 player) and video History items.
-  Real-GPU CLI smoke and the live app-path smoke passed on 2026-06-30.
-- [x] **P27.2 — First real model: LTX-Video.** T2V + I2V via `LTX{,ImageToVideo}Pipeline`,
-  `export_to_video`, `vae.enable_tiling()` + `enable_model_cpu_offload`, learned RAM/VRAM
-  profile — wired and real-GPU validated 2026-06-30 at 832x480 / 49f / 8 steps
-  (T2V peak 6.00 GB, I2V peak 6.76 GB). The I2V smoke caught and fixed the VAE dtype
-  mismatch in the LTX image-conditioning path.
-- [x] **P27.3 — Quality tier: Wan 2.2 TI2V-5B** (fp8 / bnb-nf4 + offload + VAE tiling),
-  Wan 2.1 T2V-1.3B as the lightweight variant. Video families + the VAE-decode peak are in
-  `sysmon.estimate_*` and the "minutes per clip" note is in `KNOWN_ISSUES.md`;
-  Wan 2.2 real-GPU T2V validated 2026-06-30 at 832x480 / 49f / 8 steps, peak 7.83 GB.
-- [x] **P27.4 — Long video: FramePack (HunyuanVideo).** Done 2026-06-30:
-  `HunyuanVideoFramepackPipeline` loads the local composite layout
-  `models/video/framepack-hunyuan-i2v/{base,transformer,redux}`, with the FramePack
-  transformer and Hunyuan text encoders on bnb 4-bit + model offload; API/UI force
-  I2V-only queueing and expose FramePack presets. Real-GPU I2V smoke passed at
-  480x832 / 91 requested frames / 8 steps (3 FramePack sections, 109 output frames),
-  peak 9.67 GB VRAM, mp4 + poster/thumb + metadata written.
-- [~] **P27.5 — Capability gating + non-NVIDIA.** CUDA video gating now lives in the
-  shared install/runtime capability profile: `model_policy.video` recommends LTX,
-  treats Wan/FramePack as advanced, hides unimplemented CogVideoX/AnimateDiff, and
-  exposes separate Ada+ `video_fp8_fast_paths` vs. Blackwell-only fast-path flags.
-  Queue/UI compatibility now blocks non-CUDA video and detected-but-unimplemented
-  video families early with clear reasons. *Remaining:* implement and real-hardware
-  validate the CPU/ROCm/MPS lightest-path fallback (AnimateDiff-SDXL / CogVideoX-2B),
-  mirroring today's SDXL-only posture there.
-- [x] **P27.6 — Maintenance & polish.** Shipped: in-app download catalog, STUB / range /
-  classification / budget + composer/player tests, docs, History, and CLI real-GPU
-  video smoke log; `scripts/video_app_smoke.py` now validates live HTTP range replay,
-  websocket events, cancel during denoise, and Video -> LLM -> Video resident swap.
-  Richer clip presets and Video History filters landed 2026-06-30.
+- [x] Додати глобальний React Error Boundary і єдиний `ApiError`.
+- [x] Не падати на частково некоректних settings/runtime API-відповідях.
+- [x] Після WebSocket reconnect виконувати REST reconciliation замість показу
+  застарілого стану.
+- [x] Канонізувати query cache та інвалідацію після mutations/events.
+- [x] Додати стійке зображення з fallback і зрозумілим empty/error state.
+- [x] Виправити dialog/select/focus/keyboard semantics та aria-атрибути.
+- [x] Прибрати горизонтальне переповнення на 320–1440 px.
+- [x] Перевірити чергу, історію, settings retry, model-delete guard і Voice gating
+  у браузері.
+- [x] Ліниво завантажувати workspaces; скоротити initial bundle.
 
-### P24 — Release pipeline & first-impression (post-launch residual)
+### P2 — канонізація та зменшення сміттєвого коду
 
-> The release pipeline is **proven, not theoretical:** `v0.1.0`, `v0.2.0`, and
-> `v0.3.0` have all been tagged and published via `.github/workflows/release.yml`
-> (tag → CI precondition → source bundle + SHA-256 → GitHub pre-release). P24.1 is
-> **done.** What remains is presentation and the clean-machine resilience pass.
+- [x] Розділити `scheduler.py` на orchestration, planning і result handling.
+- [x] Розділити settings specs на доменні секції.
+- [x] Розділити image backend на core, editing і LoRA responsibilities.
+- [x] Розділити model download service на catalog, transport і validation.
+- [x] Декомпозувати App, Chat, Voice, Video й Image frontend-контролери та секції.
+- [x] Видалити невикористані exports і дублікати ручних типів.
+- [x] Додати Vulture і Knip як обов'язкові dead-code gates.
+- [x] Додати allowlist-based cleanup лише для відтворюваних dev-артефактів.
+- [x] Прибрати застарілі коментарі, тимчасові обходи й дубльовані конфігурації.
 
-- [x] **P24.6 — Invite-readiness / first impression.** Done 2026-06-30: README now
-  opens with a concise local/private AI value proposition, screenshots for image
-  generation + live VRAM, chat, history, and voice, an above-the-fold feature list,
-  current `v0.3.0` status/audit links, and explicit image/edit/video/model-manager
-  scope. GitHub repo metadata is set too: description
-  "Local private AI workspace for LLM chat, image/edit/video generation, RAG and
-  voice on one GPU with a VRAM arbiter" plus topics `local-ai`, `llm`,
-  `image-generation`, `video-generation`, `diffusers`, `llama-cpp`, `rag`,
-  `voice-changer`, `cuda`, `private-ai`.
-- [~] **P24.7 — First-run experience & resilience.** *(P2 — the newcomer's first ten
-  minutes.)* **Done:** Welcome modal, dismissible STUB-mode banner, no-image-models
-  nudge, chat empty-state hint; friendly model-load failure messages (P17.6) clear the
-  spinner on error; first-run dependency audit tightened Python/Node/version checks,
-  launcher self-repair of missing foundation/REAL stack packages, in-app model downloads
-  as a foundation dependency, managed voice/DTLN asset downloads, advanced full-model
-  catalog entries, and `update.*` scripts for git+dependency refresh. **Remaining:**
-  re-run the audit on a clean tester Windows machine and revisit any OOM-guarded /
-  missing-binary paths testers still hit.
+### P2 — залежності, CI та документація
 
-### P22 — Voice realtime quality (optional residual)
+- [x] Виділити foundation, accelerator-common, CUDA, ROCm, MPS і dev profiles.
+- [x] Створити хешовані lock-файли й автоматичну перевірку profile drift.
+- [x] Перевіряти production та development dependencies на відомі вразливості.
+- [x] Зафіксувати GitHub Actions за immutable SHA.
+- [x] Додати secret scan, OpenAPI contract, dead-code і launcher syntax gates.
+- [x] Оновити README, configuration, developer, security та known-issues docs.
+- [x] Додати Windows-compatible stub/full verification path.
 
-- [x] **P22.7 — *(optional)* One-click A/B capture; high-band preserve decision.**
-  Done 2026-06-30: the live recorder now saves processed output WAV, raw input WAV,
-  and a params/session/metrics JSON snapshot from the same capture; the Voice panel
-  plays output/raw side by side and exposes WAV/MP3/Raw/JSON downloads. The raw
-  >3.5 kHz reinjection idea remains deliberately off: it risks reintroducing keyboard
-  hiss, and the new A/B artifact should justify it before it becomes a tuning knob.
+## 4. Канонічні джерела
 
-### P21 — Release readiness (needs external hardware)
+| Область | Канонічне джерело | Похідні/споживачі |
+| --- | --- | --- |
+| HTTP API | Pydantic response/request models | OpenAPI → generated TypeScript |
+| Помилки API | backend error contract | frontend `ApiError` і UI states |
+| Налаштування | доменні settings specs | API schema, defaults, UI metadata |
+| Залежності | `backend/dependency-profiles.json` та `.in/.txt` profiles | hashed lock-файли |
+| GPU ownership | `GpuArbiter` state machine | scheduler, LLM, image, video, Voice |
+| Процеси | PID metadata + runtime environment policy | Windows/POSIX launchers |
+| Мережа | network policy | bind validation, downloads, assets |
+| JSON persistence | `AtomicJSONStore` | settings, secrets, presets |
+| Frontend navigation | workspace registry + lazy loaders | sidebar, commands, routing |
+| API data state | query cache + event reconciliation | workspaces і reconnect |
 
-- [ ] **P21.4 — Real-hardware validation breadth.** Recruit ROCm and Apple Silicon
-  testers; run `scripts/install_smoke.py` + the GPU smoke checklist on each and fill
-  the validation log in `docs/gpu-smoke.md`. Promote a profile from experimental to
-  supported only after a clean real run. *(Blocks the "supported" claim for the
-  `amd-rocm-linux` and `apple-mps` profiles shipped in P20.4 / P20.9.)*
+## 5. Release gates
 
----
+### Локально закриті
 
-## Declined / out of scope (recorded so we don't relitigate)
+- [x] Повний backend suite.
+- [x] Повторний і shuffled backend suite.
+- [x] Критичне branch coverage вище 85%.
+- [x] Frontend unit, coverage, browser E2E та axe.
+- [x] OpenAPI generation/freshness, TypeScript, ESLint і production build.
+- [x] Ruff, Vulture, Knip і `git diff --check`.
+- [x] Dependency locks, audits, secret scan і launcher syntax.
+- [x] Cleanup відтворюваних test/build/cache артефактів.
 
-**Distribution**
-- **A frozen single-file installer (PyInstaller / Electron / one `.exe`).** REAL mode's
-  torch + CUDA/ROCm + llama.cpp stack is platform- and accelerator-specific and tens of
-  GB; the hardware-aware setup script + managed llama runtime is the correct shape for a
-  beta. Revisit only after 1.0 if demand is real.
-- **Publishing to package registries (PyPI / winget / Homebrew / Docker Hub).**
-  Premature for a single-author local-GPU beta; the GitHub release is the one channel.
-- **Telemetry / crash phone-home — even anonymised.** The privacy promise is that
-  nothing leaves the machine; diagnostics are export-on-demand (P24.5), never auto-sent.
+### Потребують зовнішнього середовища
 
-**Video generation** *(see [`docs/video-research.md`](docs/video-research.md))*
-- **fp16 of a 5B-class video model, or the Wan 2.2 14B (A14B MoE) / HunyuanVideo full
-  13B at fp16** — all overflow 16 GB at useful length/resolution. 14B is GGUF-Q4 +
-  block-swap only, and very slow; keep it experimental, never a default.
-- **Audio-coupled variants, Mochi (10B), Allegro, EasyAnimate, SkyReelsV2,
-  StableVideoDiffusion** — too heavy, too slow, or redundant with the LTX/Wan/FramePack
-  tiers we ship.
-- **Nunchaku/SVDQuant fp4 for Wan** — track upstream as experimental (like the FLUX.2
-  nunchaku sidecar); GGUF-Q4 and bnb-nf4 are the validated 16 GB quant routes for video.
+- [ ] На чистій Windows-машині пройти повний setup → update → запуск →
+  backup/restore audit.
+- [ ] Повторити реальну NVIDIA-матрицю image/video/LLM/Voice після змін lifecycle.
+- [ ] Провести реальну smoke/VRAM/quality валідацію профілів ROCm та Apple MPS.
 
-**LLM workspace & vision**
-- **A generic multi-tool agent / arbitrary tool plugins** — keep the two vetted tools
-  (`generate_image`, `search_documents`) plus native calling; no open-ended execution.
-- **Two parallel vision engines** — chat-native `llama-server --mmproj` is the single
-  surface; the `llama-mtmd-cli` engine was removed, not kept as a fallback.
-- **Vision on the heavy image-generation models** — understanding stays on the LLM +
-  mmproj path; image *generation* stays the diffusers path. Don't conflate.
+Ці три пункти не замінюються mock/stub-тестами й не позначаються завершеними без
+відповідного обладнання або чистого хоста.
 
-**Voice (from the RVC research doc)**
-- **DTLN on a CUDA EP** — DTLN is tiny; H2D/D2H transfer would add jitter while
-  ContentVec is already ~4.5 ms on GPU. Keep it on CPU.
-- **CUDA Graphs / TensorRT / ONNX IO-binding / fp16 synth** — warm per-chunk is ~46 ms
-  against a ~355 ms budget; these optimize a bottleneck we don't have.
-- **Full ASR WER/CER + automated sibilant-energy benchmark** — too heavy for a
-  single-user app; keep the cheap subjective AB phrase + `scripts/voice_realtime_bench.py`.
+## 6. Контрольовані винятки та подальший моніторинг
 
----
+- `transformers`: тимчасові advisory exceptions до **2026-10-31**; перехід на
+  major version 5 потребує повторної GPU-матриці через зміну CLIP internals.
+- `setuptools`: тимчасовий exception до **2026-09-15** через обмеження поточного
+  PyTorch-профілю; переглянути разом із наступним валідованим PyTorch/Nunchaku
+  оновленням.
+- Generated `frontend/src/types.generated.ts` виключений лише з dead-code scan,
+  оскільки його публічна поверхня задається OpenAPI.
+- Реальні hardware adapters виключені з локальної coverage-метрики; їхнім release
+  gate є окрема апаратна матриця.
+- Загальне frontend coverage зафіксоване як нова базова лінія. Критичні
+  користувацькі сценарії додатково захищені browser E2E; новий код не повинен
+  знижувати цю базу.
 
-### Hard-won facts (load-bearing constraints — don't relearn the hard way)
-
-- **FLUX.2 klein is pinned to 768²** on the 16 GB GPU: 1024² is not safe by default.
-- **nunchaku-int4 FLUX.2 is broken on Blackwell (sm_120)** — use **fp4** (bnb-nf4 is
-  the practical fallback). **Image-GGUF is unsupported** (separate from the LLM GGUF
-  path).
-- **`torch.compile` fails on the nunchaku transformer** in Inductor (`aten.addmm`);
-  the backend auto-rolls-back to the original transformer and continues.
-- **Cold-start RSS ~5.5–8.8 GB is not a leak** — one-time torch/diffusers/nunchaku
-  imports. The leak runner takes a warm baseline after two unmeasured cycles.
-- When the validated FLUX.2 repo *folder* exists, the registry hides the single-file
-  `.safetensors` (it's a conversion source, not a duplicate target).
-- **Qwen-Image-2512 is a large bf16 repo (~54 GB)** — keep `bnb-nf4` unless
-  deliberately testing full bf16. **Z-Image-Turbo is distilled** — use guidance 0.0.
-- **Voice live sessions need CUDA** to be realtime; CPU is only realtime at chunk 192.
-
----
-
-## Where to add the next thing
-
-- A new workspace tab = one entry in the `workspaces` array + a component using the
-  shared control kit + chrome.
-- Anything touching model loading goes through the arbiter (`ensure`/`free_all`) and
-  the `sysmon` budget — never load a model directly.
-- New env knobs follow the `HFAB_*` convention and are surfaced in `/api/settings`.
+Після проходження трьох зовнішніх release gates цей roadmap можна закрити повністю
+та перенести підсумок до release notes.

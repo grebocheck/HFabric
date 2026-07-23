@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 
@@ -17,6 +18,11 @@ def test_missing_and_invalid_pidfiles_are_safe(tmp_path):
     invalid.write_text("not-a-pid", encoding="utf-8")
     assert reap_pidfile(invalid, "llama-server", logging.getLogger("test")) is False
     assert not invalid.exists()
+
+    legacy = tmp_path / "legacy.pid"
+    legacy.write_text("1234\n", encoding="utf-8")
+    assert reap_pidfile(legacy, "llama-server", logging.getLogger("test")) is False
+    assert not legacy.exists()
 
 
 def test_dead_pidfile_is_cleaned(tmp_path):
@@ -55,7 +61,6 @@ def test_remove_pidfile_and_known_pidfile_path(tmp_path, monkeypatch):
 
 def test_reap_matching_process_terminates_children_and_removes_pidfile(tmp_path, monkeypatch):
     path = tmp_path / "llama-server.pid"
-    write_pidfile(path, 1234)
     events: list[str] = []
 
     class FakeProc:
@@ -65,6 +70,15 @@ def test_reap_matching_process_terminates_children_and_removes_pidfile(tmp_path,
 
         def name(self) -> str:
             return self._name
+
+        def create_time(self) -> float:
+            return 123.5
+
+        def exe(self) -> str:
+            return "/project/bin/llama-server"
+
+        def cmdline(self) -> list[str]:
+            return ["/project/bin/llama-server", "--port", "8261"]
 
         def children(self, recursive: bool = False):
             events.append(f"children:{recursive}")
@@ -83,6 +97,7 @@ def test_reap_matching_process_terminates_children_and_removes_pidfile(tmp_path,
         return targets, []
 
     monkeypatch.setattr(psutil, "Process", lambda pid: FakeProc(pid))
+    write_pidfile(path, 1234)
     monkeypatch.setattr(psutil, "wait_procs", fake_wait_procs)
     monkeypatch.setattr(pidfiles.time, "sleep", lambda seconds: events.append(f"sleep:{seconds}"))
 
@@ -99,6 +114,45 @@ def test_reap_matching_process_terminates_children_and_removes_pidfile(tmp_path,
         "wait:4321,1234:5.0",
         "sleep:0.1",
     ]
+
+
+def test_reused_pid_is_not_treated_as_owned(tmp_path, monkeypatch):
+    path = tmp_path / "llama-server.pid"
+    record = {
+        "version": pidfiles.PIDFILE_VERSION,
+        "pid": 1234,
+        "project_root": str(pidfiles.settings.root.resolve()),
+        "create_time": 10.0,
+        "name": "llama-server",
+        "executable": "/project/bin/llama-server",
+        "cmdline": ["/project/bin/llama-server", "--port", "8261"],
+    }
+    path.write_text(json.dumps(record), encoding="utf-8")
+    terminated: list[int] = []
+
+    class ReusedPid:
+        pid = 1234
+
+        def name(self) -> str:
+            return "llama-server"
+
+        def create_time(self) -> float:
+            return 99.0
+
+        def exe(self) -> str:
+            return "/project/bin/llama-server"
+
+        def cmdline(self) -> list[str]:
+            return ["/project/bin/llama-server", "--port", "8261"]
+
+        def terminate(self) -> None:
+            terminated.append(self.pid)
+
+    monkeypatch.setattr(psutil, "Process", lambda pid: ReusedPid())
+
+    assert reap_pidfile(path, "llama-server", logging.getLogger("test")) is False
+    assert path.exists()
+    assert terminated == []
 
 
 def test_terminate_ignores_missing_children_and_names_that_cannot_be_read(tmp_path, monkeypatch):

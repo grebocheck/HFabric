@@ -1,0 +1,10 @@
+# Canonical macOS arm64 / Apple MPS dependency input.
+# Lock with the resolver workflow declared in dependency-profiles.json:
+#   python scripts/install_profiles.py --compile-locks --lock mps-macos-arm64
+
+-r requirements.txt
+-r requirements-mps.txt
+
+torch==2.11.0
+torchvision==0.26.0
+torchaudio==2.11.0

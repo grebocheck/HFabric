@@ -1,4 +1,4 @@
-"""Bridge hardware detection to runtime acceleration settings (P20.5).
+"""Bridge hardware detection to runtime acceleration settings.
 
 The :mod:`capability_profile` knows which acceleration knobs are safe on the
 detected GPU. This module applies those to the live ``settings`` for any knob the

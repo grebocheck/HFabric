@@ -1,17 +1,22 @@
 {
   "name": "hfabric-frontend",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "openapi:generate": "openapi-typescript openapi.json -o src/types.generated.ts",
+    "lint:dead": "knip",
+    "openapi:generate": "openapi-typescript openapi.json -o src/types.generated.ts --default-non-nullable false",
     "openapi:check": "node scripts/check-openapi-types.mjs",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:list": "playwright test --list",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json"
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
@@ -22,20 +27,24 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/js": "^9.18.0",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^26.1.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.20.0",
-    "@typescript-eslint/parser": "^8.20.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.1.9",
+    "axe-core": "^4.10.2",
     "eslint": "^9.18.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^5.1.0",
     "jsdom": "^25.0.1",
+    "knip": "^6.29.0",
     "openapi-typescript": "^7.13.0",
-    "prettier": "^3.4.2",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.20.0",
@@ -43,6 +52,14 @@
     "vitest": "^4.1.9"
   },
   "overrides": {
-    "js-yaml": "^4.2.0"
+    "brace-expansion@1": "1.1.16",
+    "brace-expansion@2": "2.1.2",
+    "brace-expansion@5": "5.0.7",
+    "js-yaml": "4.3.0"
+  },
+  "knip": {
+    "ignore": [
+      "src/types.generated.ts"
+    ]
   }
 }

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+import logging
 from pathlib import Path
 import tempfile
 from typing import Any
@@ -22,11 +24,76 @@ from ..services.voice_engine import assets as asset_discovery
 from ..services.voice_engine import devices, presets, realtime, storage
 from ..services.voice_engine.engine import get_engine
 from ..util import uploads as uploads_util
+from .contracts import (
+    ERROR_RESPONSES,
+    DeleteOut,
+    VoiceConvertOut,
+    VoiceEnginePresetOut,
+    VoiceEngineStatusOut,
+    VoiceRecordingMetadataOut,
+    binary_response,
+)
 from .deps import get_arbiter, get_bus, get_worker
 
-router = APIRouter(prefix="/api/voice/engine", tags=["voice-engine"])
+router = APIRouter(
+    prefix="/api/voice/engine",
+    tags=["voice-engine"],
+    responses=ERROR_RESPONSES,
+)
 
 ALLOWED_EXTS = {".wav", ".flac", ".ogg", ".mp3"}
+_VOICE_LOCK_ATTR = "_voice_api_lifecycle_lock"
+logger = logging.getLogger("hfabric")
+
+
+def _voice_lifecycle_lock(arbiter: GpuArbiter) -> asyncio.Lock:
+    """Keep start/stop serialized per app/arbiter (and therefore per event loop)."""
+    lock = getattr(arbiter, _VOICE_LOCK_ATTR, None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(arbiter, _VOICE_LOCK_ATTR, lock)
+    return lock
+
+
+def _voice_idle_guard(worker: Worker) -> Callable[[], str | None]:
+    def guard() -> str | None:
+        job_id = worker.running_job_id
+        if job_id is None:
+            return None
+        return f"GPU job is still running ({job_id}); wait or stop it first"
+
+    return guard
+
+
+async def shutdown_voice_session(
+    arbiter: GpuArbiter,
+    worker: Worker,
+    bus: EventBus,
+) -> bool:
+    """Stop realtime/recording and always release the Voice GPU reservation."""
+    async with _voice_lifecycle_lock(arbiter):
+        was_active = realtime.session_active()
+        stopped = False
+        try:
+            stopped = await asyncio.to_thread(realtime.stop_session)
+            return stopped
+        finally:
+            # realtime.stop_session clears its singleton in its own finally. The
+            # arbiter lane must have the same guarantee if audio teardown raises.
+            await arbiter.deactivate_lane("voice")
+            if was_active or stopped:
+                bus.emit(EventType.VOICE_SESSION_STOPPED, engine="native-rvc")
+            worker.notify()
+
+
+async def _rollback_voice_handoff(
+    arbiter: GpuArbiter,
+    previous: Any,
+) -> None:
+    try:
+        await arbiter.rollback_lane("voice", previous)
+    except Exception:  # noqa: BLE001 - preserve the original device/start failure
+        logger.exception("event=voice.handoff.rollback_failed")
 
 
 class VoiceEngineSettingsUpdate(BaseModel):
@@ -126,13 +193,15 @@ def _device_missing(settings_payload: dict[str, Any], audio_devices: dict[str, l
     }
 
 
-def _status_payload() -> dict[str, Any]:
+async def _status_payload() -> VoiceEngineStatusOut:
     engine = get_engine()
-    asset_info = engine.assets()
-    models = engine.models()
+    asset_info, models, audio_devices = await asyncio.gather(
+        engine.assets_async(),
+        engine.models_async(),
+        asyncio.to_thread(devices.audio_devices),
+    )
     ready = True if settings.stub_mode else asset_info["ready"] and bool(models)
     session = realtime.current_session()
-    audio_devices = devices.audio_devices()
     settings_payload = engine.settings_payload()
     settings_payload["device_missing"] = _device_missing(settings_payload, audio_devices)
     return {
@@ -230,13 +299,15 @@ async def _write_upload_to_temp(file: UploadFile, ext: str) -> Path:
     return path
 
 
-@router.get("/status")
-async def voice_engine_status() -> dict[str, Any]:
-    return _status_payload()
+@router.get("/status", response_model=VoiceEngineStatusOut)
+async def voice_engine_status() -> VoiceEngineStatusOut:
+    return await _status_payload()
 
 
-@router.post("/assets/fetch")
-async def voice_engine_fetch_assets(body: VoiceAssetFetchRequest | None = None) -> dict[str, Any]:
+@router.post("/assets/fetch", response_model=VoiceEngineStatusOut)
+async def voice_engine_fetch_assets(
+    body: VoiceAssetFetchRequest | None = None,
+) -> VoiceEngineStatusOut:
     """Download the missing shared RVC pretrain assets (ContentVec + RMVPE) into
     models/voice/pretrain so a voice model the user dropped in actually runs — no
     manual hunting for files. Reuses the background download machinery; the Voice
@@ -244,47 +315,64 @@ async def voice_engine_fetch_assets(body: VoiceAssetFetchRequest | None = None) 
     if downloads.is_downloading():
         raise HTTPException(409, "a model download is already running; wait for it to finish")
     names = body.names if body is not None else None
-    specs = asset_discovery.fetch_specs(names)
+    specs = await asyncio.to_thread(asset_discovery.fetch_specs, names)
     if body is not None and body.include_optional:
-        specs.extend(asset_discovery.fetch_optional_specs(names))
+        specs.extend(
+            await asyncio.to_thread(asset_discovery.fetch_optional_specs, names)
+        )
     if not specs:
-        return _status_payload()  # nothing missing (or no known source)
+        return await _status_payload()  # nothing missing (or no known source)
     try:
-        downloads.start_custom(specs)
+        await asyncio.to_thread(downloads.start_custom, specs)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     if downloads.is_downloading():
         asyncio.create_task(asyncio.to_thread(downloads.run_blocking_custom, specs))
         await asyncio.sleep(0)  # let the task start before we report
-    return _status_payload()
+    return await _status_payload()
 
 
-@router.post("/settings")
-async def voice_engine_settings(body: VoiceEngineSettingsUpdate) -> dict[str, Any]:
+@router.post("/settings", response_model=VoiceEngineStatusOut)
+async def voice_engine_settings(
+    body: VoiceEngineSettingsUpdate,
+) -> VoiceEngineStatusOut:
     engine = get_engine()
     try:
-        engine.update_settings(body.model_dump(exclude_unset=True))
+        await engine.update_settings_async(body.model_dump(exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return _status_payload()
+    return await _status_payload()
 
 
-@router.get("/presets")
-async def voice_engine_presets() -> list[dict[str, Any]]:
-    return presets.list_presets()
+@router.get("/presets", response_model=list[VoiceEnginePresetOut])
+async def voice_engine_presets() -> list[VoiceEnginePresetOut]:
+    return await asyncio.to_thread(presets.list_presets)
 
 
-@router.post("/presets")
-async def voice_engine_preset_create(body: VoiceEnginePresetCreate) -> dict[str, Any]:
+@router.post("/presets", response_model=VoiceEnginePresetOut)
+async def voice_engine_preset_create(
+    body: VoiceEnginePresetCreate,
+) -> VoiceEnginePresetOut:
     try:
-        preset = presets.create_preset(body.name, body.settings.model_dump(exclude_unset=True), body.model_id)
+        preset = await asyncio.to_thread(
+            presets.create_preset,
+            body.name,
+            body.settings.model_dump(exclude_unset=True),
+            body.model_id,
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return preset
 
 
-@router.patch("/presets/{preset_id}")
-async def voice_engine_preset_update(preset_id: str, body: VoiceEnginePresetUpdate) -> dict[str, Any]:
+@router.patch(
+    "/presets/{preset_id}",
+    response_model=VoiceEnginePresetOut,
+)
+async def voice_engine_preset_update(
+    preset_id: str,
+    body: VoiceEnginePresetUpdate,
+) -> VoiceEnginePresetOut:
     fields = body.model_fields_set
     kwargs: dict[str, Any] = {}
     if "name" in fields:
@@ -294,7 +382,11 @@ async def voice_engine_preset_update(preset_id: str, body: VoiceEnginePresetUpda
     if "model_id" in fields:
         kwargs["model_id"] = body.model_id
     try:
-        preset = presets.update_preset(preset_id, **kwargs)
+        preset = await asyncio.to_thread(
+            presets.update_preset,
+            preset_id,
+            **kwargs,
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     if preset is None:
@@ -302,14 +394,14 @@ async def voice_engine_preset_update(preset_id: str, body: VoiceEnginePresetUpda
     return preset
 
 
-@router.delete("/presets/{preset_id}")
-async def voice_engine_preset_delete(preset_id: str) -> dict[str, str]:
-    if not presets.delete_preset(preset_id):
+@router.delete("/presets/{preset_id}", response_model=DeleteOut)
+async def voice_engine_preset_delete(preset_id: str) -> DeleteOut:
+    if not await asyncio.to_thread(presets.delete_preset, preset_id):
         raise HTTPException(404, "voice preset not found")
     return {"deleted": preset_id}
 
 
-@router.post("/convert")
+@router.post("/convert", response_model=VoiceConvertOut)
 async def voice_engine_convert(
     file: UploadFile = File(...),
     model_id: str = Form(...),
@@ -324,16 +416,16 @@ async def voice_engine_convert(
     input_formant: float | None = Form(None),
     input_denoise: str | None = Form(None),
     input_denoise_mix: float | None = Form(None),
-) -> dict[str, Any]:
+) -> VoiceConvertOut:
     engine = get_engine()
-    if engine.get_model(model_id) is None:
+    if await engine.get_model_async(model_id) is None:
         raise HTTPException(404, "voice model not found")
 
     ext = _safe_ext(file.filename)
     if not ext:
         raise HTTPException(415, "unsupported audio container; use wav, flac, ogg, or mp3")
 
-    missing = _asset_error(input_denoise)
+    missing = await asyncio.to_thread(_asset_error, input_denoise)
     if missing is not None:
         raise HTTPException(503, missing)
 
@@ -368,7 +460,7 @@ async def voice_engine_convert(
                 raise HTTPException(503, str(exc)) from exc
             raise
     finally:
-        input_path.unlink(missing_ok=True)
+        await asyncio.to_thread(input_path.unlink, missing_ok=True)
 
     return {
         "token": token,
@@ -378,96 +470,126 @@ async def voice_engine_convert(
     }
 
 
-@router.post("/session/start")
+@router.post("/session/start", response_model=VoiceEngineStatusOut)
 async def voice_engine_session_start(
     body: VoiceSessionStart,
     arbiter: GpuArbiter = Depends(get_arbiter),
     worker: Worker = Depends(get_worker),
     bus: EventBus = Depends(get_bus),
-) -> dict[str, Any]:
-    """Start a live native voice session. The session pins the GPU, so the
-    arbiter resident is freed first and the worker parks queued jobs (voice
-    lane) until the session stops."""
-    engine = get_engine()
-    if engine.get_model(body.model_id) is None:
-        raise HTTPException(404, "voice model not found")
-    if realtime.session_active():
-        raise HTTPException(409, "a voice session is already live")
-    if worker.running_job_id:
-        raise HTTPException(409, f"GPU job is still running ({worker.running_job_id}); wait or stop it first")
-    missing = _asset_error(engine.input_denoise)
-    if missing is not None:
-        raise HTTPException(503, missing)
-    await arbiter.free_all()
-    try:
-        await asyncio.to_thread(realtime.start_session, engine, body.model_id)
-    except RuntimeError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - surface device/model failures clearly
-        raise HTTPException(500, f"could not start the voice session: {exc}") from exc
-    # The session pins the GPU outside the arbiter; register a lane so the topbar
-    # reports "voice session" + real VRAM instead of "idle" while it runs (P24.10).
-    await arbiter.activate_lane("voice", "voice session")
-    bus.emit(
-        EventType.VOICE_SESSION_STARTED,
-        engine="native-rvc",
-        model_id=body.model_id,
-    )
-    return _status_payload()
+) -> VoiceEngineStatusOut:
+    """Atomically hand the GPU from the arbiter to a live Voice session."""
+    async with _voice_lifecycle_lock(arbiter):
+        engine = get_engine()
+        if await engine.get_model_async(body.model_id) is None:
+            raise HTTPException(404, "voice model not found")
+        if realtime.session_active():
+            raise HTTPException(409, "a voice session is already live")
+        missing = await asyncio.to_thread(_asset_error, engine.input_denoise)
+        if missing is not None:
+            raise HTTPException(503, missing)
+
+        # Reservation and resident unload happen under one arbiter lock. The
+        # worker guard is re-evaluated inside that lock, closing the start race.
+        previous = await arbiter.activate_lane(
+            "voice",
+            "voice session",
+            exclusive=True,
+            unload_resident=True,
+            idle_guard=_voice_idle_guard(worker),
+        )
+        try:
+            await asyncio.to_thread(realtime.start_session, engine, body.model_id)
+        except asyncio.CancelledError:
+            await _rollback_voice_handoff(arbiter, previous)
+            worker.notify()
+            raise
+        except RuntimeError as exc:
+            await _rollback_voice_handoff(arbiter, previous)
+            worker.notify()
+            raise HTTPException(409, str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - surface device/model failures clearly
+            await _rollback_voice_handoff(arbiter, previous)
+            worker.notify()
+            raise HTTPException(500, f"could not start the voice session: {exc}") from exc
+
+        bus.emit(
+            EventType.VOICE_SESSION_STARTED,
+            engine="native-rvc",
+            model_id=body.model_id,
+        )
+        return await _status_payload()
 
 
-@router.post("/session/stop")
+@router.post("/session/stop", response_model=VoiceEngineStatusOut)
 async def voice_engine_session_stop(
     arbiter: GpuArbiter = Depends(get_arbiter),
     worker: Worker = Depends(get_worker),
     bus: EventBus = Depends(get_bus),
-) -> dict[str, Any]:
-    stopped = await asyncio.to_thread(realtime.stop_session)
-    if stopped:
-        await arbiter.deactivate_lane("voice")
-        bus.emit(EventType.VOICE_SESSION_STOPPED, engine="native-rvc")
-        worker.notify()
-    return _status_payload()
+) -> VoiceEngineStatusOut:
+    try:
+        await shutdown_voice_session(arbiter, worker, bus)
+    except Exception as exc:  # noqa: BLE001 - lane cleanup already completed
+        raise HTTPException(500, f"could not stop the voice session: {exc}") from exc
+    return await _status_payload()
 
 
-@router.post("/recording/start")
-async def voice_engine_recording_start() -> dict[str, Any]:
+@router.post("/recording/start", response_model=VoiceEngineStatusOut)
+async def voice_engine_recording_start() -> VoiceEngineStatusOut:
     if not realtime.session_active():
         raise HTTPException(409, "start a live voice session before recording")
     try:
         await asyncio.to_thread(realtime.start_recording)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return _status_payload()
+    return await _status_payload()
 
 
-@router.post("/recording/stop")
-async def voice_engine_recording_stop() -> dict[str, Any]:
+@router.post("/recording/stop", response_model=VoiceEngineStatusOut)
+async def voice_engine_recording_stop() -> VoiceEngineStatusOut:
     if not realtime.session_active():
         raise HTTPException(409, "start a live voice session before recording")
     try:
         result = await asyncio.to_thread(realtime.stop_recording)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
+    status = await _status_payload()
     return {
-        **_status_payload(),
+        **status,
         "recording_result": {**result, "mp3_url": _mp3_url(str(result["token"]))},
     }
 
 
-@router.get("/file/{token}/mp3")
+@router.get(
+    "/file/{token}/mp3",
+    response_class=FileResponse,
+    responses=binary_response("audio/mpeg", "Converted voice MP3"),
+)
 async def voice_engine_mp3_file(token: str) -> FileResponse:
-    path = _ensure_mp3(token)
+    path = await asyncio.to_thread(_ensure_mp3, token)
     return FileResponse(path, media_type="audio/mpeg", filename=f"{token}.mp3")
 
 
-@router.get("/file/{token}/json")
+@router.get(
+    "/file/{token}/json",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "model": VoiceRecordingMetadataOut,
+            "description": "Voice recording metadata",
+            "content": {"application/json": {}},
+        }
+    },
+)
 async def voice_engine_metadata_file(token: str) -> FileResponse:
-    path = _ensure_metadata(token)
+    path = await asyncio.to_thread(_ensure_metadata, token)
     return FileResponse(path, media_type="application/json", filename=f"{token}.json")
 
 
-@router.get("/file/{token}")
+@router.get(
+    "/file/{token}",
+    response_class=FileResponse,
+    responses=binary_response("audio/wav", "Converted voice WAV"),
+)
 async def voice_engine_file(token: str) -> FileResponse:
     path = storage.resolve_output(token)
     if path is None or not path.exists():

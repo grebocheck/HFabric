@@ -7,6 +7,7 @@ upload API and the diffusers backend resolve them through here so the path rules
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import json
 import mimetypes
@@ -173,7 +174,12 @@ async def store_chat_upload(file: UploadFile, *, max_bytes: int) -> dict:
         "stored_suffix": suffix,
         "created_at": datetime.now(UTC).isoformat(),
     }
-    _chat_metadata_path(token).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    metadata_path = _chat_metadata_path(token)
+    await asyncio.to_thread(
+        metadata_path.write_text,
+        json.dumps(meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return chat_attachment_out(meta)
 
 
@@ -201,5 +207,5 @@ async def copy_limited_upload(file: UploadFile, handle: BinaryIO, *, max_bytes: 
         total += len(chunk)
         if total > max_bytes:
             raise HTTPException(413, f"{label} exceeds {max_bytes // (1024 * 1024)} MB")
-        handle.write(chunk)
+        await asyncio.to_thread(handle.write, chunk)
     return total

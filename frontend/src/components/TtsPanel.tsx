@@ -25,7 +25,9 @@ export function TtsPanel() {
     api.ttsStatus().then((s) => {
       setStatus(s);
       setModelId((prev) => prev || s.models[0]?.id || "");
-    }).catch(() => {});
+    }).catch((nextError: unknown) => {
+      setError(nextError instanceof Error ? nextError.message : "Could not load TTS status");
+    });
   }, []);
 
   const models = status?.models ?? [];
@@ -62,8 +64,8 @@ export function TtsPanel() {
         <StatusPill label={ready ? "ready" : "waiting"} tone={ready ? "good" : "neutral"} />
       </WorkspaceHeader>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3">
-        <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3 max-[760px]:block max-[760px]:overflow-x-hidden max-[760px]:overflow-y-auto">
+        <Panel className="flex min-h-0 flex-col overflow-hidden max-[760px]:mb-3 max-[760px]:h-[480px]">
           <SectionTitle title="Voice model" subtitle={status?.binary_exists ? "llama-tts executable available" : "waiting for binary"} />
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
 
@@ -75,39 +77,41 @@ export function TtsPanel() {
           ]}
         />
 
-        <label>
+        <div>
           <div className="text-xs uppercase tracking-wide text-ui-subtle">Model</div>
           <Select
             value={modelId}
             onChange={setModelId}
             placeholder="no TTS models"
+            ariaLabel="TTS model"
             className="mt-1"
             options={models.map((m) => ({ value: m.id, label: m.name, hint: size(m.size_bytes) }))}
           />
-        </label>
+        </div>
 
-        <label>
+        <div>
           <div className="text-xs uppercase tracking-wide text-ui-subtle">Vocoder</div>
           <Select
             value={vocoderId}
             onChange={setVocoderId}
             placeholder="none"
+            ariaLabel="TTS vocoder"
             className="mt-1"
             options={[{ value: "", label: "none" }, ...models.map((m) => ({ value: m.id, label: m.name }))]}
           />
-        </label>
+        </div>
 
-        <label className="ui-card flex items-center justify-between gap-3 rounded-md px-3 py-2 text-xs text-ui-muted">
+        <div className="ui-card flex items-center justify-between gap-3 rounded-md px-3 py-2 text-xs text-ui-muted">
           <span>
             <span className="block text-sm font-medium text-ui">Guide tokens</span>
             <span className="block text-xs text-ui-subtle">Use model guidance markers when available</span>
           </span>
-          <Toggle checked={useGuideTokens} onChange={setUseGuideTokens} />
-        </label>
+          <Toggle checked={useGuideTokens} onChange={setUseGuideTokens} ariaLabel="Use guide tokens" />
+        </div>
           </div>
       </Panel>
 
-      <Panel className="flex min-w-0 flex-col overflow-hidden">
+      <Panel className="flex min-w-0 flex-col overflow-hidden max-[760px]:h-[480px]">
         <SectionTitle title="Scratch text" subtitle={`${text.trim().length} chars`} />
         <textarea
           value={text}

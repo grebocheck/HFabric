@@ -19,7 +19,7 @@ const OPTIONS: SelectOption[] = [
 
 function setup(value = "") {
   const onChange = vi.fn();
-  render(<Select value={value} options={OPTIONS} onChange={onChange} />);
+  render(<Select ariaLabel="Model" value={value} options={OPTIONS} onChange={onChange} />);
   return { onChange };
 }
 
@@ -37,7 +37,10 @@ describe("Select", () => {
   it("opens on click and lists the options", async () => {
     const user = userEvent.setup();
     setup();
-    await user.click(screen.getByRole("button"));
+    const trigger = screen.getByRole("combobox", { name: "Model" });
+    expect(trigger.getAttribute("aria-controls")).toBeTruthy();
+    await user.click(trigger);
+    expect(screen.getByRole("listbox", { name: "Model options" })).toBeTruthy();
     expect(screen.getByText("FLUX dev")).toBeTruthy();
     expect(screen.getByText("Gemma 12B")).toBeTruthy();
   });
@@ -45,7 +48,7 @@ describe("Select", () => {
   it("filters options by the search query", async () => {
     const user = userEvent.setup();
     setup();
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("combobox", { name: "Model" }));
     await user.type(screen.getByPlaceholderText("search..."), "sdxl");
     expect(screen.getByText("SDXL base")).toBeTruthy();
     expect(screen.getByText("SDXL turbo")).toBeTruthy();
@@ -55,7 +58,7 @@ describe("Select", () => {
   it("calls onChange with the chosen value and closes", async () => {
     const user = userEvent.setup();
     const { onChange } = setup();
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("combobox", { name: "Model" }));
     await user.click(screen.getByText("Qwen 7B"));
     expect(onChange).toHaveBeenCalledWith("qwen");
     expect(screen.queryByPlaceholderText("search...")).toBeNull();
@@ -64,8 +67,17 @@ describe("Select", () => {
   it("shows a no-options state when the filter matches nothing", async () => {
     const user = userEvent.setup();
     setup();
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("combobox", { name: "Model" }));
     await user.type(screen.getByPlaceholderText("search..."), "zzz");
     expect(screen.getByText("no options")).toBeTruthy();
+  });
+
+  it("supports arrow navigation with option semantics", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup();
+    const trigger = screen.getByRole("combobox", { name: "Model" });
+    trigger.focus();
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenCalledWith("flux2");
   });
 });

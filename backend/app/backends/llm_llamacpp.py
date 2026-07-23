@@ -120,7 +120,7 @@ class LlamaCppBackend(LLMBackend):
         # found. Otherwise ggml silently falls back to CPU, which both eats ~12 GB
         # of RAM and is far slower.
         self._stderr_tail.clear()
-        memory_start = sysmon.snapshot()
+        memory_start = await asyncio.to_thread(sysmon.snapshot)
         self._proc = await asyncio.create_subprocess_exec(
             *self._build_server_args(),
             cwd=str(bin_path.parent),
@@ -132,7 +132,10 @@ class LlamaCppBackend(LLMBackend):
         try:
             await self._wait_healthy()
             self._load_report = {
-                "memory": {"start": memory_start, "end": sysmon.snapshot()},
+                "memory": {
+                    "start": memory_start,
+                    "end": await asyncio.to_thread(sysmon.snapshot),
+                },
                 "mmproj": (
                     {
                         "path": str(self.descriptor.mmproj_path),

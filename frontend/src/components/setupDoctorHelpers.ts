@@ -9,7 +9,7 @@ export interface DoctorStatus {
 }
 
 /**
- * Plain-language one-liner for the Setup doctor headline (P20.6). Intentionally
+ * Plain-language one-liner for the Setup doctor headline. Intentionally
  * avoids CUDA/ROCm jargon in the headline and explains the trade-off in detail.
  */
 export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
@@ -48,8 +48,8 @@ export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
     return {
       headline: "AMD GPU detected, ROCm build active (experimental)",
       detail: gpuName
-        ? `${gpuName} runs through the Linux ROCm PyTorch build; CUDA-only features are disabled. This path is not yet validated on real hardware — SDXL-only for now, and a validation report would help.`
-        : "The Linux ROCm PyTorch build is active (experimental, unvalidated on real hardware); CUDA-only features are disabled.",
+        ? `${gpuName} runs through the Linux ROCm PyTorch build; CUDA-only features are disabled. This path is not yet validated on real hardware — use SDXL plus the CogVideoX T2V fallback for now, and a validation report would help.`
+        : "The Linux ROCm PyTorch build is active (experimental, unvalidated on real hardware); CUDA-only features are disabled, with SDXL plus the CogVideoX T2V fallback exposed.",
       tone: "info",
     };
   }
@@ -58,8 +58,8 @@ export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
     return {
       headline: "Apple Silicon detected, MPS build active (experimental)",
       detail: gpuName
-        ? `${gpuName} runs through PyTorch MPS; CUDA-only features are disabled. This path is not yet validated on a real Mac — SDXL-only for now, and a validation report would help.`
-        : "PyTorch MPS is active (experimental, unvalidated on a real Mac); CUDA-only features are disabled.",
+        ? `${gpuName} runs through PyTorch MPS; CUDA-only features are disabled. This path is not yet validated on a real Mac — use SDXL plus the CogVideoX T2V fallback for now, and a validation report would help.`
+        : "PyTorch MPS is active (experimental, unvalidated on a real Mac); CUDA-only features are disabled, with SDXL plus the CogVideoX T2V fallback exposed.",
       tone: "info",
     };
   }
@@ -73,7 +73,7 @@ export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
   };
 }
 
-/** Backends that are implemented but not yet validated on real hardware (P21.3). */
+/** Backends that are implemented but not yet validated on real hardware. */
 export function isExperimentalBackend(cap: CapabilityProfile | null): boolean {
   return cap?.backend === "rocm" || cap?.backend === "mps";
 }

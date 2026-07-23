@@ -34,9 +34,9 @@ on your machine; nothing is sent to a cloud service.
   </tr>
 </table>
 
-> **Project status: public beta (v0.3.0, B+).** `v0.1.0`, `v0.2.0`, and `v0.3.0`
-> are tagged and released. The app is solid for the author's own daily use and now
-> open to other testers, but it has **not** had wide hardware coverage yet.
+> **Project status: public beta (v0.4.0, B+).** `v0.1.0` through `v0.4.0`
+> are the published release line. The app is solid for the author's own daily use
+> and now open to other testers, but it has **not** had wide hardware coverage yet.
 >
 > - **What works:** the full local pipeline — chat LLM, image/edit generation, video
 >   generation, the VRAM arbiter, and the workspaces — is real-GPU validated on
@@ -48,7 +48,7 @@ on your machine; nothing is sent to a cloud service.
 >
 > Before reporting, skim [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and the
 > [Platform support](#platform-support) matrix; the
-> [current audit](docs/audit-2026-06-30.md) is the most candid status
+> [current stabilization record](ROADMAP.md) is the most candid status
 > snapshot. Found a security issue? See [SECURITY.md](SECURITY.md) — please report it
 > privately.
 
@@ -76,9 +76,11 @@ WebSocket → gallery with reproducible metadata) is validated on the GPU today:
 - **Image:** SDXL, FLUX, FLUX.2 [klein], Anima, Qwen-Image, and Z-Image generation;
   a dedicated **Edit** workspace adds img2img, inpaint, outpaint, full-size mask
   painting, A/B comparison, ControlNet, and instruction-edit model support.
-- **Video:** LTX-Video text-to-video and image-to-video plus Wan 2.2 text-to-video,
+- **Video:** LTX-Video text-to-video and image-to-video, Wan 2.2 text-to-video,
+  FramePack Hunyuan image-to-video, and CogVideoX-2B text-to-video fallback,
   served as seekable MP4 with poster/animated thumbnail history. On the reference
-  16 GB GPU, 480p / 49-frame LTX T2V+I2V and Wan T2V are validated.
+  16 GB GPU, LTX/Wan/FramePack/CogVideoX are validated; ROCm/MPS CogVideoX
+  validation is still pending real tester hardware.
 - **Chat LLM:** any GGUF model via `llama-server`, with streaming, personas,
   sampling control, stop/regenerate/edit, attachments, native multimodal
   `mmproj` vision, and a `/image` bridge.
@@ -100,8 +102,8 @@ aware of what's actually been validated:
 |----------|---------|--------|
 | **NVIDIA CUDA (Windows)** | `nvidia-cuda` | ✅ **Validated** end-to-end on RTX 5070 Ti 16 GB (Blackwell), 32 GB RAM, Windows 11. The reference path. |
 | NVIDIA CUDA (other tiers) | `nvidia-cuda` | ⚠️ Capability-aware (8 GB = SDXL/small-LLM safe mode, 12 GB +quantized LLMs, 16 GB+ richer set). Fast paths auto-disable below the required compute capability. Not yet validated on non-Blackwell silicon. |
-| **AMD ROCm (Linux)** | `amd-rocm-linux` | 🧪 **Experimental** — implemented and unit-tested, but never run on real ROCm hardware. SDXL-only until validated. CUDA-only features (Nunchaku, etc.) auto-disable. Testers welcome. |
-| **Apple Silicon (MPS)** | `apple-mps` | 🧪 **Experimental** — implemented and unit-tested, never run on a real Mac. SDXL + llama.cpp Metal, fp4 families hidden. Testers welcome. |
+| **AMD ROCm (Linux)** | `amd-rocm-linux` | 🧪 **Experimental** — implemented and unit-tested, but never run on real ROCm hardware. SDXL plus CogVideoX-2B T2V fallback are exposed; CUDA-only features (Nunchaku, LTX/Wan/FramePack video, etc.) auto-disable. Testers welcome. |
+| **Apple Silicon (MPS)** | `apple-mps` | 🧪 **Experimental** — implemented and unit-tested, never run on a real Mac. SDXL + llama.cpp Metal plus CogVideoX-2B T2V fallback are exposed; fp4/CUDA-only families hidden. Testers welcome. |
 | Unsupported / no GPU | `cpu-safe` / STUB | ✅ Always works. CPU-safe falls back gracefully; STUB needs no ML stack at all. |
 
 If you're on ROCm or Apple Silicon and willing to help validate, the
@@ -185,29 +187,36 @@ optional voice denoise assets. When finished, run the app with
 <details>
 <summary><b>Manual GPU install (advanced)</b></summary>
 
-Start from the same resolver the installer uses, then install the emitted
-packages:
+Start from the same profile manifest and compiled locks the installer uses:
 
 ```powershell
 python scripts/hardware_probe.py --pretty     # machine report
-python scripts/install_profiles.py --pretty    # chosen profile + packages
+python scripts/install_profiles.py --pretty    # chosen profile + exact lock
 ```
 
 The current profiles map to:
 
 ```powershell
-# NVIDIA CUDA
+# NVIDIA CUDA — Windows
 pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
-pip install -r backend/requirements-gpu.txt
+pip install --require-hashes -r backend/requirements-gpu.lock
+
+# NVIDIA CUDA — Linux
+pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+pip install --require-hashes -r backend/requirements-cuda-linux.lock
 
 # Linux AMD ROCm
 pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
-pip install -r backend/requirements-rocm.txt
+pip install --require-hashes -r backend/requirements-rocm-linux.lock
 
 # Apple Silicon MPS (standard PyPI wheels, no --index-url)
-pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
-pip install -r backend/requirements-mps.txt
+pip install --require-hashes -r backend/requirements-mps.lock
 ```
+
+`backend/dependency-profiles.json` is the source of truth. Do not hand-edit a
+lock; regenerate all targets with
+`python scripts/install_profiles.py --compile-locks` and verify freshness with
+`python scripts/install_profiles.py --check-locks`.
 
 Verify with `python scripts/install_smoke.py`. For faster FLUX on CUDA, install
 the Nunchaku wheel **only** when `/api/capabilities` lists `nunchaku_cuda` in
@@ -355,12 +364,15 @@ Two surfaces, deliberately separated:
 HFAB_HOST=127.0.0.1
 HFAB_PORT=8260
 # HFAB_API_TOKEN=change-me     # required before binding to a LAN address
+HFAB_ALLOW_INSECURE_LAN=false  # dangerous opt-in for an isolated trusted LAN
 HFAB_SERVE_FRONTEND=false
 ```
 
 **Security model in one line:** HFabric is a local single-user app bound to
 `127.0.0.1` by default; exposing it on a LAN (`HFAB_HOST=0.0.0.0`) requires
 `HFAB_API_TOKEN`, and desktop-reaching actions stay loopback-only regardless.
+The UI uses a short-lived HttpOnly asset session, so the bearer is never placed
+in media or WebSocket URLs.
 
 The full env/Settings/knob reference (acceleration, llama.cpp, LoRA, keep-warm,
 speech/RAG/chat-native vision/voice, capability autotune) is in
@@ -370,11 +382,11 @@ speech/RAG/chat-native vision/voice, capability autotune) is in
 
 | Symptom | Fix |
 |---------|-----|
-| **`WinError 10013: socket forbidden`** | A previous run still holds port 8260/5173. Re-run `run.bat` (it auto-kills stale processes), or `netstat -ano \| findstr :8260` then `taskkill /PID <pid> /F`. |
+| **`WinError 10013: socket forbidden`** | Another process owns port 8260/5173. The launcher reports its PID and exits without terminating it. Stop that process only if you recognize it, or select another port. |
 | **`ModuleNotFoundError: torch`** | Re-run `run.bat` / `./run.sh` or `update.bat`; launchers repair a missing REAL stack automatically. |
 | **CUDA out of memory** | Lower **Settings → LLM runtime → GPU layers**, disable **torch.compile**, reduce resolution, try a smaller model, or check **Settings → Memory policy**. |
 | **"No image models discovered"** | Models are missing or in the wrong folder. Confirm files under `models/image/`, `models/llm/`, etc., or run `python scripts/fetch_models.py`. |
-| **Vite dev server won't start** | Port 5173 conflict (`run.bat` frees it automatically) or frontend dependencies are stale; re-run `run.bat` or `setup.bat`. |
+| **Vite dev server won't start** | Port 5173 is occupied or frontend dependencies are stale. Free/select another port, then re-run `run.bat` or `setup.bat`. |
 | **Backend crashes after first request** | Re-run `update.bat` (or `setup.bat`) so the venv matches the current code; use `run.bat stub` to isolate UI/foundation issues. |
 
 More detail and logs: the backend console and `data/logs/hfabric.log` are the
@@ -392,14 +404,14 @@ python scripts/install_profiles.py --pretty
 | [docs/configuration.md](docs/configuration.md) | All env vars + Settings knobs + security model |
 | [docs/developer.md](docs/developer.md) | Layout, testing, migrations, backup/restore, contributing |
 | [docs/gpu-smoke.md](docs/gpu-smoke.md) | Real-GPU validation checklist + the validation log |
+| [docs/first-run-audit.md](docs/first-run-audit.md) | Clean Windows first-run audit checklist for beta testers |
 | [models/README.md](models/README.md) | Model folder layout + curated download list |
 | [docs/voice-routing.md](docs/voice-routing.md) | Routing the voice changer into Discord/OBS/etc. |
-| [docs/audit-2026-06-30.md](docs/audit-2026-06-30.md) | Current code-quality and stability audit (weaknesses + plan) |
+| [ROADMAP.md](ROADMAP.md) | Current audit implementation record + remaining external validation |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to report a bug + open a PR |
 | [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Beta limitations, by-design behavior, rough edges |
 | [SECURITY.md](SECURITY.md) | Security model + how to report a vulnerability privately |
 | [CHANGELOG.md](CHANGELOG.md) | What changed between versions |
-| [ROADMAP.md](ROADMAP.md) | Forward plan + active backlog |
 | [docs/history.md](docs/history.md) | The shipped-phases record (M0–P24) |
 
 ## License and models

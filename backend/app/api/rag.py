@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import re
 
@@ -14,13 +15,27 @@ from ..config import settings
 from ..db.models import Note, RagChunk, RagDocument
 from ..services.embedding_service import (
     embedding_service,
-    list_embedding_models,
+    list_embedding_models_async,
 )
-from ..services.rag_service import resolve_embedding_model_id
+from ..services.rag_service import (
+    chunk_document_text_async,
+    resolve_embedding_model_id_async,
+)
 from ..services.rag_service import search_documents as run_rag_search
+from .contracts import (
+    ERROR_RESPONSES,
+    DeleteOut,
+    RagDocumentOut,
+    RagSearchOut,
+    RagStatusOut,
+)
 from .deps import get_session
 
-router = APIRouter(prefix="/api/rag", tags=["rag"])
+router = APIRouter(
+    prefix="/api/rag",
+    tags=["rag"],
+    responses=ERROR_RESPONSES,
+)
 
 
 class RagDocumentCreate(BaseModel):
@@ -45,32 +60,7 @@ def _title(value: str | None, fallback: str = "Untitled document") -> str:
     return clean[:240] if clean else fallback
 
 
-def _chunk_text(text: str) -> list[str]:
-    clean = re.sub(r"\r\n?", "\n", text).strip()
-    clean = re.sub(r"\n{3,}", "\n\n", clean)
-    if not clean:
-        return []
-
-    target = max(400, settings.rag_chunk_chars)
-    overlap = max(0, min(settings.rag_chunk_overlap, target // 2))
-    chunks: list[str] = []
-    start = 0
-    while start < len(clean):
-        end = min(len(clean), start + target)
-        if end < len(clean):
-            boundary = max(clean.rfind("\n\n", start, end), clean.rfind(". ", start, end))
-            if boundary > start + target // 2:
-                end = boundary + (1 if clean[boundary:boundary + 1] == "." else 0)
-        chunk = clean[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= len(clean):
-            break
-        start = max(end - overlap, start + 1)
-    return chunks
-
-
-def _doc_out(doc: RagDocument, chunks_count: int) -> dict:
+def _doc_out(doc: RagDocument, chunks_count: int) -> RagDocumentOut:
     return {
         "id": doc.id,
         "title": doc.title,
@@ -82,9 +72,9 @@ def _doc_out(doc: RagDocument, chunks_count: int) -> dict:
     }
 
 
-@router.get("/status")
-async def rag_status() -> dict:
-    models = list_embedding_models()
+@router.get("/status", response_model=RagStatusOut)
+async def rag_status() -> RagStatusOut:
+    models = await list_embedding_models_async()
     return {
         "binary": str(settings.llama_server_bin),
         "binary_exists": settings.llama_server_bin.exists(),
@@ -98,12 +88,12 @@ async def rag_status() -> dict:
     }
 
 
-@router.get("/documents")
+@router.get("/documents", response_model=list[RagDocumentOut])
 async def list_documents(
     q: str | None = Query(None, max_length=200),
     limit: int = Query(200, ge=1, le=1000),
     session: AsyncSession = Depends(get_session),
-) -> list[dict]:
+) -> list[RagDocumentOut]:
     stmt = (
         select(RagDocument, func.count(RagChunk.id))
         .outerjoin(RagChunk)
@@ -126,11 +116,11 @@ async def list_documents(
     return [_doc_out(doc, int(count)) for doc, count in rows]
 
 
-@router.post("/documents")
+@router.post("/documents", response_model=RagDocumentOut)
 async def create_document(
     body: RagDocumentCreate,
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> RagDocumentOut:
     return await _index_document(
         session,
         title=_title(body.title),
@@ -140,19 +130,19 @@ async def create_document(
     )
 
 
-@router.post("/documents/upload")
+@router.post("/documents/upload", response_model=RagDocumentOut)
 async def upload_document(
     file: UploadFile = File(...),
     title: str | None = Form(None),
     model_id: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> RagDocumentOut:
     payload = await file.read(1_000_001)
     if len(payload) > 1_000_000:
         raise HTTPException(413, "document upload exceeds 1 MB")
     if not payload:
         raise HTTPException(422, "document is empty")
-    content = payload.decode("utf-8", errors="replace")
+    content = await asyncio.to_thread(payload.decode, "utf-8", errors="replace")
     return await _index_document(
         session,
         title=_title(title, fallback=file.filename or "Uploaded document"),
@@ -162,12 +152,15 @@ async def upload_document(
     )
 
 
-@router.post("/documents/from-note/{note_id}")
+@router.post(
+    "/documents/from-note/{note_id}",
+    response_model=RagDocumentOut,
+)
 async def create_from_note(
     note_id: str,
     model_id: str | None = None,
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> RagDocumentOut:
     note = await session.get(Note, note_id)
     if not note:
         raise HTTPException(404, "note not found")
@@ -180,11 +173,11 @@ async def create_from_note(
     )
 
 
-@router.delete("/documents/{document_id}")
+@router.delete("/documents/{document_id}", response_model=DeleteOut)
 async def delete_document(
     document_id: str,
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> DeleteOut:
     doc = await session.get(RagDocument, document_id)
     if not doc:
         raise HTTPException(404, "document not found")
@@ -193,11 +186,11 @@ async def delete_document(
     return {"deleted": document_id}
 
 
-@router.post("/search")
+@router.post("/search", response_model=RagSearchOut)
 async def search_documents(
     body: RagSearchIn,
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> RagSearchOut:
     try:
         return await run_rag_search(
             session,
@@ -218,12 +211,12 @@ async def _index_document(
     content: str,
     source: str | None,
     model_id: str | None,
-) -> dict:
-    chunks = _chunk_text(content)
+) -> RagDocumentOut:
+    chunks = await chunk_document_text_async(content)
     if not chunks:
         raise HTTPException(422, "document has no indexable text")
     try:
-        resolved_model_id = resolve_embedding_model_id(model_id)
+        resolved_model_id = await resolve_embedding_model_id_async(model_id)
     except KeyError as exc:
         raise HTTPException(404, "embedding model not found") from exc
     except RuntimeError as exc:

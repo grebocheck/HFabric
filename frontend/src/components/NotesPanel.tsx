@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { EmptyState, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
+import { toast } from "./Toast";
 import type { Note } from "../types";
 
 const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
@@ -23,6 +24,7 @@ export function NotesPanel() {
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [loadError, setLoadError] = useState("");
   const loadedId = useRef<string | null>(null);
 
   const active = useMemo(
@@ -33,8 +35,11 @@ export function NotesPanel() {
   const refresh = useCallback((q = query) => {
     api.listNotes(q).then((rows) => {
       setNotes(rows);
+      setLoadError("");
       if (!activeId && rows[0]) setActiveId(rows[0].id);
-    }).catch(() => {});
+    }).catch((error: unknown) => {
+      setLoadError(error instanceof Error ? error.message : "Could not load notes");
+    });
   }, [activeId, query]);
 
   useEffect(() => {
@@ -86,12 +91,16 @@ export function NotesPanel() {
 
   const remove = useCallback(async () => {
     if (!activeId) return;
-    await api.deleteNote(activeId).catch(() => {});
-    setNotes((prev) => {
-      const next = prev.filter((n) => n.id !== activeId);
-      setActiveId(next[0]?.id ?? null);
-      return next;
-    });
+    try {
+      await api.deleteNote(activeId);
+      setNotes((prev) => {
+        const next = prev.filter((n) => n.id !== activeId);
+        setActiveId(next[0]?.id ?? null);
+        return next;
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete note");
+    }
   }, [activeId]);
 
   return (
@@ -102,7 +111,7 @@ export function NotesPanel() {
         actions={(
           <button
             onClick={() => void create()}
-            className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500"
+            className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-ui-inverse hover:bg-emerald-800"
           >
             New note
           </button>
@@ -115,8 +124,8 @@ export function NotesPanel() {
         />
       </WorkspaceHeader>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,340px)_minmax(0,1fr)] gap-3">
-        <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,340px)_minmax(0,1fr)] gap-3 max-[760px]:block max-[760px]:overflow-x-hidden max-[760px]:overflow-y-auto">
+        <Panel className="flex min-h-0 flex-col overflow-hidden max-[760px]:mb-3 max-[760px]:h-[320px]">
         <div className="border-b border-border p-3">
           <input
             value={query}
@@ -126,7 +135,14 @@ export function NotesPanel() {
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {notes.length === 0 && <EmptyState title="No notes" body="Create one from the header and it will autosave here." />}
+          {loadError ? (
+            <div className="flex min-h-32 flex-col items-center justify-center gap-2 px-3 text-center">
+              <p className="text-sm text-error-fg">{loadError}</p>
+              <button onClick={() => refresh()} className="ui-button rounded-md px-3 py-1 text-xs">Retry</button>
+            </div>
+          ) : notes.length === 0 ? (
+            <EmptyState title="No notes" body="Create one from the header and it will autosave here." />
+          ) : null}
           {notes.map((note) => (
             <button
               key={note.id}
@@ -143,7 +159,7 @@ export function NotesPanel() {
         </div>
       </Panel>
 
-      <Panel className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <Panel className="flex min-w-0 flex-1 flex-col overflow-hidden max-[760px]:h-[520px]">
         <SectionTitle
           title={active ? "Editor" : "Editor"}
           subtitle={active ? fmt(active.updated_at) : "No note selected"}

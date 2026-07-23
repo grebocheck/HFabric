@@ -1,6 +1,7 @@
 // One-time welcome shown on first launch (gated by localStorage in App). It names
 // the three core surfaces and sets honest expectations for the beta — deliberately
 // small, not a multi-step tour.
+import { Dialog } from "./Dialog";
 
 type WelcomeProps = {
   stubMode: boolean;
@@ -16,9 +17,16 @@ const SURFACES: { name: string; blurb: string }[] = [
 
 export function Welcome({ stubMode, onClose }: WelcomeProps) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-lg border border-line bg-surface p-5 shadow-popover">
-        <h2 className="text-lg font-semibold text-ui-strong">Welcome to HFabric</h2>
+    <Dialog
+      open
+      title="Welcome to HFabric"
+      onClose={onClose}
+      closeOnBackdrop={false}
+      closeOnEscape={false}
+      panelClassName="flex w-full max-w-lg flex-col"
+      titleClassName="shrink-0 px-4 pt-4 text-lg font-semibold text-ui-strong sm:px-5 sm:pt-5"
+    >
+      <div className="min-h-0 overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5">
         <p className="mt-1 text-sm leading-5 text-ui-muted">
           A local AI workspace — chat and image generation on one GPU, with nothing sent to a cloud.
           This is a <span className="text-ui-strong">public beta</span>: solid for daily use, but expect rough edges.
@@ -26,9 +34,9 @@ export function Welcome({ stubMode, onClose }: WelcomeProps) {
 
         <ul className="mt-4 space-y-2">
           {SURFACES.map((s) => (
-            <li key={s.name} className="flex gap-3 rounded-md border border-line bg-control px-3 py-2">
+            <li key={s.name} className="flex min-w-0 gap-3 rounded-md border border-line bg-control px-3 py-2 max-[480px]:flex-col max-[480px]:gap-1">
               <span className="shrink-0 text-sm font-semibold text-accent-fg">{s.name}</span>
-              <span className="text-xs leading-5 text-ui-muted">{s.blurb}</span>
+              <span className="min-w-0 text-xs leading-5 text-ui-muted">{s.blurb}</span>
             </li>
           ))}
         </ul>
@@ -40,15 +48,15 @@ export function Welcome({ stubMode, onClose }: WelcomeProps) {
           </p>
         ) : null}
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex justify-end max-[360px]:block">
           <button
             onClick={onClose}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-ui-inverse hover:bg-accent-hover"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-ui-inverse hover:bg-accent-hover max-[360px]:w-full"
           >
             Get started
           </button>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

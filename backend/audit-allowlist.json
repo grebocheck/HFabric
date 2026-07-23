@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "id": "PYSEC-2025-217",
+      "package": "transformers",
+      "expires": "2026-10-31",
+      "reason": "Transformers 5 removes CLIP internals used by the validated diffusers 0.38 image loaders; upgrade requires the recorded NVIDIA/ROCm/MPS smoke matrix."
+    },
+    {
+      "id": "PYSEC-2026-2288",
+      "package": "transformers",
+      "expires": "2026-10-31",
+      "reason": "Transformers 5 removes CLIP internals used by the validated diffusers 0.38 image loaders; upgrade requires the recorded NVIDIA/ROCm/MPS smoke matrix."
+    },
+    {
+      "id": "PYSEC-2026-2289",
+      "package": "transformers",
+      "expires": "2026-10-31",
+      "reason": "Transformers 5 removes CLIP internals used by the validated diffusers 0.38 image loaders; upgrade requires the recorded NVIDIA/ROCm/MPS smoke matrix."
+    },
+    {
+      "id": "PYSEC-2026-2290",
+      "package": "transformers",
+      "expires": "2026-10-31",
+      "reason": "Transformers 5 removes CLIP internals used by the validated diffusers 0.38 image loaders; upgrade requires the recorded NVIDIA/ROCm/MPS smoke matrix."
+    },
+    {
+      "id": "PYSEC-2026-3447",
+      "package": "setuptools",
+      "expires": "2026-09-15",
+      "reason": "PyTorch 2.11 declares setuptools<82 while the advisory is fixed only in setuptools 83; the service does not build or publish source distributions at runtime, and the exception must be removed with the next validated PyTorch/Nunchaku profile."
+    }
+  ]
+}

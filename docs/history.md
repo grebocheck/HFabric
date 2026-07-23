@@ -104,7 +104,8 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
 - **P20.3 — NVIDIA tiers.** Capability-aware runtime defaults (architecture from
   compute cap); VRAM-tiered model policy (8/12/16 GB).
 - **P20.4 — AMD ROCm (Linux).** First-class profile; CUDA-only features auto-disabled;
-  SDXL-safe until real-ROCm validation. *(Unvalidated → ROADMAP P21.4.)*
+  SDXL plus CogVideoX T2V fallback exposed until real-ROCm validation.
+  *(Unvalidated → ROADMAP P21.4.)*
 - **P20.5 — Capability gates.** `CapabilityProfile` drives model/feature gating;
   `/api/models` marks availability; server-side enforcement; startup autotune.
 - **P20.6–.7 — Setup Doctor + recommendations.** Plain-language detected-hardware
@@ -123,7 +124,8 @@ without losing the history. Detailed run logs live in `data/runtime/*.json`.
 - **P21.2 — Version stamp + changelog + contributing.** `app.__version__` single
   source, surfaced in `/api/health` + System tab; `CHANGELOG.md` + `CONTRIBUTING.md`.
 - **P21.3 — Label experimental paths in the UI.** Setup Doctor reads ROCm/MPS as
-  "(experimental)" with an info tone and an "SDXL-only, not yet validated" line.
+  "(experimental)" with an info tone and a "SDXL + CogVideoX fallback, not yet
+  validated" line.
 - **P21.5 — Packaged release.** *(Resolved by P24.3.)* Clone-and-run; tag-triggered
   GitHub pre-release with a `git archive` source zip + checksum; one-page
   "download → run" (`docs/release-footer.md`).

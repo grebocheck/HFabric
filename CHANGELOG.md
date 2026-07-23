@@ -8,6 +8,21 @@ include breaking changes — this is pre-release software.
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.4.0] — 2026-07-23
+
+### Added
+
 - **Video generation workspace (P27):** dedicated T2V/I2V composer, local LTX-Video
   and Wan 2.2 discovery, 4-bit Diffusers loading, tiled/chunked VAE decode, shared
   arbiter queue, mp4 player, poster/animated thumbnails, and Video History.
@@ -23,8 +38,41 @@ include breaking changes — this is pre-release software.
 - **Edit-quality controls:** crop/pad/stretch source fitting, server-side mask
   grow/shrink/blur/invert, masked-region padding, outpaint margins, family-specific
   strengths, and reproducible edit metadata.
+- **Typed API contract:** successful responses now use named Pydantic models;
+  OpenAPI is checked for freshness and generates the frontend TypeScript surface.
+- **Operational diagnostics:** request IDs and structured queue, scheduler, GPU
+  handoff, reconnect, and error metrics make lifecycle failures traceable.
+- **Release-quality test matrix:** deterministic and shuffled backend runs, critical
+  branch-coverage gates, frontend coverage, Playwright E2E, axe theme checks,
+  responsive viewport checks, dependency audits, secret scanning, and dead-code
+  analysis now run as repeatable project gates.
 
 ### Changed
+
+- **GPU ownership is now an explicit state machine:** execution leases, resident
+  pins, exclusive Voice lanes, atomic handoff, rollback, bounded shutdown, and
+  deterministic recovery replace implicit cross-service ownership.
+- **Persistence is crash-safe:** settings, secrets, and presets use a shared atomic
+  JSON store with locking, fsync, backup, and corrupt-file quarantine; SQLite uses
+  WAL, foreign keys, busy timeout, and bounded write retry.
+- **Storage lifecycle is coordinated:** model deletion reserves paths against
+  concurrent load/use, handles parent/child and companion files, rejects unsafe
+  symlinks, and rolls back cleanly on failure.
+- **Frontend state is reconciled:** a shared query cache, WebSocket-to-REST recovery,
+  structured API errors, resilient media, global error boundaries, and validated
+  persisted/API values replace stale or crash-prone local state.
+- Workspaces are loaded lazily and the App, Chat, Voice, Image, and Video surfaces
+  are split into focused controllers and sections, reducing the initial JavaScript
+  bundle to 80.16 KB gzip.
+- Backend scheduler, settings specifications, image editing/LoRA, download catalog,
+  transport, and validation code are split by responsibility while retaining their
+  stable API/test hooks.
+- Dependency installation now uses canonical foundation, accelerator-common, CUDA,
+  ROCm, MPS, and development profiles with hashed lock files and drift checks.
+- The release helper updates backend and frontend manifests together and rejects a
+  tag when the npm lock or generated OpenAPI version has drifted.
+- Windows and POSIX launchers now share runtime-environment and process-ownership
+  rules instead of independently guessing which process or dependency to manage.
 - Finished the P25 semantic-theme pass across Code, Notes, RAG, Transcribe, Models,
   Setup Doctor, Voice, telemetry, and shared controls; dark-only utilities are now
   confined to intentional media, scrim, and code surfaces.
@@ -35,11 +83,38 @@ include breaking changes — this is pre-release software.
 
 ### Removed
 
+- Bearer tokens are no longer placed in asset URLs; authenticated media access uses
+  a short-lived signed HttpOnly session.
+- Unsafe global process termination and duplicate/dead frontend exports,
+  configuration paths, and historical workarounds were removed.
+
 ### Fixed
+
+- Resident pin/free/reload races can no longer report a successful reload without
+  changing the model or allow Voice to start beside another heavy GPU resident.
+- Scheduler cancellation, cleanup, retry, backend-failure, requeue, and shutdown
+  paths consistently release their lease and preserve recoverable queue state.
+- Missing or orphaned gallery files are reconciled, and failed thumbnails fall back
+  to the original image instead of leaving broken history cards.
+- Model deletion now blocks active models, LoRAs, `mmproj` companions, nested paths,
+  and check-then-load races without deleting unrelated files.
+- WebSocket reconnect restores authoritative state; malformed settings or llama
+  runtime responses display a recoverable UI state instead of crashing a workspace.
 - The top toolbar no longer overlaps or clips branding and actions at 390 px; narrow
   screens use a separate horizontally scrollable navigation row.
+- Dialog, select, focus, keyboard, and ARIA behavior is consistent across all themes,
+  and workspace layouts no longer overflow at 320–1440 px.
 
 ### Security
+
+- Non-loopback binds without authentication now fail closed.
+- External downloads enforce public-address/DNS revalidation, redirects remain
+  constrained, and upload/ZIP handling rejects traversal, symlinks, and expansion
+  bombs.
+- Code browsing excludes secrets and runtime credentials; launchers terminate only
+  verified HFabric-owned PIDs and never kill arbitrary port owners.
+- Security and dependency exceptions are machine-readable, expiry-bounded, and
+  enforced by CI.
 
 ## [0.3.0] — 2026-06-19
 
@@ -198,7 +273,8 @@ CPU-first) — together with everything below.
   now degrades to an empty device list (warned once in the log) so the endpoint stays
   healthy and the Voice tab simply shows no devices.
 
-[Unreleased]: https://github.com/grebocheck/HFabric/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/grebocheck/HFabric/compare/v0.4.0...HEAD
 [0.1.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.1.0
 [0.2.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.2.0
 [0.3.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.3.0
+[0.4.0]: https://github.com/grebocheck/HFabric/releases/tag/v0.4.0

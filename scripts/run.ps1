@@ -5,13 +5,12 @@
     .\scripts\run.ps1 -Stub    # STUB mode (full pipeline, no GPU/ML stack)
     .\scripts\run.ps1 -Prod    # one-port production mode (serves frontend/dist)
 
-  Before starting it frees the backend/frontend ports, killing stale instances
-  left over from earlier runs. Those leftovers are the cause of the
-  "WinError 10013 / socket forbidden" failure: a previous backend was still
-  holding port 8260, so a new one could not bind. Bootstraps local Python/Node
-  under .tools when needed, creates/repairs venv + npm deps on first run, then
-  runs the FastAPI backend and the Vite dev server in THIS console. Ctrl+C
-  stops both.
+  Before starting it verifies that the required ports are free. It never
+  terminates an unrelated process: if a port is occupied, the launcher reports
+  its owner and exits. Bootstraps local Python/Node under .tools when needed,
+  creates/repairs venv + npm deps on first run, then runs the FastAPI backend
+  and the Vite dev server in THIS console. Ctrl+C stops processes started by
+  this launcher.
 #>
 param(
     [switch]$Stub,
@@ -32,25 +31,18 @@ $venvPy = Join-Path $root ".venv\Scripts\python.exe"
 
 function Import-DotEnv([string]$Path) {
     if (-not (Test-Path $Path)) { return }
-    foreach ($line in Get-Content $Path) {
-        $trimmed = $line.Trim()
-        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#")) { continue }
-
-        $eq = $trimmed.IndexOf("=")
-        if ($eq -lt 1) { continue }
-
-        $key = $trimmed.Substring(0, $eq).Trim()
-        $value = $trimmed.Substring($eq + 1).Trim()
-        if (
-            ($value.StartsWith('"') -and $value.EndsWith('"')) -or
-            ($value.StartsWith("'") -and $value.EndsWith("'"))
-        ) {
-            $value = $value.Substring(1, $value.Length - 2)
-        }
-
-        if ([Environment]::GetEnvironmentVariable($key, "Process") -eq $null) {
-            Set-Item -Path "Env:$key" -Value $value
-        }
+    $policyPython = if (Test-Path $venvPy) { $venvPy } else { Get-ManagedPythonExe }
+    if (-not (Test-Path $policyPython)) {
+        Assert-Python
+        $policyPython = Get-ManagedPythonExe
+    }
+    $json = & $policyPython "scripts\runtime_env.py" --path $Path --format json
+    if ($LASTEXITCODE -ne 0) {
+        throw "[env] could not parse $Path"
+    }
+    $values = ($json -join "`n") | ConvertFrom-Json
+    foreach ($property in $values.PSObject.Properties) {
+        Set-Item -Path "Env:$($property.Name)" -Value ([string]$property.Value)
     }
 }
 
@@ -157,6 +149,14 @@ $env:HFAB_PORT = "$Port"
 # Hardware profile resolution needs a host Python before the venv exists. Prefer
 # the project-managed Python under .tools so first run is independent of PATH.
 Assert-Python
+$policyPython = if (Test-Path $venvPy) { $venvPy } else { Get-ManagedPythonExe }
+& $policyPython "scripts\runtime_env.py" `
+    --path (Join-Path $root ".env") `
+    --check-security `
+    --host $BindHost
+if ($LASTEXITCODE -ne 0) {
+    throw "[security] launch policy rejected the configured network posture"
+}
 
 $selectedProfile = $null
 $stubModeRaw = [Environment]::GetEnvironmentVariable("HFAB_STUB_MODE", "Process")
@@ -195,36 +195,32 @@ if ($Prod) {
     $env:HFAB_SERVE_FRONTEND = "false"
 }
 
-# --- free ports held by stale instances of this app ---------------------------
-function Stop-Port([int]$p) {
-    $owners = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty OwningProcess -Unique
-    foreach ($procId in $owners) {
-        if ($procId -and $procId -ne 0) {
-            try {
-                $name = (Get-Process -Id $procId -ErrorAction Stop).ProcessName
-                Write-Host "[ports] port $p busy -> stopping $name (pid $procId)" -ForegroundColor DarkGray
-                Stop-Process -Id $procId -Force -ErrorAction Stop
-            } catch {}
+# --- refuse occupied ports without touching their owners ----------------------
+function Assert-PortAvailable([int]$p, [string]$purpose) {
+    $owners = @(Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique)
+    if ($owners.Count -eq 0) { return }
+
+    $descriptions = foreach ($procId in $owners) {
+        if (-not $procId -or $procId -eq 0) { continue }
+        try {
+            $proc = Get-Process -Id $procId -ErrorAction Stop
+            "$($proc.ProcessName) (pid $procId)"
+        } catch {
+            "pid $procId"
         }
     }
+    $ownerText = if ($descriptions) { $descriptions -join ", " } else { "an unknown process" }
+    throw "[ports] $purpose port $p is already in use by $ownerText. " +
+        "HFabric will not terminate it; stop that process or choose another port."
 }
-Stop-Port $Port
-Stop-Port (Get-EnvInt "HFAB_LLAMA_PORT" 8261)          # llama-server (LLM)
-Stop-Port (Get-EnvInt "HFAB_LLAMA_EMBED_PORT" 8262)    # llama-server (RAG embeddings)
-Stop-Port $FrontendPort
 
-# Safety net: a run closed via the window 'X' (not Ctrl+C) skips the finally
-# block below, so its child llama processes can survive — orphaned, holding
-# RAM/VRAM and shrinking the "available RAM" the pre-load guard checks. Sweep
-# any strays so every launch starts from a clean slate.
-foreach ($n in @("llama-server", "llama-tts")) {
-    Get-Process -Name $n -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-Host "[ports] stray $($_.ProcessName) (pid $($_.Id)) -> stopping" -ForegroundColor DarkGray
-        try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch {}
-    }
+Assert-PortAvailable $Port "backend"
+if (-not $isStubMode) {
+    Assert-PortAvailable (Get-EnvInt "HFAB_LLAMA_PORT" 8261) "LLM"
+    Assert-PortAvailable (Get-EnvInt "HFAB_LLAMA_EMBED_PORT" 8262) "embedding"
 }
-Start-Sleep -Milliseconds 400
+if (-not $Prod) { Assert-PortAvailable $FrontendPort "frontend" }
 
 # --- bootstrap backend venv ---------------------------------------------------
 if (-not (Test-Path $venvPy)) {
@@ -303,6 +299,7 @@ $backend = Start-Process -FilePath $venvPy `
     -WorkingDirectory (Join-Path $root "backend") `
     -NoNewWindow -PassThru
 
+$browserJob = $null
 try {
     if ($Prod) {
         $healthUrl = "http://127.0.0.1:$Port/api/health"
@@ -315,11 +312,11 @@ try {
     } else {
         # Open the UI once the servers have had a moment to come up.
         if (-not $NoOpen) {
-            Start-Job -ScriptBlock {
+            $browserJob = Start-Job -ScriptBlock {
                 param($url)
                 Start-Sleep -Seconds 6
                 Start-Process $url
-            } -ArgumentList "http://localhost:$FrontendPort" | Out-Null
+            } -ArgumentList "http://localhost:$FrontendPort"
         }
 
         Push-Location frontend
@@ -331,6 +328,7 @@ try {
         Write-Host "`n[stop] shutting down backend (pid $($backend.Id))..." -ForegroundColor DarkGray
         taskkill /PID $backend.Id /T /F 2>$null | Out-Null
     }
-    Stop-Port $Port
-    Get-Job | Remove-Job -Force -ErrorAction SilentlyContinue
+    if ($browserJob) {
+        Remove-Job -Job $browserJob -Force -ErrorAction SilentlyContinue
+    }
 }

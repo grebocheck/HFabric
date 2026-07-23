@@ -1,6 +1,6 @@
-"""Native RVC voice-conversion service (P6R).
+"""Native RVC voice-conversion service.
 
-The engine pipeline is file based for P6R.1: uploaded audio is decoded, mixed to
+The offline engine pipeline is file based: uploaded audio is decoded, mixed to
 mono, resampled to 16 kHz, passed through ContentVec, optionally blended with an
 RVC faiss index, aligned with RMVPE f0, and synthesized by the vendored RVC v2
 decoder. All heavyweight libraries are imported lazily inside real conversion

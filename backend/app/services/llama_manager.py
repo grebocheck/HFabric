@@ -1,4 +1,4 @@
-"""Install, update, and version-manage the llama.cpp binaries (P20.10).
+"""Install, update, and version-manage the llama.cpp binaries.
 
 Wraps the stdlib core in ``scripts/llama_release.py`` with the app's managed
 location, the detected accelerator variant, live ``settings`` repointing, and a

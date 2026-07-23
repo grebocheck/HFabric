@@ -1,0 +1,10 @@
+# Canonical Linux x86_64 / AMD ROCm dependency input.
+# Lock with the resolver workflow declared in dependency-profiles.json:
+#   python scripts/install_profiles.py --compile-locks --lock rocm-linux-x86_64
+
+-r requirements.txt
+-r requirements-rocm.txt
+
+torch==2.11.0
+torchvision==0.26.0
+torchaudio==2.11.0

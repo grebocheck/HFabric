@@ -403,7 +403,9 @@ function Bubble({
   const copy = () => {
     navigator.clipboard?.writeText(msg.content).then(() => {
       setCopied(true); setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {});
+    }).catch((error: unknown) => {
+      console.warn("Could not copy message", error);
+    });
   };
 
   if (editing) {

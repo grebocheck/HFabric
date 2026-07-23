@@ -12,6 +12,7 @@ import { api } from "../api/client";
 import { useEvents } from "../api/useEvents";
 import type { BusEvent, ChatAttachment, ChatConversation, ChatMessage, ChatSendBody, Model } from "../types";
 import { pickImageModel } from "./chatHelpers";
+import { toast } from "./Toast";
 
 export type ChatStats = { tokens: number; tps: number; ttft: number };
 
@@ -110,7 +111,7 @@ export function useChatStream({
   return { activeJob, beginStream, setActiveJob, setStats, stats, trackJump };
 }
 
-export function appendToLastAssistant(msgs: ChatMessage[], token: string): ChatMessage[] {
+function appendToLastAssistant(msgs: ChatMessage[], token: string): ChatMessage[] {
   const out = [...msgs];
   for (let i = out.length - 1; i >= 0; i--) {
     if (out[i].role === "assistant") { out[i] = { ...out[i], content: out[i].content + token }; return out; }
@@ -118,7 +119,7 @@ export function appendToLastAssistant(msgs: ChatMessage[], token: string): ChatM
   return out;
 }
 
-export function setLastAssistant(msgs: ChatMessage[], content: string, error = false): ChatMessage[] {
+function setLastAssistant(msgs: ChatMessage[], content: string, error = false): ChatMessage[] {
   const out = [...msgs];
   for (let i = out.length - 1; i >= 0; i--) {
     if (out[i].role === "assistant") { out[i] = { ...out[i], content, error }; return out; }
@@ -126,7 +127,7 @@ export function setLastAssistant(msgs: ChatMessage[], content: string, error = f
   return out;
 }
 
-export function parseImageCommand(value: string): { prompt: string; negative?: string } {
+function parseImageCommand(value: string): { prompt: string; negative?: string } {
   const match = value.match(/\s--(?:negative|neg)(?:\s+|=)([\s\S]*)$/i);
   if (!match || match.index == null) return { prompt: value.trim() };
   return {
@@ -346,18 +347,26 @@ export function useChatActions({
   }, [inputRef, setInput, setLibraryOpen]);
 
   const stop = useCallback(async () => {
-    await api.stopLlm().catch(() => {});
-    if (activeJob.current) await api.cancelJob(activeJob.current).catch(() => {});
+    try {
+      await api.stopLlm();
+      if (activeJob.current) await api.cancelJob(activeJob.current);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not stop generation");
+    }
   }, [activeJob]);
 
   const regenerate = useCallback(async () => {
     if (busy || !activeId) return;
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUser || lastUser.id.startsWith("tmp")) return;
-    await api.truncateFrom(activeId, lastUser.id).catch(() => {});
-    const idx = messages.findIndex((m) => m.id === lastUser.id);
-    setMessages((p) => p.slice(0, idx));
-    await submit(lastUser.content, activeId, lastUser.attachments ?? []);
+    try {
+      await api.truncateFrom(activeId, lastUser.id);
+      const idx = messages.findIndex((m) => m.id === lastUser.id);
+      setMessages((p) => p.slice(0, idx));
+      await submit(lastUser.content, activeId, lastUser.attachments ?? []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not regenerate response");
+    }
   }, [activeId, busy, messages, setMessages, submit]);
 
   const startEdit = useCallback((message: ChatMessage) => {
@@ -369,12 +378,16 @@ export function useChatActions({
     if (!activeId || !editingId) return;
     const content = editText.trim();
     const idx = messages.findIndex((m) => m.id === editingId);
-    setEditingId(null);
     if (!content || idx < 0) return;
     const editedAttachments = messages[idx]?.attachments ?? [];
-    await api.truncateFrom(activeId, editingId).catch(() => {});
-    setMessages((p) => p.slice(0, idx));
-    await submit(content, activeId, editedAttachments);
+    try {
+      await api.truncateFrom(activeId, editingId);
+      setEditingId(null);
+      setMessages((p) => p.slice(0, idx));
+      await submit(content, activeId, editedAttachments);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not edit message");
+    }
   }, [activeId, editText, editingId, messages, setEditingId, setMessages, submit]);
 
   const onPaste = useCallback((event: ClipboardEvent<HTMLTextAreaElement>) => {

@@ -6,6 +6,7 @@ throwaway SQLite DB pinned by conftest and exercises the real SQL.
 
 from __future__ import annotations
 
+from PIL import Image as PILImage
 import pytest
 
 from app.core.enums import JobStatus, JobType
@@ -148,3 +149,70 @@ async def test_recovers_disk_outputs_missing_from_history(seeded, tmp_path):
     assert row.seed == 123
     assert (row.width, row.height, row.family) == (640, 480, "sdxl")
     assert row.thumb_path and row.thumb_path.endswith("123_4567.thumb.webp")
+
+
+async def test_reconciliation_repairs_thumbnails_and_retains_broken_metadata(
+    seeded,
+    tmp_path,
+):
+    outputs = tmp_path / "outputs"
+    day = outputs / "2026-07-23"
+    day.mkdir(parents=True)
+
+    original = day / "repair.png"
+    PILImage.new("RGB", (640, 480), "navy").save(original)
+    stale_thumb = day / "stale-thumb.webp"
+
+    orphan_file = day / "orphan.png"
+    PILImage.new("RGB", (32, 32), "red").save(orphan_file)
+    (day / "dangling.json").write_text('{"prompt":"lost"}', encoding="utf-8")
+
+    broken_path = day / "missing.png"
+    async with session_scope() as session:
+        session.add_all([
+            Image(
+                id="repair",
+                path=str(original),
+                thumb_path=str(stale_thumb),
+                width=640,
+                height=480,
+                family="sdxl",
+                tags=[],
+                params={"model": "repair-model"},
+            ),
+            Image(
+                id="broken",
+                path=str(broken_path),
+                width=512,
+                height=512,
+                family="sdxl",
+                tags=[],
+                params={"model": "broken-model", "prompt": "keep me"},
+            ),
+        ])
+
+    async with session_scope() as session:
+        report = await gs.reconcile_media(session, outputs)
+
+    assert report["repaired_thumbnails"] == 1
+    assert report["orphan_files"] == 1
+    assert report["orphan_sidecars"] == 1
+    assert report["missing_originals"] >= 1
+    repaired_thumb = original.with_suffix(".thumb.webp")
+    assert repaired_thumb.is_file()
+    assert not stale_thumb.exists()
+    assert gs.last_reconciliation_report() == report
+
+    async with session_scope() as session:
+        broken = await gs.get_image(session, "broken")
+        visible = await gs.list_images(session)
+        current_stats = await gs.stats(session)
+
+    assert broken is not None
+    assert broken.params["prompt"] == "keep me"
+    assert broken.params["_hfabric_media_status"] == "missing_original"
+    assert next(row for row in visible if row.id == "repair").thumb_path == str(
+        repaired_thumb
+    )
+    assert {row.id for row in visible} == {"repair"}
+    assert current_stats["total"] == 1

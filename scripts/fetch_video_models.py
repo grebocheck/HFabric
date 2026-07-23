@@ -1,19 +1,20 @@
-"""Pre-stage the P27 video-generation weights into ``models/video/``.
+"""Pre-stage video-generation weights into ``models/video/``.
 
 Standalone + resumable: run it any time, it skips what's already on disk
-(``snapshot_download`` resumes partial files). It deliberately lives outside the
-curated in-app catalog (``fetch_models.py``) for now — that integration is
-ROADMAP P27.6. See ``docs/video-research.md`` for why these models were chosen.
+(``snapshot_download`` resumes partial files). The same repositories are also
+available through the curated in-app catalog (``fetch_models.py``); this script
+keeps the one-shot video smoke workflow convenient.
 
 Starter set (fits the 16 GB / RTX 5070 Ti box with bnb + offload at load):
   * LTX-Video        — fast default (diffusers components only, ~28 GB).
   * Wan 2.2 TI2V-5B  — quality tier (full diffusers repo, ~34 GB).
+  * CogVideoX-2B     — light text-to-video fallback for CUDA/ROCm/MPS (~10 GB).
   * FramePack Hunyuan — long I2V composite: Hunyuan base components without the
     stock transformer (~16 GB), FramePack transformer (~26 GB), and SigLIP image
     encoder (~1 GB).
 
-AnimateDiff (fallback) is intentionally NOT fetched here until the backend can
-use it.
+AnimateDiff (fallback candidate) is intentionally NOT fetched here until the
+backend can compose the SDXL motion-adapter path.
 
 Usage:  .venv/Scripts/python.exe scripts/fetch_video_models.py
 """
@@ -51,6 +52,11 @@ JOBS: list[tuple[str, str, list[str] | None]] = [
     (
         "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
         "wan2.2-ti2v-5b",
+        None,
+    ),
+    (
+        "zai-org/CogVideoX-2b",
+        "cogvideo-2b",
         None,
     ),
     (

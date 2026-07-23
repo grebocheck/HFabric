@@ -59,10 +59,19 @@ export function ToastHost() {
       {list.map((t) => (
         <div
           key={t.id}
-          onClick={() => {
+          role={t.onClick ? "button" : "status"}
+          tabIndex={t.onClick ? 0 : undefined}
+          onClick={t.onClick ? () => {
             t.onClick?.();
             dismiss(t.id);
-          }}
+          } : undefined}
+          onKeyDown={t.onClick ? (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              t.onClick?.();
+              dismiss(t.id);
+            }
+          } : undefined}
           className={`pointer-events-auto flex animate-fade-in items-start gap-2 rounded-lg border px-3 py-2 text-sm text-ui shadow-lg shadow-black/40 transition ${kindStyle[t.kind]} ${t.onClick ? "cursor-pointer hover:brightness-110" : ""}`}
         >
           <span className="min-w-0 flex-1 break-words">{t.msg}</span>

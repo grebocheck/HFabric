@@ -6,9 +6,9 @@
 #    ./run.sh stub     STUB mode: full pipeline, no GPU/ML stack
 #    ./run.sh --prod   PROD mode: one FastAPI port serves frontend/dist
 #
-#  Frees stale ports, bootstraps venv + npm on first run, then runs the FastAPI
-#  backend (:8260) and the Vite frontend (:5173) in THIS terminal. Ctrl+C stops
-#  both. Mirrors scripts/run.ps1.
+#  Refuses occupied ports without terminating their owners, bootstraps venv +
+#  npm on first run, then runs the FastAPI backend (:8260) and Vite frontend
+#  (:5173) in THIS terminal. Ctrl+C stops both. Mirrors scripts/run.ps1.
 # =============================================================================
 set -euo pipefail
 
@@ -18,6 +18,19 @@ cd "$ROOT"
 PYBIN="$ROOT/.venv/bin/python"
 STUB_ARG=0
 PROD=0
+
+PYHOST=""
+if [ -x "$PYBIN" ]; then
+  PYHOST="$PYBIN"
+else
+  for cand in python3.12 python3.11 python3 python; do
+    if command -v "$cand" >/dev/null 2>&1; then PYHOST="$cand"; break; fi
+  done
+fi
+if [ -z "$PYHOST" ]; then
+  printf 'Python 3.12+ is required. Install Python 3.12 and re-run.\n' >&2
+  exit 1
+fi
 
 for arg in "$@"; do
   case "$arg" in
@@ -30,33 +43,11 @@ for arg in "$@"; do
   esac
 done
 
-load_env() {
-  local file="$1"
-  [ -f "$file" ] || return 0
-
-  local line key value
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    case "$line" in ""|\#*) continue ;; esac
-
-    key="${line%%=*}"
-    value="${line#*=}"
-    key="$(printf '%s' "$key" | tr -d '[:space:]')"
-    value="$(printf '%s' "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-
-    if { [ "${value:0:1}" = '"' ] && [ "${value: -1}" = '"' ]; } ||
-       { [ "${value:0:1}" = "'" ] && [ "${value: -1}" = "'" ]; }; then
-      value="${value:1:${#value}-2}"
-    fi
-
-    if [ -z "${!key+x}" ]; then
-      export "$key=$value"
-    fi
-  done < "$file"
-}
-
-load_env "$ROOT/.env"
+# runtime_env emits only shlex-quoted export statements; no dotenv text is
+# evaluated directly by the shell.
+ENV_EXPORTS="$("$PYHOST" scripts/runtime_env.py --path "$ROOT/.env" --format shell)"
+eval "$ENV_EXPORTS"
+unset ENV_EXPORTS
 
 PORT="${HFAB_PORT:-8260}"
 FPORT="${HFAB_FRONTEND_PORT:-5173}"
@@ -67,9 +58,9 @@ export HFAB_HOST="$BIND_HOST"
 export HFAB_PORT="$PORT"
 
 if [ -t 1 ]; then
-  C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_CYAN=$'\033[36m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
+  C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_CYAN=$'\033[36m'; C_RED=$'\033[31m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
 else
-  C_GREEN=""; C_YELLOW=""; C_CYAN=""; C_DIM=""; C_RST=""
+  C_GREEN=""; C_YELLOW=""; C_CYAN=""; C_RED=""; C_DIM=""; C_RST=""
 fi
 have() { command -v "$1" >/dev/null 2>&1; }
 cmd_ready() { [ -x "$1" ] || command -v "$1" >/dev/null 2>&1; }
@@ -148,7 +139,11 @@ PY
 
 install_foundation_deps() {
   printf '%s[setup] installing foundation backend packages...%s\n' "$C_CYAN" "$C_RST"
-  "$PYBIN" -m pip install -r backend/requirements.txt
+  if [ -f backend/requirements-foundation.lock ]; then
+    "$PYBIN" -m pip install --require-hashes -r backend/requirements-foundation.lock
+  else
+    "$PYBIN" -m pip install -r backend/requirements.txt
+  fi
 }
 
 install_accelerator_stack() {
@@ -182,7 +177,7 @@ install_accelerator_stack() {
   while IFS= read -r req; do
     [ -n "$req" ] || continue
     printf '%s[setup] installing backend requirements: %s%s\n' "$C_CYAN" "$req" "$C_RST"
-    "$PYBIN" -m pip install -r "$req"
+    "$PYBIN" -m pip install --require-hashes -r "$req"
   done < <(profile_list install.requirements)
 
   printf '%s[setup] installing the matching llama.cpp runtime...%s\n' "$C_CYAN" "$C_RST"
@@ -196,16 +191,6 @@ install_nunchaku_cuda() {
   "$PYBIN" -m pip install "$url"
   nunchaku_ready
 }
-
-PYHOST=""
-if [ -x "$PYBIN" ]; then
-  PYHOST="$PYBIN"
-else
-  for cand in python3.12 python3.11 python3 python; do
-    if have "$cand"; then PYHOST="$cand"; break; fi
-  done
-fi
-[ -n "$PYHOST" ] || PYHOST="python3"
 
 if ! python_ready; then
   printf '%s[prereq] Python 3.12+ is required. Install Python 3.12 and re-run.%s\n' "$C_YELLOW" "$C_RST"
@@ -285,7 +270,7 @@ print_accelerator_install_hint() {
       "$C_YELLOW" "$PYBIN" "${hint_packages[*]}" "$C_RST"
   fi
   while IFS= read -r req; do
-    [ -n "$req" ] && printf '%s        "%s" -m pip install -r %s%s\n' "$C_YELLOW" "$PYBIN" "$req" "$C_RST"
+    [ -n "$req" ] && printf '%s        "%s" -m pip install --require-hashes -r %s%s\n' "$C_YELLOW" "$PYBIN" "$req" "$C_RST"
   done < <(profile_list install.requirements)
   printf '%s        Or run ./setup.sh real for the guided install.%s\n' "$C_YELLOW" "$C_RST"
 }
@@ -330,26 +315,39 @@ else
   export HFAB_SERVE_FRONTEND="${HFAB_SERVE_FRONTEND:-false}"
 fi
 
-# --- free ports held by stale instances --------------------------------------
-free_port() {
+"$PYHOST" scripts/runtime_env.py \
+  --path "$ROOT/.env" \
+  --check-security \
+  --host "$BIND_HOST"
+
+# --- refuse occupied ports without touching their owners ---------------------
+assert_port_available() {
   local p="$1"
-  if have fuser; then
-    fuser -k "${p}/tcp" >/dev/null 2>&1 || true
-  elif have lsof; then
-    local pids; pids="$(lsof -ti "tcp:${p}" 2>/dev/null || true)"
-    [ -n "$pids" ] && kill -9 $pids >/dev/null 2>&1 || true
+  local purpose="$2"
+  local owners=""
+
+  if have lsof; then
+    owners="$(lsof -nP -iTCP:"$p" -sTCP:LISTEN 2>/dev/null || true)"
+  elif have fuser; then
+    owners="$(fuser -v "${p}/tcp" 2>&1 || true)"
+  fi
+
+  if [ -n "$owners" ]; then
+    printf '%s[ports] %s port %s is already in use.%s\n' "$C_RED" "$purpose" "$p" "$C_RST" >&2
+    printf '%s\n' "$owners" >&2
+    printf '%sHFabric will not terminate it; stop that process or choose another port.%s\n' "$C_YELLOW" "$C_RST" >&2
+    return 1
   fi
 }
-sweep_llama() {
-  # A run closed by killing the terminal can orphan child llama processes that
-  # keep holding RAM/VRAM; sweep them so every launch starts clean.
-  for n in llama-server llama-tts; do
-    pkill -9 -f "$n" >/dev/null 2>&1 || true
-  done
-}
-for p in "$PORT" "$LLAMA_PORT" "$LLAMA_EMBED_PORT" "$FPORT"; do free_port "$p"; done
-sweep_llama
-sleep 0.4
+
+assert_port_available "$PORT" "backend"
+if [ "${HFAB_STUB_MODE}" = "false" ]; then
+  assert_port_available "$LLAMA_PORT" "LLM"
+  assert_port_available "$LLAMA_EMBED_PORT" "embedding"
+fi
+if [ "$PROD" != "1" ]; then
+  assert_port_available "$FPORT" "frontend"
+fi
 
 # --- bootstrap backend venv --------------------------------------------------
 if [ ! -x "$PYBIN" ]; then
@@ -393,7 +391,7 @@ if ! node_ready; then
 fi
 if ! frontend_ready; then
   printf '%s[setup] installing frontend deps...%s\n' "$C_CYAN" "$C_RST"
-  ( cd frontend && npm install )
+  ( cd frontend && if [ -f package-lock.json ]; then npm ci; else npm install; fi )
 fi
 
 dist_stale() {
@@ -476,8 +474,7 @@ BACKPID=$!
 cleanup() {
   printf '\n%s[stop] shutting down...%s\n' "$C_DIM" "$C_RST"
   kill "$BACKPID" >/dev/null 2>&1 || true
-  sweep_llama
-  free_port "$PORT"
+  wait "$BACKPID" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM

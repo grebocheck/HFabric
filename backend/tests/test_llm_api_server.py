@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from app.backends.base import GpuBackend, ModelDescriptor
 from app.config import settings
-from app.core.arbiter import GpuArbiter
+from app.core.arbiter import (
+    GpuArbiter,
+    GpuBusyConflict,
+    PinOwnershipConflict,
+    ResidentPinConflict,
+)
 from app.core.enums import ModelFamily
 from app.core.events import EventBus
 
@@ -37,7 +43,7 @@ def restore_llama_ctx():
     settings.llama_ctx = original
 
 
-async def test_resident_pin_blocks_free_all_and_swaps():
+async def test_resident_pin_returns_typed_conflict_for_free_and_swaps():
     bus = EventBus()
     arbiter = GpuArbiter(bus)
     first = _FakeBackend("first")
@@ -45,19 +51,107 @@ async def test_resident_pin_blocks_free_all_and_swaps():
 
     await arbiter.ensure(first)
     await arbiter.pin_current("llm_api", "LLM API server")
-    await arbiter.free_all()
+    with pytest.raises(ResidentPinConflict, match="LLM API server"):
+        await arbiter.free_all()
 
     assert first.loaded
     assert first.unloads == 0
     assert arbiter.status()["pin"]["id"] == "llm_api"
 
-    with pytest.raises(RuntimeError, match="LLM API server"):
+    with pytest.raises(ResidentPinConflict, match="LLM API server"):
         await arbiter.ensure(second)
     assert not second.loaded
 
     await arbiter.unpin("llm_api")
     await arbiter.free_all()
     assert not first.loaded
+
+
+async def test_wrong_owner_cannot_release_resident_pin():
+    arbiter = GpuArbiter(EventBus())
+    backend = _FakeBackend("first")
+    await arbiter.ensure(backend)
+    await arbiter.pin_current("llm_api", "LLM API server")
+
+    with pytest.raises(PinOwnershipConflict, match="LLM API server"):
+        await arbiter.unpin("voice")
+
+    assert arbiter.resident_pin is not None
+    assert arbiter.resident_pin["id"] == "llm_api"
+    assert backend.loaded
+
+
+async def test_pinned_handoff_rolls_back_when_target_load_fails():
+    class FailingBackend(_FakeBackend):
+        async def load(self) -> None:
+            # Simulate a launcher that created a process before health probing
+            # failed; rollback must tear this partial target down too.
+            self._loaded = True
+            raise RuntimeError("launch failed")
+
+    arbiter = GpuArbiter(EventBus())
+    original = _FakeBackend("original")
+    failing = FailingBackend("failing")
+    await arbiter.ensure_pinned(original, "llm_api", "LLM API server")
+
+    with pytest.raises(RuntimeError, match="launch failed"):
+        await arbiter.ensure_pinned(failing, "llm_api", "LLM API server")
+
+    assert arbiter.current is original
+    assert original.loaded
+    assert arbiter.resident_pin is not None
+    assert arbiter.resident_pin["model_id"] == "original"
+    assert not failing.loaded
+    assert failing.unloads == 1
+
+
+async def test_concurrent_ensure_and_free_are_serialized():
+    class BlockingBackend(_FakeBackend):
+        def __init__(self) -> None:
+            super().__init__("blocking")
+            self.load_started = asyncio.Event()
+            self.release_load = asyncio.Event()
+
+        async def load(self) -> None:
+            self.load_started.set()
+            await self.release_load.wait()
+            self._loaded = True
+
+    arbiter = GpuArbiter(EventBus())
+    backend = BlockingBackend()
+    ensure_task = asyncio.create_task(arbiter.ensure(backend))
+    await backend.load_started.wait()
+    free_task = asyncio.create_task(arbiter.free_all())
+    await asyncio.sleep(0)
+
+    assert not free_task.done()
+    backend.release_load.set()
+    await ensure_task
+    await free_task
+
+    assert arbiter.current is None
+    assert not backend.loaded
+    assert backend.unloads == 1
+
+
+async def test_active_job_lease_blocks_free_and_swap_until_release():
+    arbiter = GpuArbiter(EventBus())
+    active = _FakeBackend("active")
+    incoming = _FakeBackend("incoming")
+    await arbiter.acquire(active, "job-1")
+
+    with pytest.raises(GpuBusyConflict, match="job-1"):
+        await arbiter.free_all()
+    with pytest.raises(GpuBusyConflict, match="job-1"):
+        await arbiter.ensure(incoming)
+
+    assert arbiter.current is active
+    assert active.loaded
+    assert not incoming.loaded
+
+    assert await arbiter.release("job-1")
+    await arbiter.free_all()
+    assert arbiter.current is None
 
 
 async def test_llm_api_server_toggle_pins_loaded_model(app_client):
@@ -78,6 +172,11 @@ async def test_llm_api_server_toggle_pins_loaded_model(app_client):
     gpu = (await app_client.get("/api/gpu")).json()
     assert gpu["model_id"] == "stub-llm"
     assert gpu["pin"]["id"] == "llm_api"
+
+    blocked_free = await app_client.post("/api/gpu/free")
+    assert blocked_free.status_code == 409
+    assert blocked_free.json()["code"] == "resident_pinned"
+    assert (await app_client.get("/api/gpu")).json()["model_id"] == "stub-llm"
 
     disabled = (await app_client.post("/api/llm/server", json={"enabled": False})).json()
     assert disabled["enabled"] is False

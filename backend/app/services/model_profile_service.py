@@ -1,4 +1,4 @@
-"""Persistence for learned per-model memory profiles (ROADMAP P7.2).
+"""Persistence for learned per-model memory profiles.
 
 After a real load the arbiter records the model's measured RAM/VRAM here; the
 budget guard then prefers these measurements over the static heuristic. We keep

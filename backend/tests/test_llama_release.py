@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
+import stat
 import sys
+import zipfile
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
@@ -13,6 +18,33 @@ import llama_release as lr  # noqa: E402
 
 def assets(*names: str) -> list[dict]:
     return [{"name": n, "browser_download_url": f"https://x/{n}", "size": 1} for n in names]
+
+
+def test_safe_extract_zip_rejects_traversal_and_symlinks(tmp_path):
+    traversal = io.BytesIO()
+    with zipfile.ZipFile(traversal, "w") as archive:
+        archive.writestr("../escape.exe", b"bad")
+    with zipfile.ZipFile(traversal) as archive, pytest.raises(ValueError, match="unsafe path"):
+        lr.safe_extract_zip(archive, tmp_path / "traversal")
+    assert not (tmp_path / "escape.exe").exists()
+
+    symlink = io.BytesIO()
+    info = zipfile.ZipInfo("llama-server")
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with zipfile.ZipFile(symlink, "w") as archive:
+        archive.writestr(info, "../outside")
+    with zipfile.ZipFile(symlink) as archive, pytest.raises(ValueError, match="symlink"):
+        lr.safe_extract_zip(archive, tmp_path / "symlink")
+
+
+def test_safe_extract_zip_writes_regular_files(tmp_path):
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("bin/llama-server.exe", b"binary")
+    with zipfile.ZipFile(payload) as archive:
+        lr.safe_extract_zip(archive, tmp_path / "safe")
+    assert (tmp_path / "safe" / "bin" / "llama-server.exe").read_bytes() == b"binary"
 
 
 # ------------------------------------------------------------ asset selection

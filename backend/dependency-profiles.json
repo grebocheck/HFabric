@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "python_version": "3.12",
+  "resolver": {
+    "tool": "uv",
+    "version": "0.11.31",
+    "command": "python scripts/install_profiles.py --compile-locks",
+    "exclude_newer": "2026-07-23T00:00:00Z"
+  },
+  "torch": {
+    "torch": "2.11.0",
+    "torchvision": "0.26.0",
+    "torchaudio": "2.11.0"
+  },
+  "locks": {
+    "foundation": {
+      "input": "backend/requirements.txt",
+      "output": "backend/requirements-foundation.lock",
+      "universal": true,
+      "source_files": [
+        "backend/requirements.txt"
+      ]
+    },
+    "development": {
+      "input": "backend/requirements-dev.txt",
+      "output": "backend/requirements-dev.lock",
+      "universal": true,
+      "constraint_lock": "foundation",
+      "source_files": [
+        "backend/requirements.txt",
+        "backend/requirements-dev.txt"
+      ]
+    },
+    "cuda-windows-x86_64": {
+      "input": "backend/requirements-cuda.in",
+      "output": "backend/requirements-gpu.lock",
+      "python_platform": "x86_64-pc-windows-msvc",
+      "torch_backend": "cu128",
+      "source_files": [
+        "backend/requirements.txt",
+        "backend/requirements-accelerator-common.txt",
+        "backend/requirements-gpu.txt",
+        "backend/requirements-cuda.in"
+      ]
+    },
+    "cuda-linux-x86_64": {
+      "input": "backend/requirements-cuda.in",
+      "output": "backend/requirements-cuda-linux.lock",
+      "python_platform": "x86_64-unknown-linux-gnu",
+      "torch_backend": "cu128",
+      "source_files": [
+        "backend/requirements.txt",
+        "backend/requirements-accelerator-common.txt",
+        "backend/requirements-gpu.txt",
+        "backend/requirements-cuda.in"
+      ]
+    },
+    "rocm-linux-x86_64": {
+      "input": "backend/requirements-rocm.in",
+      "output": "backend/requirements-rocm-linux.lock",
+      "python_platform": "x86_64-unknown-linux-gnu",
+      "torch_backend": "cpu",
+      "torch_preinstalled_backend": "rocm7.2",
+      "omit_packages": [
+        "torch",
+        "torchvision",
+        "torchaudio"
+      ],
+      "resolution_note": "The installer pins ROCm PyTorch from its official index before applying this hashed Linux dependency graph. The resolver uses the CPU wheel metadata only to calculate shared transitive requirements, then omits the torch trio so the lock cannot replace the preinstalled ROCm wheels. Resolving ROCm metadata cross-platform otherwise downloads several multi-gigabyte wheels.",
+      "source_files": [
+        "backend/requirements.txt",
+        "backend/requirements-accelerator-common.txt",
+        "backend/requirements-rocm.txt",
+        "backend/requirements-rocm.in"
+      ]
+    },
+    "mps-macos-arm64": {
+      "input": "backend/requirements-mps.in",
+      "output": "backend/requirements-mps.lock",
+      "python_platform": "aarch64-apple-darwin",
+      "source_files": [
+        "backend/requirements.txt",
+        "backend/requirements-accelerator-common.txt",
+        "backend/requirements-mps.txt",
+        "backend/requirements-mps.in"
+      ]
+    }
+  },
+  "profiles": {
+    "nvidia-cuda": {
+      "label": "NVIDIA CUDA",
+      "verify": "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))",
+      "optional_features": [
+        "nunchaku_cuda",
+        "cuda_llama_binaries",
+        "onnxruntime_cuda"
+      ],
+      "disabled_features": [],
+      "targets": [
+        {
+          "id": "windows-x86_64",
+          "systems": [
+            "windows"
+          ],
+          "machines": [
+            "amd64",
+            "x86_64"
+          ],
+          "lock": "cuda-windows-x86_64",
+          "torch_backend": "cu128",
+          "torch_index_url": "https://download.pytorch.org/whl/cu128"
+        },
+        {
+          "id": "linux-x86_64",
+          "systems": [
+            "linux"
+          ],
+          "machines": [
+            "amd64",
+            "x86_64"
+          ],
+          "lock": "cuda-linux-x86_64",
+          "torch_backend": "cu128",
+          "torch_index_url": "https://download.pytorch.org/whl/cu128"
+        }
+      ]
+    },
+    "amd-rocm-linux": {
+      "label": "AMD ROCm (Linux)",
+      "verify": "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0), torch.version.hip)",
+      "optional_features": [],
+      "disabled_features": [
+        "nunchaku_cuda",
+        "cuda_llama_binaries",
+        "onnxruntime_cuda",
+        "video_diffusers_cuda",
+        "video_fp8_fast_paths"
+      ],
+      "targets": [
+        {
+          "id": "linux-x86_64",
+          "systems": [
+            "linux"
+          ],
+          "machines": [
+            "amd64",
+            "x86_64"
+          ],
+          "lock": "rocm-linux-x86_64",
+          "torch_backend": "rocm7.2",
+          "torch_index_url": "https://download.pytorch.org/whl/rocm7.2"
+        }
+      ]
+    },
+    "apple-mps": {
+      "label": "Apple Silicon (MPS)",
+      "verify": "import torch; assert torch.backends.mps.is_available(); print('mps', torch.__version__)",
+      "optional_features": [
+        "metal_llama_binaries"
+      ],
+      "disabled_features": [
+        "nunchaku_cuda",
+        "cuda_llama_binaries",
+        "onnxruntime_cuda",
+        "realtime_cuda_voice",
+        "blackwell_fast_paths",
+        "video_diffusers_cuda",
+        "video_fp8_fast_paths"
+      ],
+      "targets": [
+        {
+          "id": "macos-arm64",
+          "systems": [
+            "darwin"
+          ],
+          "machines": [
+            "arm64",
+            "aarch64"
+          ],
+          "lock": "mps-macos-arm64",
+          "torch_backend": "pypi",
+          "torch_index_url": null
+        }
+      ]
+    },
+    "cpu-safe": {
+      "label": "CPU-safe",
+      "verify": "import torch; print(torch.__version__)",
+      "optional_features": [],
+      "disabled_features": [
+        "heavy_image_models",
+        "nunchaku_cuda",
+        "cuda_llama_binaries",
+        "onnxruntime_cuda",
+        "realtime_cuda_voice",
+        "blackwell_fast_paths",
+        "video_diffusers_cuda",
+        "video_fp8_fast_paths",
+        "heavy_video_models"
+      ],
+      "targets": [
+        {
+          "id": "windows-linux-cpu",
+          "systems": [
+            "windows",
+            "linux"
+          ],
+          "machines": [],
+          "lock": null,
+          "torch_backend": "cpu",
+          "torch_index_url": "https://download.pytorch.org/whl/cpu"
+        },
+        {
+          "id": "macos-cpu",
+          "systems": [
+            "darwin"
+          ],
+          "machines": [],
+          "lock": null,
+          "torch_backend": "pypi",
+          "torch_index_url": null
+        },
+        {
+          "id": "portable-cpu-fallback",
+          "systems": [],
+          "machines": [],
+          "lock": null,
+          "torch_backend": "pypi",
+          "torch_index_url": null
+        }
+      ]
+    }
+  }
+}

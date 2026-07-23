@@ -5,8 +5,7 @@ import { toast } from "./Toast";
 import { formatSize } from "./imageComposerHelpers";
 import type { LlamaState } from "../types";
 
-const subtleButton =
-  "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
+const subtleButton = "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
 const primaryButton =
   "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-ui-inverse transition hover:bg-accent-hover disabled:opacity-35";
 
@@ -14,7 +13,28 @@ function errMsg(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-// llama.cpp runtime manager (P20.10): install/update the binaries the LLM/RAG,
+function isLlamaState(value: unknown): value is LlamaState {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  const installStatus =
+    candidate.install_status && typeof candidate.install_status === "object"
+      ? (candidate.install_status as Record<string, unknown>)
+      : null;
+  const progress =
+    installStatus?.progress && typeof installStatus.progress === "object"
+      ? (installStatus.progress as Record<string, unknown>)
+      : null;
+  return (
+    Array.isArray(candidate.versions)
+    && typeof candidate.variant === "string"
+    && typeof candidate.keep_versions === "number"
+    && typeof installStatus?.state === "string"
+    && typeof progress?.done === "number"
+    && typeof progress.total === "number"
+  );
+}
+
+// llama.cpp runtime manager: install/update the binaries the LLM/RAG,
 // TTS, and chat-native vision paths all depend on, keeping old builds for rollback.
 export function LlamaRuntime() {
   const [data, setData] = useState<LlamaState | null>(null);
@@ -23,7 +43,9 @@ export function LlamaRuntime() {
 
   const refresh = useCallback(async () => {
     try {
-      setData(await api.llamaState());
+      const next = await api.llamaState();
+      if (!isLlamaState(next)) throw new Error("Invalid llama runtime response");
+      setData(next);
     } catch {
       /* keep last known state if the backend blips */
     }
@@ -122,9 +144,10 @@ export function LlamaRuntime() {
 
   const update = data?.update;
   const status = data?.install_status;
-  const pct = status && status.progress.total > 0
-    ? Math.round((status.progress.done / status.progress.total) * 100)
-    : null;
+  const pct =
+    status && status.progress.total > 0
+      ? Math.round((status.progress.done / status.progress.total) * 100)
+      : null;
 
   return (
     <Panel>
@@ -134,15 +157,31 @@ export function LlamaRuntime() {
         actions={
           <div className="flex items-center gap-1.5">
             {data?.active ? (
-              <button onClick={() => void verify()} className={subtleButton} disabled={Boolean(busy) || installing}>
+              <button
+                onClick={() => void verify()}
+                className={subtleButton}
+                disabled={Boolean(busy) || installing}
+              >
                 {busy === "verify" ? "Verifying…" : "Verify"}
               </button>
             ) : null}
-            <button onClick={() => void check()} className={subtleButton} disabled={Boolean(busy) || installing}>
+            <button
+              onClick={() => void check()}
+              className={subtleButton}
+              disabled={Boolean(busy) || installing}
+            >
               {busy === "check" ? "Checking…" : "Check update"}
             </button>
-            <button onClick={() => void install()} className={primaryButton} disabled={Boolean(busy) || installing}>
-              {installing ? "Installing…" : update?.update_available ? `Update → ${update.latest_tag}` : "Install latest"}
+            <button
+              onClick={() => void install()}
+              className={primaryButton}
+              disabled={Boolean(busy) || installing}
+            >
+              {installing
+                ? "Installing…"
+                : update?.update_available
+                  ? `Update → ${update.latest_tag}`
+                  : "Install latest"}
             </button>
           </div>
         }
@@ -190,17 +229,27 @@ export function LlamaRuntime() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-ui">{v.tag}</span>
-                        <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-muted">{v.variant}</span>
+                        <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-muted">
+                          {v.variant}
+                        </span>
                         {v.active ? (
-                          <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg">active</span>
+                          <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg">
+                            active
+                          </span>
                         ) : null}
                         {v.active && data.active_verified ? (
                           data.active_verified.ok ? (
-                            <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg" title={`Runs OK${data.active_verified.version ? ` (${data.active_verified.version})` : ""}`}>
+                            <span
+                              className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg"
+                              title={`Runs OK${data.active_verified.version ? ` (${data.active_verified.version})` : ""}`}
+                            >
                               ✓ verified
                             </span>
                           ) : (
-                            <span className="rounded border border-error-border bg-error-bg px-1.5 py-0.5 text-[10px] text-error-fg" title={data.active_verified.error ?? "failed to run"}>
+                            <span
+                              className="rounded border border-error-border bg-error-bg px-1.5 py-0.5 text-[10px] text-error-fg"
+                              title={data.active_verified.error ?? "failed to run"}
+                            >
                               ✕ won&apos;t run
                             </span>
                           )
@@ -214,7 +263,11 @@ export function LlamaRuntime() {
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {!v.active ? (
-                        <button onClick={() => void activate(v.id)} className={subtleButton} disabled={Boolean(busy)}>
+                        <button
+                          onClick={() => void activate(v.id)}
+                          className={subtleButton}
+                          disabled={Boolean(busy)}
+                        >
                           {busy === v.id ? "…" : "Roll back"}
                         </button>
                       ) : null}
@@ -233,7 +286,8 @@ export function LlamaRuntime() {
               </ul>
             )}
             <p className="text-[11px] text-ui-subtle">
-              Powers the LLM, RAG, TTS, and chat-native vision paths. Old builds are kept so a bad update can be rolled back.
+              Powers the LLM, RAG, TTS, and chat-native vision paths. Old builds are kept so a bad update can
+              be rolled back.
             </p>
           </>
         )}

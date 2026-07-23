@@ -3,48 +3,43 @@ import type { components } from "./types.generated";
 type Api = components["schemas"];
 type JsonRecord = Record<string, unknown>;
 
+// Canonical API enums and payloads. Keep aliases here so UI code has stable,
+// readable names while the backend OpenAPI schema remains the source of truth.
 export type JobType = Api["JobType"];
-export type JobStatus = Api["JobStatus"];
 export type ModelFamily = Api["ModelFamily"];
 export type AppTheme = "dark" | "dim" | "light";
 
-export type Model = Api["ModelOut"] & {
-  multimodal?: boolean;
-  mmproj_path?: string | null;
-  mmproj_size_bytes?: number;
-};
+export type Model = Api["ModelOut"];
+export type Lora = Api["LoraOut"];
+export type InstalledModel = Api["InstalledModelOut"];
+export type InstalledModelsState = Api["InstalledModelsOut"];
 
-export interface WarmModel {
+// GpuStatusOut deliberately uses generic dictionaries for runtime-specific
+// entries. These refinements document the fields consumed by the UI.
+interface WarmModel {
   resident: string;
   model_id: string;
   model: string;
   family: string;
 }
 
-export type Lora = Api["LoraOut"];
-
-export interface GpuLane {
+interface GpuLane {
   id: string;
   label: string;
 }
 
-export interface InstalledModel {
-  kind: string;
-  kind_label: string;
-  name: string;
-  path: string;
-  size_bytes: number;
-  is_dir: boolean;
-  in_use: boolean;
-}
+export type GpuStatus = {
+  resident: string | null;
+  model_id: string | null;
+  model: string | null;
+  family: string | null;
+  warm?: WarmModel[];
+  lanes?: GpuLane[];
+  pin?: (WarmModel & { id: string; label: string }) | null;
+};
 
-export interface InstalledModelsState {
-  items: InstalledModel[];
-  kinds: Record<string, string>;
-  total_used_bytes: number;
-  disk: { free_mb: number | null; models_root: string };
-}
-
+// The custom downloader accepts a heterogeneous, intentionally extensible
+// request that is not represented by a named backend model yet.
 export interface CustomDownloadItem {
   source: "hf" | "hf-repo" | "url" | "civitai";
   kind: string;
@@ -56,172 +51,30 @@ export interface CustomDownloadItem {
   sha256?: string;
 }
 
-export interface CivitaiPreview {
-  url: string;
-  nsfw_level?: number | null;
-  width?: number | null;
-  height?: number | null;
-  type?: string;
-}
+export type CivitaiSearchResult = Api["CivitaiSearchResultOut"];
+export type CivitaiSearchResponse = Api["CivitaiSearchOut"];
+export type CivitaiAuthStatus = Api["CivitaiAuthOut"];
+export type CivitaiVersionFiles = Api["CivitaiVersionFilesOut"];
 
-export interface CivitaiVersionSummary {
-  id: number;
-  name: string;
-  base_model?: string | null;
-}
+export type HfRepoFile = Api["HfRepoFileOut"];
+export type HfRepoFiles = Api["HfRepoFilesOut"];
+export type HfSearchResult = Api["HfSearchResultOut"];
+export type HfSearchResponse = Api["HfSearchOut"];
 
-export interface CivitaiSearchResult {
-  id: number;
-  name: string;
-  type?: string | null;
-  nsfw: boolean;
-  creator?: string | null;
-  downloads: number;
-  likes: number;
-  base_model?: string | null;
-  tags: string[];
-  preview?: CivitaiPreview | null;
-  suggested_kind?: string | null;
-  version_count: number;
-  versions: CivitaiVersionSummary[];
-  url: string;
-}
-
-export interface CivitaiSearchResponse {
-  query: string;
-  sort: string;
-  nsfw: boolean;
-  limit: number;
-  page: number;
-  total_pages?: number | null;
-  next_page?: number | null;
-  results: CivitaiSearchResult[];
-}
-
-export interface CivitaiAuthStatus {
-  has_key: boolean;
-  has_cookie: boolean;
-  which?: "key" | "cookie";
-  verified?: boolean;
-  reason?: string | null;
-}
-
-export interface CivitaiFile {
-  id: number;
-  name: string;
-  size_kb: number;
-  type?: string | null;
-  format?: string | null;
-  fp?: string | null;
-  size?: string | null;
-  primary: boolean;
-  download_url?: string | null;
-  sha256?: string | null;
-}
-
-export interface CivitaiVersionFiles {
-  version_id: number;
-  name: string;
-  model_id: number;
-  model_name?: string | null;
-  model_type?: string | null;
-  base_model?: string | null;
-  trained_words: string[];
-  suggested_kind?: string | null;
-  files: CivitaiFile[];
-}
-
-export interface HfRepoFile {
-  path: string;
-  size_bytes: number;
-}
-
-export interface HfRepoFiles {
-  repo: string;
-  files: HfRepoFile[];
-}
-
-export interface HfSearchResult {
-  id: string;
-  author?: string | null;
-  sha?: string | null;
-  downloads: number;
-  likes: number;
-  last_modified?: string | null;
-  created_at?: string | null;
-  pipeline_tag?: string | null;
-  library_name?: string | null;
-  tags: string[];
-  license?: string | null;
-  gated: boolean;
-  private: boolean;
-  weight_count: number;
-  file_count: number;
-  weight_formats: string[];
-  suggested_kind?: string | null;
-  url: string;
-}
-
-export interface HfSearchResponse {
-  query: string;
-  sort: string;
-  limit: number;
-  filters: string[];
-  results: HfSearchResult[];
-}
-
-export interface GpuStatus {
-  resident: string | null;
-  model_id: string | null;
-  model: string | null;
-  family: string | null;
-  warm?: WarmModel[];
-  lanes?: GpuLane[];
-  pin?: {
-    id: string;
-    label: string;
-    resident: string;
-    model_id: string;
-    model: string;
-    family: string;
-  } | null;
-}
-
-export interface RamStats {
-  total_gb: number;
-  available_gb: number;
-  used_gb: number;
-  percent: number;
-  process_rss_gb: number;
-}
-
-export interface VramStats {
-  total_gb: number;
-  free_gb: number;
-  used_gb: number;
-}
-
-export interface MemSnapshot {
+type RamStats = Api["RamStatusOut"];
+type VramStats = Api["VramStatusOut"];
+export type MemSnapshot = {
   ram: RamStats | null;
   vram: VramStats | null;
-}
+};
+type CapabilityGpu = Api["CapabilityGpuOut"] & {
+  rocm?: JsonRecord | null;
+  mps?: JsonRecord | null;
+};
 
-export interface SecurityPosture {
-  exposed: boolean;
-  token_required: boolean;
-}
-
-export interface CapabilityGpu {
-  vendor?: string | null;
-  name?: string | null;
-  vram_mb?: number | null;
-  compute_capability_tuple?: number[];
-  architecture?: string | null;
-  rocm?: Record<string, unknown> | null;
-  mps?: Record<string, unknown> | null;
-}
-
-export interface ModelPolicy {
+// model_policy and starter_models are extensible capability-manifest sections.
+// They remain domain refinements until the backend gives them named contracts.
+interface ModelPolicy {
   tier: string;
   image: {
     recommended: ModelFamily[];
@@ -240,7 +93,7 @@ export interface ModelPolicy {
   notes: string[];
 }
 
-export interface StarterModelJob {
+interface StarterModelJob {
   repo: string;
   filename: string;
   dest: string;
@@ -249,143 +102,63 @@ export interface StarterModelJob {
   feature?: string;
 }
 
-export interface StarterModelPlan {
+interface StarterModelPlan {
   profile: string;
   jobs: StarterModelJob[];
   command: string;
   dry_run_command: string;
 }
 
-export type PromptSnippet = Api["PromptSnippetOut"];
-
-export interface ModelDownloadItem {
-  key: string;
-  repo: string;
-  filename: string;
-  dest: string;
-  label: string;
-  reason: string;
-  feature?: string | null;
-  source?: "hf-file" | "hf-repo" | string;
-  approx_size_mb: number;
-  license: string;
-  repo_url: string;
-  present: boolean;
-  recommended: boolean;
-}
-
-export interface ModelDownloadStatus {
-  state: "idle" | "running" | "done" | "error";
-  message: string;
-  current: { label: string; filename: string } | null;
-  progress: { done: number; total: number };
-  failed: { label: string; error: string }[];
-  updated_at: number;
-}
-
-export interface ModelDownloadState {
-  catalog: ModelDownloadItem[];
-  disk: { free_mb: number | null; models_root: string };
-  status: ModelDownloadStatus;
-  available: boolean;
-}
-
-export interface CapabilityCandidate {
-  id: string;
-  confidence?: string | null;
-  reason?: string | null;
+type CapabilityCandidate = Pick<
+  Api["CapabilityCandidateOut"],
+  "confidence" | "id" | "reason" | "warnings"
+> & {
   gpu?: CapabilityGpu | null;
-  warnings?: string[];
-}
+};
 
-export interface CapabilityProfile {
-  schema_version: number;
-  selected_profile: string;
-  active_profile: string;
-  label?: string | null;
-  backend: "cuda" | "rocm" | "mps" | "cpu" | string;
-  configured_stub_mode: boolean;
-  effective_stub_mode: boolean;
-  confidence?: string | null;
-  reason?: string | null;
-  hardware_tier: string;
+export type CapabilityProfile = Pick<
+  Api["CapabilityProfileOut"],
+  | "active_profile"
+  | "backend"
+  | "confidence"
+  | "configured_stub_mode"
+  | "disabled_features"
+  | "effective_stub_mode"
+  | "features"
+  | "hardware_tier"
+  | "label"
+  | "reason"
+  | "runtime_defaults"
+  | "schema_version"
+  | "selected_profile"
+  | "sources"
+  | "warnings"
+> & {
   primary_gpu?: CapabilityGpu | null;
-  runtime_defaults: Record<string, unknown>;
-  features: Record<string, boolean>;
-  disabled_features: string[];
   model_policy?: ModelPolicy | null;
   starter_models?: StarterModelPlan | null;
-  warnings: string[];
   candidates: CapabilityCandidate[];
-  sources: Record<string, string>;
-}
+};
 
-export interface LlamaVersion {
-  id: string;
-  tag: string;
-  variant: string;
-  installed_at: string | null;
-  size_bytes: number | null;
-  active: boolean;
-  binaries: string[];
-}
+export type PromptSnippet = Api["PromptSnippetOut"];
+export type ModelDownloadItem = Api["ModelDownloadItemOut"];
+export type ModelDownloadStatus = Api["DownloadStatusOut"];
+export type ModelDownloadState = Api["DownloadStateOut"];
 
-export interface LlamaVerifyResult {
-  ok: boolean;
-  version: string | null;
-  error: string | null;
-  id?: string | null;
-  checked_at?: number;
-}
+export type LlamaVerifyResult = Api["LlamaVerifyOut"];
+export type LlamaInstallStatus = Api["LlamaInstallStatusOut"];
+export type LlamaUpdateInfo = Api["LlamaUpdateOut"];
+export type LlamaState = Api["LlamaStateOut"];
 
-export interface LlamaInstallStatus {
-  state: "idle" | "running" | "done" | "error" | string;
-  tag: string | null;
-  variant: string | null;
-  message: string;
-  asset: string | null;
-  progress: { done: number; total: number };
-  version: LlamaVersion | null;
-  verified?: LlamaVerifyResult | null;
-  updated_at: number;
-}
-
-export interface LlamaUpdateInfo {
-  latest_tag: string;
-  active_tag: string | null;
-  variant: string;
-  asset_available: boolean;
-  variant_matched: boolean;
-  selection_reason: string;
-  update_available: boolean;
-  checked_at: number;
-}
-
-export interface LlamaState {
-  managed_root: string;
-  system: string;
-  machine: string;
-  variant: string;
-  active: string | null;
-  versions: LlamaVersion[];
-  keep_versions: number;
-  legacy_binary_present: boolean;
-  install_status: LlamaInstallStatus;
-  update: LlamaUpdateInfo | null;
-  active_verified: LlamaVerifyResult | null;
-}
-
-export interface HealthStatus {
-  status: string;
-  version?: string;
-  stub_mode: boolean;
-  models: number;
+export type HealthStatus = Pick<
+  Api["HealthOut"],
+  "mem" | "models" | "security" | "status" | "stub_mode"
+> & {
   gpu: GpuStatus;
-  mem: MemSnapshot;
-  security: SecurityPosture;
-}
+  version?: string;
+};
 
-// One point in the rolling memory-pressure timeline (System tab).
+// UI-only event projections.
 export interface MemPoint {
   ts: number;
   ram: RamStats | null;
@@ -393,23 +166,20 @@ export interface MemPoint {
   resident: string | null;
 }
 
-// Predicted scheduler drain order for the current queue (P7.4).
-export interface QueuePlanStep {
-  model_id: string;
-  model: string;
+type QueuePlanStep = Pick<
+  Api["QueuePlanStepOut"],
+  "count" | "model" | "model_id"
+> & {
   type: JobType;
-  count: number;
-}
+};
 
-export interface QueuePlan {
-  queued: number;
-  swaps: number;
-  current_model_id: string | null;
-  current_model: string | null;
+export type QueuePlan = Pick<
+  Api["QueuePlanOut"],
+  "current_model" | "current_model_id" | "queued" | "swaps"
+> & {
   steps: QueuePlanStep[];
-}
+};
 
-// A structured reason the arbiter held / swapped / refused a load (P7.1).
 export interface ArbiterNote {
   reason: string;
   message: string;
@@ -427,28 +197,23 @@ export interface ArbiterNote {
 }
 
 export type ModelProfile = Api["ModelProfileOut"];
-
 export type SettingsValue = string | number | boolean | null;
-
-export interface SettingsOverrideValues {
+export type SettingsOverrideValues = Api["SettingsOverridesOut"]["values"] & {
   default_steps: number;
   default_guidance: number;
   default_width: number;
   default_height: number;
   keep_warm_models: boolean;
   keep_warm_max_models: number;
-  [key: string]: SettingsValue;
-}
+};
 
-export interface SettingsChoice {
-  value: string;
-  label: string;
-}
-
-export interface SettingsSchemaEntry {
-  key: string;
-  label: string;
-  group: string;
+type SettingsChoice = Api["SettingsChoiceOut"];
+export type SettingsSchemaEntry = Pick<
+  Api["SettingsSchemaEntryOut"],
+  | "group"
+  | "key"
+  | "label"
+> & {
   kind: "boolean" | "integer" | "number" | "text" | "choice" | "path";
   description?: string;
   min?: number;
@@ -458,64 +223,41 @@ export interface SettingsSchemaEntry {
   choices?: SettingsChoice[];
   nullable?: boolean;
   restart_required?: boolean;
-}
-
-export interface SettingsGroup {
-  id: string;
-  label: string;
-  description: string;
-}
-
-export interface SettingsOverrides {
+};
+export type SettingsGroup = Api["SettingsGroupOut"];
+export type SettingsOverrides = Pick<
+  Api["SettingsOverridesOut"],
+  "groups" | "path" | "persistence_warnings" | "writable_keys"
+> & {
   values: SettingsOverrideValues;
-  writable_keys: string[];
-  groups: SettingsGroup[];
   schema: SettingsSchemaEntry[];
-  path: string;
-}
+};
 
-export interface RuntimeSettings {
-  stub_mode: boolean;
-  paths: Record<string, string>;
-  memory: Record<string, unknown>;
-  generation_defaults?: Record<string, unknown>;
-  acceleration: Record<string, unknown>;
-  counts: Record<string, number>;
-  gpu: GpuStatus;
-  mem: Record<string, unknown>;
+export type RuntimeSettings = Pick<
+  Api["RuntimeSettingsOut"],
+  | "acceleration"
+  | "counts"
+  | "generation_defaults"
+  | "mem"
+  | "memory"
+  | "paths"
+  | "stub_mode"
+> & {
   capability?: CapabilityProfile;
-}
+  gpu: GpuStatus;
+};
 
-export type Job = Omit<Api["JobOut"], "params" | "result"> & {
-  params: JsonRecord;
-  result: JsonRecord | null;
+export type Job = Api["JobOut"] & {
   progress_note?: string | null;
 };
+export type ImageItem = Api["ImageOut"] & { tags: string[] };
+export type VideoItem = Api["VideoOut"];
+export type ImageStats = Api["ImageStatsOut"];
 
-export type ImageItem = Omit<Api["ImageOut"], "family" | "params" | "tags"> & {
-  family: ModelFamily | "unknown" | string | null;
-  tags: string[];
-  params: JsonRecord;
-};
-
-export type VideoItem = Omit<Api["VideoOut"], "family" | "params"> & {
-  family: ModelFamily | "unknown" | string | null;
-  params: JsonRecord;
-};
-
-export interface ImageStats {
-  total: number;
-  today: number;
-  by_model: { model: string; count: number }[];
-  by_family?: { family: ModelFamily | "unknown"; count: number }[];
-  by_lora?: { id: string; name: string; count: number }[];
-  by_tag?: { tag: string; count: number }[];
-}
-
-// A request to load params into the image composer (from History / a result).
+// UI-only hand-off messages between workspaces.
 export interface ComposerApply {
   model_id?: string;
-  params: Record<string, unknown>;
+  params: JsonRecord;
   nonce: number;
 }
 
@@ -526,278 +268,75 @@ export interface EditApply extends ComposerApply {
   height?: number;
 }
 
-export type Preset = Omit<Api["PresetOut"], "params"> & { params: JsonRecord };
-
-export type JobCreate = Omit<Api["JobCreate"], "params" | "priority"> & {
-  params: JsonRecord;
-  priority?: number;
-};
+export type Preset = Api["PresetOut"];
+export type JobCreate = Api["JobCreate"];
 
 export interface BusEvent {
   type: string;
   ts: number;
-  [k: string]: unknown;
+  [key: string]: unknown;
 }
 
-export type ChatRole = "user" | "assistant" | "system";
-
-export interface ChatAttachment {
-  token: string;
-  filename: string;
-  content_type: string;
-  kind: "image" | "document" | "file" | string;
-  size_bytes: number;
-  url?: string | null;
-  extracted_chars?: number | null;
-  included_chars?: number | null;
-  truncated?: boolean;
-  notice?: string | null;
-}
-
-export interface ChatMessage {
-  id: string;
+type ChatRole = "user" | "assistant" | "system";
+export type ChatAttachment = Api["ChatAttachmentOut"];
+export type ChatMessage = Omit<Api["MessageOut"], "created_at" | "role"> & {
   role: ChatRole;
-  content: string;
-  attachments?: ChatAttachment[];
-  error?: boolean;
-  job_id?: string | null;
+  // Optimistic/streaming messages exist before the server assigns a timestamp.
   created_at?: string;
-}
+};
 
-export type ChatConversation = Omit<Api["ConversationOut"], "params"> & { params: JsonRecord };
-
-export type ChatConversationDetail = Omit<Api["ConversationDetailOut"], "params" | "messages"> & {
-  params: JsonRecord;
+export type ChatConversation = Api["ConversationOut"];
+export type ChatConversationDetail = Omit<Api["ConversationDetailOut"], "messages"> & {
   messages: ChatMessage[];
 };
-
-export type ChatImportMessage = Omit<Api["MessageImport"], "role"> & { role: ChatRole; attachments?: ChatAttachment[] };
-
-export type ChatConversationImport = Omit<Api["ConversationImport"], "params" | "messages"> & {
-  params?: JsonRecord;
+export type ChatImportMessage = Omit<Api["MessageImport"], "role"> & {
+  role: ChatRole;
+};
+export type ChatConversationImport = Omit<Api["ConversationImport"], "messages"> & {
   messages?: ChatImportMessage[];
 };
-
-export type ChatImportResult = Omit<Api["ChatImportOut"], "conversations"> & { conversations: ChatConversationDetail[] };
-
-export type ChatSendResult = Omit<Api["ChatSendOut"], "conversation" | "user_message" | "assistant_message"> & {
+export type ChatImportResult = Omit<Api["ChatImportOut"], "conversations"> & {
+  conversations: ChatConversationDetail[];
+};
+export type ChatSendResult = Omit<
+  Api["ChatSendOut"],
+  "assistant_message" | "conversation" | "user_message"
+> & {
   conversation: ChatConversation;
   user_message: ChatMessage;
   assistant_message: ChatMessage;
 };
+export type ChatSendBody = Api["ChatSend"];
 
-export interface ChatSendBody {
-  content: string;
-  model_id: string;
-  attachments?: { token: string }[];
-  system?: string;
-  temperature?: number;
-  max_tokens?: number;
-  top_p?: number;
-  top_k?: number;
-  min_p?: number;
-  repeat_penalty?: number;
-  seed?: number;
-  stop?: string[];
-  image_tool?: boolean;
-  image_model_id?: string;
-  document_tool?: boolean;
-  rag_top_k?: number;
-}
+export type LlmConfig = Api["LlmConfigOut"];
+export type LlmApiServerStatus = Api["LlmApiServerStatus"];
 
-export interface LlmContextType {
-  id: string;
-  label: string;
-  experimental: boolean;
-}
-
-export interface LlmBackendInfo {
-  id: string;
-  label: string;
-  available: boolean;
-  path: string;
-  context_types: string[];
-}
-
-export interface LlmConfig {
-  ctx: number;
-  ngl: number;
-  backend: string;
-  backends: LlmBackendInfo[];
-  context_type: string;
-  context_types: LlmContextType[];
-  stub: boolean;
-  loaded: boolean;
-  model_id: string | null;
-  defaults: { temperature: number; max_tokens: number };
-}
-
-export interface LlmApiServerStatus {
-  enabled: boolean;
-  available: boolean;
-  protocol: string;
-  base_url: string;
-  chat_completions_url: string;
-  models_url: string;
-  host: string;
-  port: number;
-  model_id: string | null;
-  model: string | null;
-  loaded: boolean;
-  pinned: boolean;
-  stub: boolean;
-  note: string | null;
-}
-
-export type PresetImportItem = Omit<Api["PresetImportItem"], "params"> & { params: JsonRecord };
-
-export type PresetImportResult = Omit<Api["PresetImportOut"], "presets"> & { presets: Preset[] };
-
+export type PresetImportItem = Api["PresetImportItem"];
+export type PresetImportResult = Api["PresetImportOut"];
 export type Note = Api["NoteOut"];
 
-export interface TtsModel {
-  id: string;
-  name: string;
-  path: string;
-  size_bytes: number;
-}
+export type TtsStatus = Api["TtsStatusOut"];
+export type TtsGenerateBody = Api["TtsGenerateIn"];
+export type TtsGenerateResult = Api["TtsGenerateOut"];
 
-export interface TtsStatus {
-  binary: string;
-  binary_exists: boolean;
-  models_dir: string;
-  models: TtsModel[];
-  ready: boolean;
-}
+export type TranscriptionStatus = Api["TranscriptionStatusOut"];
+export type TranscriptionResult = Api["TranscriptionResultOut"];
 
-export interface TtsGenerateBody {
-  model_id: string;
-  text: string;
-  vocoder_id?: string | null;
-  use_guide_tokens?: boolean;
-}
+export type RagStatus = Api["RagStatusOut"];
+export type RagDocument = Api["RagDocumentOut"];
+export type RagSearchResponse = Api["RagSearchOut"];
 
-export interface TtsGenerateResult {
-  id: string;
-  url: string;
-  path: string;
-  metadata_path: string;
-  model_id: string;
-  vocoder_id?: string | null;
-  duration_seconds: number;
-}
-
-export interface TranscriptionModel {
-  id: string;
-  name: string;
-  path: string;
-  size_bytes: number;
-  engine: "faster-whisper" | "openai-whisper";
-}
-
-export interface TranscriptionStatus {
-  models_dir: string;
-  models: TranscriptionModel[];
-  engines: Record<string, boolean>;
-  device: string;
-  compute_type: string;
-  max_upload_mb: number;
-  ready: boolean;
-}
-
-export interface TranscriptionSegment {
-  start: number;
-  end: number;
-  text: string;
-}
-
-export interface TranscriptionResult {
-  id: string;
-  text: string;
-  segments: TranscriptionSegment[];
-  detected_language?: string | null;
-  language_probability?: number | null;
-  metadata_url: string;
-  metadata_path: string;
-  duration_seconds: number;
-}
-
-export interface RagModel {
-  id: string;
-  name: string;
-  path: string;
-  size_bytes: number;
-}
-
-export interface RagStatus {
-  binary: string;
-  binary_exists: boolean;
-  models_dir: string;
-  models: RagModel[];
-  ready: boolean;
-  port: number;
-  gpu_layers: number;
-  chunk_chars: number;
-  chunk_overlap: number;
-}
-
-export interface RagDocument {
-  id: string;
-  title: string;
-  source?: string | null;
-  model_id?: string | null;
-  chunks_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface RagSearchResult {
-  document_id: string;
-  document_title: string;
-  chunk_id: string;
-  chunk_index: number;
-  text: string;
-  score: number;
-}
-
-export interface RagSearchResponse {
-  query: string;
-  results: RagSearchResult[];
-  context: string;
-}
-
-export interface VoiceModel {
-  id: string;
-  slot: string;
-  name: string;
-  type: string;
-  version: string;
-  sampling_rate: number | null;
+export type VoiceModel = Api["VoiceModelOut"] & {
   f0: boolean;
-  speaker_id?: number | null;
-  has_index: boolean;
-  size_bytes: number;
-  source?: string;
-}
-
-export interface VoiceAudioDevice {
-  id: string;
-  index: number;
-  name: string;
-  host_api: string;
-  max_input_channels: number;
-  max_output_channels: number;
+  sampling_rate: number | null;
+};
+export type VoiceAudioDevice = Api["VoiceAudioDeviceOut"] & {
   default_sample_rate: number | null;
-}
+};
+export type VoiceEngineAsset = Api["VoiceAssetOut"];
 
-export interface VoiceEngineAsset {
-  name: string;
-  path: string | null;
-  found: boolean;
-  source: string | null;
-  optional?: boolean;
-}
-
+// The voice status endpoint intentionally keeps these runtime dictionaries
+// extensible. These are the stable fields rendered and edited by the UI.
 export interface VoiceEngineSettings {
   pitch: number;
   speaker_id: number;
@@ -832,17 +371,22 @@ export interface VoiceEngineSettings {
 }
 
 export type VoiceEngineSettingsUpdate = Api["VoiceEngineSettingsUpdate"];
-
-export interface VoiceEnginePreset {
-  id: string;
-  name: string;
-  model_id?: string | null;
+export type VoiceEnginePreset = Pick<
+  Api["VoiceEnginePresetOut"],
+  "created_at" | "id" | "model_id" | "name" | "updated_at"
+> & {
   settings: VoiceEngineSettingsUpdate;
-  created_at: string;
-  updated_at: string;
+};
+
+export interface VoiceProviderHealth {
+  name?: string | null;
+  requested?: string | null;
+  actual?: string | null;
+  loaded?: boolean;
+  error?: string | null;
 }
 
-export interface VoiceEngineMetrics {
+interface VoiceEngineMetrics {
   input_vu: number;
   output_vu: number;
   output_peak: number;
@@ -863,15 +407,7 @@ export interface VoiceEngineMetrics {
   squelched: boolean;
 }
 
-export interface VoiceProviderHealth {
-  name?: string | null;
-  requested?: string | null;
-  actual?: string | null;
-  loaded?: boolean;
-  error?: string | null;
-}
-
-export interface VoiceEngineSessionConfig {
+interface VoiceEngineSessionConfig {
   server_input_device_id: number | null;
   server_output_device_id: number | null;
   server_monitor_device_id: number | null;
@@ -879,55 +415,31 @@ export interface VoiceEngineSessionConfig {
   server_read_chunk_size: number;
 }
 
-export interface VoiceEngineRecordingStatus {
-  active: boolean;
-  duration_s: number;
-  samples: number;
-  sample_rate: number | null;
-}
-
-export interface VoiceEngineRecordingResult {
-  token: string;
-  raw_token?: string;
-  url: string;
-  raw_url?: string;
-  mp3_url: string;
-  metadata_url?: string;
-  duration_s: number;
-  sample_rate: number;
-  samples: number;
-}
-
-export interface VoiceEngineStatus {
-  engine: string;
-  stub: boolean;
-  ready: boolean;
-  assets: VoiceEngineAsset[];
-  asset_download?: ModelDownloadStatus | null;
+export type VoiceEngineRecordingResult = Api["VoiceRecordingResultOut"];
+export type VoiceEngineStatus = Pick<
+  Api["VoiceEngineStatusOut"],
+  | "asset_download"
+  | "assets"
+  | "device"
+  | "engine"
+  | "live"
+  | "loaded_model"
+  | "ready"
+  | "recording"
+  | "recording_result"
+  | "session_error"
+  | "stub"
+> & {
   models: VoiceModel[];
   audio_devices: {
     inputs: VoiceAudioDevice[];
     outputs: VoiceAudioDevice[];
   };
-  device: string;
   settings: VoiceEngineSettings;
-  loaded_model: string | null;
-  live: boolean;
-  session_config: VoiceEngineSessionConfig | null;
-  session_error: string | null;
-  recording: VoiceEngineRecordingStatus;
-  recording_result?: VoiceEngineRecordingResult;
   metrics: VoiceEngineMetrics;
-}
-
-export interface VoiceEngineConvertResult {
-  token: string;
-  url: string;
-  mp3_url: string;
-  duration_s: number;
-  sample_rate: number;
-  timings_ms: Record<string, number>;
-  model_id: string;
+  session_config: VoiceEngineSessionConfig | null;
+};
+export type VoiceEngineConvertResult = Api["VoiceConvertOut"] & {
   params: {
     pitch: number;
     speaker_id: number;
@@ -942,14 +454,7 @@ export interface VoiceEngineConvertResult {
     input_denoise: "off" | "dtln";
     input_denoise_mix: number;
   };
-}
+};
 
-export interface CodeFile {
-  path: string;
-  size_bytes: number;
-}
-
-export interface CodeFileContent extends CodeFile {
-  content: string;
-  truncated: boolean;
-}
+export type CodeFile = Api["CodeFileOut"];
+export type CodeFileContent = Api["CodeFileContentOut"];

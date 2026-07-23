@@ -92,10 +92,13 @@ def test_rocm_capability_profile_disables_cuda_only_features(monkeypatch):
     assert profile["features"]["nunchaku_cuda"] is False
     assert profile["features"]["video_diffusers_cuda"] is False
     assert profile["features"]["video_fp8_fast_paths"] is False
+    assert profile["features"]["video_light_fallback"] is True
     assert "cuda_llama_binaries" in profile["disabled_features"]
     assert "onnxruntime_cuda" in profile["disabled_features"]
     assert "video_diffusers_cuda" in profile["disabled_features"]
     assert "video_fp8_fast_paths" in profile["disabled_features"]
+    assert "video_light_fallback" not in profile["disabled_features"]
+    assert profile["model_policy"]["video"]["recommended"] == ["cogvideo"]
     assert set(profile["model_policy"]["video"]["fallback_candidates"]) == {"animatediff", "cogvideo"}
 
 
@@ -122,8 +125,11 @@ def test_mps_capability_profile_exposes_metal_and_disables_cuda(monkeypatch):
     assert profile["features"]["metal_llama_binaries"] is True
     assert profile["features"]["cuda"] is False
     assert profile["features"]["video_diffusers_cuda"] is False
+    assert profile["features"]["video_light_fallback"] is True
     assert "nunchaku_cuda" in profile["disabled_features"]
     assert "video_diffusers_cuda" in profile["disabled_features"]
+    assert "video_light_fallback" not in profile["disabled_features"]
+    assert profile["model_policy"]["video"]["recommended"] == ["cogvideo"]
     labels = {job["label"] for job in profile["starter_models"]["jobs"]}
     assert "SDXL Lightning 4-step checkpoint" in labels
     assert "FLUX.1 dev Nunchaku fp4" not in labels

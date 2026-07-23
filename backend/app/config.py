@@ -125,6 +125,10 @@ class Settings(BaseSettings):
     # Optional API bearer token. Keep unset for loopback-only local use; set it
     # before binding to a LAN interface.
     api_token: str | None = None
+    # Deliberately dangerous escape hatch for trusted, isolated LANs. Without
+    # this opt-in, a non-loopback bind requires ``api_token`` and remote clients
+    # are rejected even if uvicorn's CLI host drifts from this setting.
+    allow_insecure_lan: bool = False
     # Vite dev server origin(s) allowed via CORS.
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     # Production mode serves the Vite build from FastAPI on the backend port.
@@ -199,9 +203,9 @@ class Settings(BaseSettings):
     # Cap for chat attachment uploads (images for the multimodal path, documents
     # for the extract-to-context path). Bounded read happens before any storage.
     chat_upload_max_mb: int = 64
-    # Voice changer (P6R, native RVC). CUDA by default: the realtime session is
+    # Native RVC voice changer. CUDA by default: the realtime session is
     # arbiter-coordinated (frees the resident + parks GPU jobs via the voice
-    # lane), and the P6R.2 bench shows CPU only sustains realtime at chunk 192
+    # lane), and benchmarks show CPU only sustains realtime at chunk 192
     # while CUDA has ~2.7x headroom at chunk 133. The synthesizer itself is
     # tiny (~60 MB VRAM); ContentVec stays on onnxruntime-CPU either way.
     voice_device: str = "cuda"
@@ -324,32 +328,32 @@ class Settings(BaseSettings):
     z_image_nunchaku_offload: str = "model"  # model | none (none = keep resident)
 
     # --- image acceleration ---
-    # P1.1: Opt-in compile because Blackwell compile can spike RAM/VRAM during
+    # Opt-in compile because Blackwell compile can spike RAM/VRAM during
     # graph capture. When enabled, the backend records before/after memory in
     # the model.loaded event and does a tiny warmup pass.
     torch_compile: bool = False
     torch_compile_mode: str = "max-autotune"
     torch_compile_warmup: bool = True
     torch_compile_warmup_size: int = 512
-    # P1.2: Nunchaku first-block cache for FLUX. "fb" is the native adapter in
+    # Nunchaku first-block cache for FLUX. "fb" is the native adapter in
     # nunchaku; "teacache" wraps each generation with TeaCache; "off" disables.
     flux_step_cache: str = "fb"
     flux_fb_cache_threshold: float = 0.12
     flux_fb_cache_double: bool = False
     flux_teacache_threshold: float = 0.6
     flux_teacache_skip_steps: int = 0
-    # P2.2: PyTorch scaled-dot-product attention backend selector. "auto" lets
+    # PyTorch scaled-dot-product attention backend selector. "auto" lets
     # PyTorch choose; "flash", "efficient", "math", and "cudnn" force a native
     # SDPA backend when the installed torch build exposes it.
     attention_backend: str = "auto"
     attention_allow_tf32: bool = True
     attention_matmul_precision: str = "high"
-    # P20.5: let the detected CapabilityProfile pick the *safe* acceleration
+    # Let the detected CapabilityProfile pick the *safe* acceleration
     # defaults (e.g. math attention + TF32 off on a pre-Ampere/ROCm/CPU box) for
     # any knob the user did not set explicitly. Only ever tunes toward safety;
     # never auto-enables torch.compile. Set false to keep the static defaults.
     capability_autotune: bool = True
-    # P1.4: Optional SDXL turbo LoRA. Set to a local .safetensors file, local
+    # Optional SDXL turbo LoRA. Set to a local .safetensors file, local
     # folder, or Hugging Face repo id to make SDXL default to low-step turbo mode.
     sdxl_turbo_lora: str | None = None
     sdxl_turbo_lora_weight: float = 1.0
@@ -362,7 +366,7 @@ class Settings(BaseSettings):
     image_recycle_cuda_growth_gb: float = 2.0
     image_recycle_min_jobs: int = 6
 
-    # --- video generation (P27) ---
+    # --- video generation ---
     # Large local Diffusers repos are streamed and quantized component-by-component;
     # their full bf16 weights must never be materialized in VRAM on a 16 GB card.
     video_quant: str = "bnb-nf4"  # bnb-nf4 | bnb-fp4 | none (bf16, advanced)
@@ -377,7 +381,7 @@ class Settings(BaseSettings):
     video_max_width: int = 1280
     video_max_height: int = 1280
 
-    # --- optional keep-warm policy (P2.1) ---
+    # --- optional keep-warm policy ---
     # OFF by default. When enabled, the arbiter may park one image pipeline in
     # CPU RAM between swaps instead of fully deleting it. It is still not a VRAM
     # resident, and the RAM guard below decides whether parking is allowed.
@@ -391,14 +395,14 @@ class Settings(BaseSettings):
     # How often to broadcast a mem.status event (seconds).
     mem_poll_seconds: float = 3.0
 
-    # --- learned memory profiles (P7.2) ---
+    # --- learned memory profiles ---
     # Record each model's measured peak RAM/VRAM after a load and feed it back
     # into the budget guard, replacing the static size*factor heuristic once a
     # real measurement exists. Safety margin added on top of the measured RAM.
     learn_memory_profiles: bool = True
     learned_ram_margin_gb: float = 1.5
 
-    # --- img2img (P13.4) ---
+    # --- img2img ---
     # Max accepted source-image upload size, and the default denoise strength
     # (low = keep more of the source, high = follow the prompt more freely).
     image_upload_max_mb: int = 24
@@ -411,7 +415,7 @@ class Settings(BaseSettings):
     inpaint_padding_mask_crop: int = 32
     inpaint_mask_blur: float = 0.0
     inpaint_mask_grow: int = 0
-    # P19.3: optional SDXL ControlNet. Canny is the first vetted control type;
+    # Optional SDXL ControlNet. Canny is the first vetted control type;
     # the repo id can point to a local folder if you want zero network access.
     sdxl_controlnet_canny_repo: str | None = "diffusers/controlnet-canny-sdxl-1.0"
     sdxl_controlnet_depth_repo: str | None = None
@@ -422,7 +426,7 @@ class Settings(BaseSettings):
     sdxl_controlnet_extra_ram_gb: float = 3.0
     sdxl_controlnet_extra_vram_gb: float = 2.5
 
-    # --- upscaler (P19.2) ---
+    # --- upscaler ---
     # A virtual arbiter resident. If Real-ESRGAN is installed and the weight file
     # exists, the backend uses it; otherwise it falls back to deterministic PIL
     # resizing so the queue/history flow remains available in STUB/dev setups.

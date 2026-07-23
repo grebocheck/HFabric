@@ -40,11 +40,15 @@ export function SystemPanel({
   const [voiceStatus, setVoiceStatus] = useState<VoiceEngineStatus | null>(null);
 
   useEffect(() => {
-    api.runtimeSettings().then(setSettings).catch(() => {});
+    api.runtimeSettings().then(setSettings).catch((error: unknown) => {
+      console.warn("Could not load runtime settings", error);
+    });
   }, []);
 
   const refreshProfiles = useCallback(() => {
-    api.listModelProfiles().then(setProfiles).catch(() => {});
+    api.listModelProfiles().then(setProfiles).catch((error: unknown) => {
+      console.warn("Could not load model profiles", error);
+    });
   }, []);
 
   useEffect(() => {
@@ -53,15 +57,21 @@ export function SystemPanel({
 
   // Refetch the swap-plan whenever the queue or the resident model changes.
   useEffect(() => {
-    api.queuePlan().then(setPlan).catch(() => {});
+    api.queuePlan().then(setPlan).catch((error: unknown) => {
+      console.warn("Could not load queue plan", error);
+    });
   }, [queueKey, gpu.model_id]);
 
   useEffect(() => {
-    api.imageStats().then(setImageStats).catch(() => {});
+    api.imageStats().then(setImageStats).catch((error: unknown) => {
+      console.warn("Could not load image statistics", error);
+    });
   }, [imageSignal]);
 
   useEffect(() => {
-    api.voiceEngineStatus().then(setVoiceStatus).catch(() => {});
+    api.voiceEngineStatus().then(setVoiceStatus).catch((error: unknown) => {
+      console.warn("Could not load voice status", error);
+    });
   }, []);
 
   const ram = mem?.ram;

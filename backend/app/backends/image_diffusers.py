@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-from pathlib import Path
 import random
 from typing import Any
 
@@ -29,6 +28,8 @@ from .image_diffusers_parts import (
     DiffusersPipelineMixin,
     Flux2LoaderMixin,
     FluxLoaderMixin,
+    ImageEditingMixin,
+    LoraRuntimeMixin,
     QwenZLoaderMixin,
     SdxlLoaderMixin,
 )
@@ -36,6 +37,8 @@ from .image_diffusers_parts.generation import run_real_generation
 
 
 class DiffusersImageBackend(
+    ImageEditingMixin,
+    LoraRuntimeMixin,
     AnimaLoaderMixin,
     QwenZLoaderMixin,
     Flux2LoaderMixin,
@@ -164,49 +167,12 @@ class DiffusersImageBackend(
         self._remember_accelerator_baseline(torch)
         self._load_report = report
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     # --------------------------------------------------------------- unload
-
-
-
-
-
-
 
     # ------------------------------------------------------- post-job hygiene
 
-
-
-
     # ------------------------------------------------------------- generate
-    async def generate(
-        self, params: dict[str, Any], progress: ProgressCb
-    ) -> list[dict[str, Any]]:
+    async def generate(self, params: dict[str, Any], progress: ProgressCb) -> list[dict[str, Any]]:
         width = self._dimension(params, "width", settings.default_width, settings.flux2_default_width)
         height = self._dimension(params, "height", settings.default_height, settings.flux2_default_height)
         width, height = self._normalize_dims(width, height)
@@ -216,7 +182,7 @@ class DiffusersImageBackend(
         if base_seed in (None, -1):
             base_seed = random.randint(0, 2**31 - 1)
 
-        # img2img/inpainting (P13.4/P13.5/P19.1): a source image steers
+        # For img2img/inpainting, a source image steers
         # generation; an optional mask constrains the repaint region.
         if params.get("mask_image") and not params.get("init_image"):
             raise ValueError("inpainting requires an img2img source image")
@@ -230,7 +196,9 @@ class DiffusersImageBackend(
             ModelFamily.Z_IMAGE,
             ModelFamily.FLUX_KONTEXT,
         }
-        if (params.get("init_image") or params.get("mask_image")) and self.descriptor.family not in edit_families:
+        if (
+            params.get("init_image") or params.get("mask_image")
+        ) and self.descriptor.family not in edit_families:
             raise ValueError("this model family does not support latent img2img/inpainting")
         if params.get("mask_image") and self.descriptor.family is ModelFamily.ANIMA:
             raise ValueError("Anima supports img2img but not inpainting")
@@ -265,9 +233,16 @@ class DiffusersImageBackend(
             await asyncio.sleep(0.03)
             frac = (i + (s + 1) / steps) / batch
             await progress(frac, f"step {s + 1}/{steps} (img {i + 1}/{batch})")
-        meta = {**self._public_params(params), "seed": seed, "width": width, "height": height,
-                "model": self.descriptor.name, "family": self.descriptor.family.value, "stub": True,
-                "acceleration": self._active_features}
+        meta = {
+            **self._public_params(params),
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "model": self.descriptor.name,
+            "family": self.descriptor.family.value,
+            "stub": True,
+            "acceleration": self._active_features,
+        }
         self._add_edit_meta(meta, params, steps)
         if params.get("control_image"):
             meta["controlnet"] = {
@@ -287,9 +262,17 @@ class DiffusersImageBackend(
         if params.get("mask_image"):
             lines.append("inpaint mask: enabled")
         if params.get("control_image"):
-            lines.append(f"controlnet {params.get('control_type') or 'canny'} scale={self._control_scale(params):.2f}")
-        img = imaging.make_placeholder(width, height, lines)
-        return self._persist(img, meta, seed, width, height)
+            lines.append(
+                f"controlnet {params.get('control_type') or 'canny'} scale={self._control_scale(params):.2f}"
+            )
+        return await asyncio.to_thread(
+            self._persist_placeholder,
+            lines,
+            meta,
+            seed,
+            width,
+            height,
+        )
 
     async def _generate_real(self, params, width, height, steps, seed, i, batch, progress) -> dict[str, Any]:
         import torch  # noqa: PLC0415
@@ -306,10 +289,17 @@ class DiffusersImageBackend(
             batch=batch,
             progress=progress,
         )
-        meta = {**self._public_params(params), "seed": seed, "width": width, "height": height,
-                "steps": steps, "guidance": self._guidance(params),
-                "model": self.descriptor.name, "family": self.descriptor.family.value,
-                "acceleration": self._active_features}
+        meta = {
+            **self._public_params(params),
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "steps": steps,
+            "guidance": self._guidance(params),
+            "model": self.descriptor.name,
+            "family": self.descriptor.family.value,
+            "acceleration": self._active_features,
+        }
         self._add_edit_meta(meta, params, steps)
         if result.has_mask:
             meta["inpaint"] = True
@@ -318,255 +308,14 @@ class DiffusersImageBackend(
                 "type": params.get("control_type") or "canny",
                 "scale": self._control_scale(params),
             }
-        return self._persist(result.image, meta, seed, width, height)
-
-    @staticmethod
-    def _strength(params: dict[str, Any], family: ModelFamily | None = None) -> float:
-        """img2img denoise strength, clamped to a sane range."""
-        default = settings.img2img_default_strength
-        if family is ModelFamily.QWEN_IMAGE:
-            default = settings.qwen_image_img2img_strength
-        elif family is ModelFamily.Z_IMAGE:
-            default = settings.z_image_img2img_strength
-        elif family is ModelFamily.ANIMA:
-            default = settings.anima_img2img_strength
-        try:
-            value = float(params.get("strength", default))
-        except (TypeError, ValueError):
-            value = default
-        return max(0.05, min(1.0, value))
-
-    @classmethod
-    def _effective_strength(
-        cls,
-        params: dict[str, Any],
-        steps: int,
-        family: ModelFamily | None = None,
-        min_effective_steps: int = 1,
-    ) -> float:
-        """Diffusers img2img floors ``steps * strength`` to choose timesteps.
-        Keep low-step smoke/tests from producing a zero-length denoise schedule."""
-        return max(
-            cls._strength(params, family),
-            min(max(1, int(min_effective_steps)), max(1, int(steps))) / max(1, int(steps)),
+        return await asyncio.to_thread(
+            self._persist,
+            result.image,
+            meta,
+            seed,
+            width,
+            height,
         )
-
-    def _resolved_strength(self, params: dict[str, Any], steps: int) -> float:
-        minimum = settings.img2img_min_effective_steps if self._is_z_image_turbo() else 1
-        return self._effective_strength(params, steps, self.descriptor.family, minimum)
-
-    def _add_strength_meta(self, meta: dict[str, Any], params: dict[str, Any], steps: int) -> None:
-        if not params.get("init_image"):
-            return
-        requested = self._strength(params, self.descriptor.family)
-        effective = self._resolved_strength(params, steps)
-        meta["strength"] = effective
-        if effective != requested:
-            meta["requested_strength"] = requested
-
-    def _add_edit_meta(self, meta: dict[str, Any], params: dict[str, Any], steps: int) -> None:
-        if not params.get("init_image"):
-            return
-        mode = self._edit_mode(params)
-        meta["edit_mode"] = mode
-        meta["resize_mode"] = self._resize_mode(params)
-        if self.descriptor.family in (ModelFamily.QWEN_IMAGE_EDIT, ModelFamily.FLUX_KONTEXT):
-            meta["instruction_edit"] = True
-        elif self.descriptor.family is ModelFamily.FLUX2 and mode == "img2img" and not params.get("mask_image"):
-            meta["flux2_reference"] = True
-        else:
-            self._add_strength_meta(meta, params, steps)
-        if params.get("mask_image") or mode == "outpaint":
-            meta["inpaint"] = True
-            meta["mask_blur"] = self._mask_blur(params)
-            meta["mask_grow"] = self._mask_grow(params)
-            meta["mask_invert"] = bool(params.get("mask_invert", False))
-            meta["padding_mask_crop"] = self._padding_mask_crop(params)
-        if mode == "outpaint":
-            meta["outpaint"] = self._outpaint_margins(params)
-
-    @staticmethod
-    def _edit_mode(params: dict[str, Any]) -> str:
-        inferred = "inpaint" if params.get("mask_image") else "img2img"
-        mode = str(params.get("edit_mode") or inferred).lower().strip()
-        return mode if mode in {"img2img", "inpaint", "outpaint", "instruction", "controlnet"} else "img2img"
-
-    @staticmethod
-    def _resize_mode(params: dict[str, Any]) -> str:
-        mode = str(params.get("resize_mode") or settings.image_edit_resize_mode).lower().strip()
-        return mode if mode in {"crop", "pad", "stretch"} else "crop"
-
-    @staticmethod
-    def _mask_blur(params: dict[str, Any]) -> float:
-        try:
-            return max(0.0, min(128.0, float(params.get("mask_blur", settings.inpaint_mask_blur))))
-        except (TypeError, ValueError):
-            return float(settings.inpaint_mask_blur)
-
-    @staticmethod
-    def _mask_grow(params: dict[str, Any]) -> int:
-        try:
-            return max(-128, min(128, int(params.get("mask_grow", settings.inpaint_mask_grow))))
-        except (TypeError, ValueError):
-            return int(settings.inpaint_mask_grow)
-
-    @staticmethod
-    def _padding_mask_crop(params: dict[str, Any]) -> int | None:
-        try:
-            value = int(params.get("padding_mask_crop", settings.inpaint_padding_mask_crop))
-        except (TypeError, ValueError):
-            value = int(settings.inpaint_padding_mask_crop)
-        return max(0, min(512, value)) or None
-
-    @staticmethod
-    def _outpaint_margins(params: dict[str, Any]) -> dict[str, int]:
-        def margin(key: str) -> int:
-            try:
-                return max(0, min(1024, int(params.get(key, 0))))
-            except (TypeError, ValueError):
-                return 0
-
-        return {side: margin(f"outpaint_{side}") for side in ("left", "right", "top", "bottom")}
-
-    @staticmethod
-    def _fit_image(image, width: int, height: int, mode: str, *, mask: bool = False):
-        from PIL import Image as PILImage  # noqa: PLC0415
-        from PIL import ImageOps  # noqa: PLC0415
-
-        resample = PILImage.Resampling.NEAREST if mask else PILImage.Resampling.LANCZOS
-        if mode == "stretch":
-            return image.resize((width, height), resample)
-        if mode == "pad":
-            color = 0 if mask else (24, 28, 36)
-            return ImageOps.pad(image, (width, height), method=resample, color=color, centering=(0.5, 0.5))
-        return ImageOps.fit(image, (width, height), method=resample, centering=(0.5, 0.5))
-
-    def _outpaint_canvas(self, image, width: int, height: int, params: dict[str, Any], *, mask: bool = False):
-        from PIL import Image as PILImage  # noqa: PLC0415
-        from PIL import ImageOps  # noqa: PLC0415
-
-        margins = self._outpaint_margins(params)
-        inner_w = max(1, width - margins["left"] - margins["right"])
-        inner_h = max(1, height - margins["top"] - margins["bottom"])
-        if mask:
-            canvas = PILImage.new("L", (width, height), 255)
-            canvas.paste(
-                0,
-                (
-                    margins["left"],
-                    margins["top"],
-                    width - margins["right"],
-                    height - margins["bottom"],
-                ),
-            )
-            return canvas
-        resample = PILImage.Resampling.NEAREST if mask else PILImage.Resampling.LANCZOS
-        fitted = ImageOps.contain(image, (inner_w, inner_h), method=resample)
-        x = margins["left"] + (inner_w - fitted.width) // 2
-        y = margins["top"] + (inner_h - fitted.height) // 2
-        canvas = PILImage.new("RGB", (width, height), (24, 28, 36))
-        canvas.paste(fitted, (x, y))
-        return canvas
-
-    def _load_init_image(self, token: str, width: int, height: int, params: dict[str, Any] | None = None):
-        """Open an uploaded source image and resize it to the requested canvas so
-        the img2img output matches the composer's width/height."""
-        from PIL import Image as PILImage  # noqa: PLC0415
-
-        from ..util import uploads as uploads_util  # noqa: PLC0415
-
-        path = uploads_util.resolve_upload(token)
-        if path is None or not path.exists():
-            raise ValueError("img2img source image not found (re-upload it)")
-        params = params or {}
-        image = PILImage.open(path).convert("RGB")
-        if self._edit_mode(params) == "outpaint":
-            return self._outpaint_canvas(image, width, height, params)
-        return self._fit_image(image, width, height, self._resize_mode(params))
-
-    def _load_mask_image(
-        self,
-        token: str | None,
-        width: int,
-        height: int,
-        params: dict[str, Any] | None = None,
-    ):
-        """Open an uploaded inpaint mask and resize it to the requested canvas.
-        White pixels are repainted; black pixels are preserved."""
-        from PIL import Image as PILImage  # noqa: PLC0415
-
-        from ..util import uploads as uploads_util  # noqa: PLC0415
-
-        params = params or {}
-        if self._edit_mode(params) == "outpaint":
-            mask = self._outpaint_canvas(PILImage.new("L", (1, 1), 0), width, height, params, mask=True)
-        else:
-            path = uploads_util.resolve_upload(token or "")
-            if path is None or not path.exists():
-                raise ValueError("inpainting mask not found (re-upload it)")
-            raw = PILImage.open(path).convert("L")
-            mask = self._fit_image(raw, width, height, self._resize_mode(params), mask=True)
-        return self._apply_mask_ops(mask, params)
-
-    @classmethod
-    def _apply_mask_ops(cls, mask, params: dict[str, Any]):
-        from PIL import ImageFilter, ImageOps  # noqa: PLC0415
-
-        grow = cls._mask_grow(params)
-        if grow:
-            kernel = min(255, abs(grow) * 2 + 1)
-            if kernel % 2 == 0:
-                kernel += 1
-            mask = mask.filter(ImageFilter.MaxFilter(kernel) if grow > 0 else ImageFilter.MinFilter(kernel))
-        blur = cls._mask_blur(params)
-        if blur:
-            mask = mask.filter(ImageFilter.GaussianBlur(blur))
-        if params.get("mask_invert"):
-            mask = ImageOps.invert(mask)
-        return mask
-
-    @staticmethod
-    def _control_scale(params: dict[str, Any]) -> float:
-        try:
-            value = float(params.get("control_scale", settings.sdxl_controlnet_default_scale))
-        except (TypeError, ValueError):
-            value = settings.sdxl_controlnet_default_scale
-        return max(0.0, min(2.0, value))
-
-    def _load_control_image(self, token: str, width: int, height: int, control_type: Any):
-        from PIL import Image as PILImage  # noqa: PLC0415
-        from PIL import ImageFilter, ImageOps  # noqa: PLC0415
-
-        from ..util import uploads as uploads_util  # noqa: PLC0415
-
-        control = str(control_type or "canny").lower().strip()
-        if control.startswith("union-"):
-            control = control.removeprefix("union-")
-        if control not in {"canny", "depth", "pose", "scribble"}:
-            raise ValueError("ControlNet type must be canny, depth, pose, or scribble")
-        path = uploads_util.resolve_upload(token)
-        if path is None or not path.exists():
-            raise ValueError("ControlNet source image not found (re-upload it)")
-        img = PILImage.open(path).convert("RGB").resize((width, height))
-        if control == "pose":
-            return img
-        grey = ImageOps.grayscale(img)
-        if control == "depth":
-            grey = ImageOps.autocontrast(grey)
-        else:
-            grey = ImageOps.autocontrast(grey.filter(ImageFilter.FIND_EDGES))
-            if control == "scribble":
-                grey = grey.point(lambda value: 255 if value > 32 else 0)
-        return PILImage.merge("RGB", (grey, grey, grey))
-
-    @staticmethod
-    def _controlnet_mode_kwargs(control_type: str) -> dict[str, int]:
-        if not control_type.startswith("union-"):
-            return {}
-        subtype = control_type.removeprefix("union-")
-        return {"control_mode": {"pose": 0, "depth": 1, "scribble": 2, "canny": 3}[subtype]}
-
-
 
     def _normalize_dims(self, width: int, height: int) -> tuple[int, int]:
         """Snap a request onto the grid the model actually accepts.
@@ -596,11 +345,7 @@ class DiffusersImageBackend(
                     else settings.qwen_image_default_height
                 )
             if self.descriptor.family is ModelFamily.Z_IMAGE:
-                return (
-                    settings.z_image_default_width
-                    if key == "width"
-                    else settings.z_image_default_height
-                )
+                return settings.z_image_default_width if key == "width" else settings.z_image_default_height
             if self.descriptor.family is ModelFamily.FLUX_KONTEXT:
                 return default
         return int(params.get(key, default))
@@ -649,131 +394,6 @@ class DiffusersImageBackend(
                 return settings.sdxl_turbo_guidance
         return guidance
 
-
-
-
-    def _apply_runtime_loras(self, params: dict[str, Any]) -> None:
-        adapters: list[str] = []
-        weights: list[float] = []
-        turbo = self._active_features.get("sdxl_turbo_lora")
-        if turbo and params.get("turbo", True):
-            adapters.append("turbo")
-            weights.append(float(turbo["weight"]))
-
-        requests = self._lora_requests(params)
-        if requests and not hasattr(self._pipe, "load_lora_weights"):
-            raise RuntimeError(f"Pipeline for {self.descriptor.name} does not support LoRA loading")
-        if requests:
-            self._require_peft_for_lora()
-        for request in requests:
-            adapter = self._load_lora_adapter(request["id"], Path(request["path"]))
-            adapters.append(adapter)
-            weights.append(float(request["weight"]))
-            self._loaded_lora_last_used[request["id"]] = self._generation_index
-
-        if adapters:
-            if not hasattr(self._pipe, "set_adapters"):
-                raise RuntimeError(f"Pipeline for {self.descriptor.name} does not support LoRA adapters")
-            self._pipe.set_adapters(adapters, adapter_weights=weights)
-            if hasattr(self._pipe, "enable_lora"):
-                self._pipe.enable_lora()
-        elif hasattr(self._pipe, "disable_lora"):
-            self._pipe.disable_lora()
-
-    def _lora_requests(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        raw_loras = params.get("loras") or []
-        paths = params.get("_lora_paths") or {}
-        if not isinstance(raw_loras, list) or not isinstance(paths, dict):
-            return []
-
-        requests: list[dict[str, Any]] = []
-        for item in raw_loras:
-            if not isinstance(item, dict):
-                continue
-            lora_id = item.get("id")
-            if not isinstance(lora_id, str):
-                continue
-            path = item.get("path") or paths.get(lora_id)
-            if not isinstance(path, str):
-                raise RuntimeError(f"LoRA {lora_id!r} is missing its validated path")
-            requests.append({
-                "id": lora_id,
-                "path": path,
-                "weight": float(item.get("weight", 1.0)),
-            })
-        return requests
-
-    def _requested_lora_ids(self, params: dict[str, Any]) -> set[str]:
-        raw_loras = params.get("loras") or []
-        if not isinstance(raw_loras, list):
-            return set()
-        ids: set[str] = set()
-        for item in raw_loras:
-            if isinstance(item, str):
-                ids.add(item)
-            elif isinstance(item, dict) and isinstance(item.get("id"), str):
-                ids.add(item["id"])
-        return ids
-
-    def _load_lora_adapter(self, lora_id: str, path: Path) -> str:
-        if lora_id in self._loaded_loras:
-            return self._loaded_loras[lora_id]
-        if not path.exists():
-            raise FileNotFoundError(f"LoRA file not found: {path}")
-
-        adapter = self._lora_adapter_name(lora_id)
-        if path.is_dir():
-            self._pipe.load_lora_weights(str(path), adapter_name=adapter)
-        elif path.suffix.lower() == ".safetensors":
-            self._pipe.load_lora_weights(str(path.parent), weight_name=path.name, adapter_name=adapter)
-        else:
-            self._pipe.load_lora_weights(str(path), adapter_name=adapter)
-        self._loaded_loras[lora_id] = adapter
-        self._loaded_lora_last_used[lora_id] = self._generation_index
-        return adapter
-
-    def _prune_lora_cache(self, keep_ids: set[str]) -> list[str]:
-        if not self._loaded_loras:
-            return []
-
-        max_cached = int(settings.image_lora_cache_max)
-        if max_cached < 0:
-            return []
-
-        if max_cached == 0:
-            prune_ids = list(self._loaded_loras)
-        else:
-            ordered = sorted(
-                self._loaded_loras,
-                key=lambda lora_id: self._loaded_lora_last_used.get(lora_id, -1),
-            )
-            prune_ids = []
-            for lora_id in ordered:
-                if len(self._loaded_loras) - len(prune_ids) <= max_cached:
-                    break
-                if lora_id not in keep_ids:
-                    prune_ids.append(lora_id)
-        if not prune_ids:
-            return []
-
-        adapter_names = [self._loaded_loras[lora_id] for lora_id in prune_ids]
-        if hasattr(self._pipe, "delete_adapters"):
-            self._pipe.delete_adapters(adapter_names)
-        elif len(prune_ids) == len(self._loaded_loras) and not self._active_features.get("sdxl_turbo_lora") and hasattr(self._pipe, "unload_lora_weights"):
-            self._pipe.unload_lora_weights()
-        else:
-            return []
-
-        for lora_id in prune_ids:
-            self._loaded_loras.pop(lora_id, None)
-            self._loaded_lora_last_used.pop(lora_id, None)
-        return prune_ids
-
-    @staticmethod
-    def _lora_adapter_name(lora_id: str) -> str:
-        body = "".join(ch if ch.isalnum() else "_" for ch in lora_id)[:80]
-        return f"lora_{body}"
-
     @staticmethod
     def _public_params(params: dict[str, Any]) -> dict[str, Any]:
         return {k: v for k, v in params.items() if not k.startswith("_")}
@@ -794,3 +414,14 @@ class DiffusersImageBackend(
             "family": meta.get("family"),
             "params": meta,
         }
+
+    def _persist_placeholder(
+        self,
+        lines: list[str],
+        meta: dict[str, Any],
+        seed: int,
+        width: int,
+        height: int,
+    ) -> dict[str, Any]:
+        image = imaging.make_placeholder(width, height, lines)
+        return self._persist(image, meta, seed, width, height)

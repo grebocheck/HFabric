@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
+import { storage } from "../lib/storage";
 import { Select } from "./Select";
 import { toast } from "./Toast";
 import { fmtBytes } from "./format";
-import type { CivitaiAuthStatus, CivitaiSearchResult, CivitaiVersionFiles, CustomDownloadItem } from "../types";
+import type {
+  CivitaiAuthStatus,
+  CivitaiSearchResult,
+  CivitaiVersionFiles,
+  CustomDownloadItem,
+} from "../types";
 
 const NSFW_KEY = "imagefabric.civitai.nsfw";
 
@@ -57,13 +63,7 @@ export function CivitaiBrowser({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("downloads");
   const [focus, setFocus] = useState("all");
-  const [nsfw, setNsfw] = useState(() => {
-    try {
-      return localStorage.getItem(NSFW_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [nsfw, setNsfw] = useState(() => storage.get(NSFW_KEY) === "true");
   const [results, setResults] = useState<CivitaiSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [nextPage, setNextPage] = useState<number | null>(null);
@@ -78,16 +78,15 @@ export function CivitaiBrowser({
   const [accountOpen, setAccountOpen] = useState(false);
 
   useEffect(() => {
-    api.civitaiAuthStatus().then(setAuth).catch(() => setAuth({ has_key: false, has_cookie: false }));
+    api
+      .civitaiAuthStatus()
+      .then(setAuth)
+      .catch(() => setAuth({ has_key: false, has_cookie: false }));
   }, []);
 
   const toggleNsfw = (on: boolean) => {
     setNsfw(on);
-    try {
-      localStorage.setItem(NSFW_KEY, on ? "true" : "false");
-    } catch {
-      /* preference is best-effort */
-    }
+    storage.set(NSFW_KEY, on ? "true" : "false");
   };
 
   const saveCredential = async (
@@ -111,11 +110,21 @@ export function CivitaiBrowser({
 
   const saveKey = () => {
     const clean = keyInput.trim();
-    if (clean) void saveCredential("API key", () => api.civitaiAuthSave(clean), () => setKeyInput(""));
+    if (clean)
+      void saveCredential(
+        "API key",
+        () => api.civitaiAuthSave(clean),
+        () => setKeyInput(""),
+      );
   };
   const saveCookie = () => {
     const clean = cookieInput.trim();
-    if (clean) void saveCredential("session login", () => api.civitaiAuthSaveCookie(clean), () => setCookieInput(""));
+    if (clean)
+      void saveCredential(
+        "session login",
+        () => api.civitaiAuthSaveCookie(clean),
+        () => setCookieInput(""),
+      );
   };
 
   const clearCredential = async (target: "key" | "cookie") => {
@@ -150,7 +159,13 @@ export function CivitaiBrowser({
     setOpenModel(null);
     setFiles(null);
     try {
-      const res = await api.civitaiSearch(query, { types: focusOption.types, sort, nsfw, limit: 24, page: 1 });
+      const res = await api.civitaiSearch(query, {
+        types: focusOption.types,
+        sort,
+        nsfw,
+        limit: 24,
+        page: 1,
+      });
       setResults(res.results);
       setNextPage(res.next_page ?? null);
     } catch (err) {
@@ -176,7 +191,13 @@ export function CivitaiBrowser({
     if (nextPage == null) return;
     setLoadingMore(true);
     try {
-      const res = await api.civitaiSearch(query, { types: focusOption.types, sort, nsfw, limit: 24, page: nextPage });
+      const res = await api.civitaiSearch(query, {
+        types: focusOption.types,
+        sort,
+        nsfw,
+        limit: 24,
+        page: nextPage,
+      });
       setResults((prev) => [...(prev ?? []), ...res.results]);
       setNextPage(res.next_page ?? null);
     } catch (err) {
@@ -253,9 +274,13 @@ export function CivitaiBrowser({
           placeholder="Search CivitAI models"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void search();
+          }}
         />
-        <div className="w-40"><Select value={sort} onChange={setSort} options={SORT_OPTIONS} /></div>
+        <div className="w-40">
+          <Select ariaLabel="CivitAI sort" value={sort} onChange={setSort} options={SORT_OPTIONS} />
+        </div>
         <button onClick={() => void search()} className={primaryButton} disabled={searching}>
           {searching ? "Searching…" : "Search"}
         </button>
@@ -266,7 +291,9 @@ export function CivitaiBrowser({
             key={option.value}
             onClick={() => chooseFocus(option.value)}
             className={`rounded px-2.5 py-1 text-xs transition ${
-              focus === option.value ? "bg-accent/15 text-accent-fg" : "bg-raised text-ui-muted hover:bg-control-hover hover:text-ui"
+              focus === option.value
+                ? "bg-accent/15 text-accent-fg"
+                : "bg-raised text-ui-muted hover:bg-control-hover hover:text-ui"
             }`}
           >
             {option.label}
@@ -280,12 +307,19 @@ export function CivitaiBrowser({
             title={`Browse civitai.${nsfw ? "red" : "com"} — Red also shows adult content`}
             className="flex items-center gap-1.5 text-xs text-ui-muted hover:text-ui"
           >
-            <span className={`relative inline-block h-4 w-7 rounded-full transition ${nsfw ? "bg-red-500/70" : "bg-control-active"}`}>
-              <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${nsfw ? "left-3.5" : "left-0.5"}`} />
+            <span
+              className={`relative inline-block h-4 w-7 rounded-full transition ${nsfw ? "bg-red-500/70" : "bg-control-active"}`}
+            >
+              <span
+                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${nsfw ? "left-3.5" : "left-0.5"}`}
+              />
             </span>
             <span className={nsfw ? "font-medium text-red-300" : ""}>RED</span>
           </button>
-          <button onClick={() => setAccountOpen((v) => !v)} className="flex items-center gap-1.5 text-[11px] text-ui-subtle hover:text-ui">
+          <button
+            onClick={() => setAccountOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-[11px] text-ui-subtle hover:text-ui"
+          >
             {auth && (auth.has_key || auth.has_cookie) ? (
               <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] text-success-fg">
                 {auth.has_cookie ? (auth.has_key ? "key+login" : "logged in") : "key"}
@@ -299,8 +333,12 @@ export function CivitaiBrowser({
       {/* CivitAI now gates most downloads behind an account — say so up front. */}
       {auth && !auth.has_key && !auth.has_cookie && !accountOpen ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-[11px] text-warn-fg">
-          <span>CivitAI requires an API key or session login to download models. Browsing works without one.</span>
-          <button onClick={() => setAccountOpen(true)} className={subtleButton}>Sign in</button>
+          <span>
+            CivitAI requires an API key or session login to download models. Browsing works without one.
+          </span>
+          <button onClick={() => setAccountOpen(true)} className={subtleButton}>
+            Sign in
+          </button>
         </div>
       ) : null}
 
@@ -308,11 +346,19 @@ export function CivitaiBrowser({
         <div className="space-y-3 rounded-md border border-line bg-control p-2.5 text-xs">
           {/* API key — simplest, ToS-clean path for downloads. */}
           <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-ui">API key <span className="font-normal text-ui-subtle">— for downloads</span></div>
+            <div className="text-[11px] font-medium text-ui">
+              API key <span className="font-normal text-ui-subtle">— for downloads</span>
+            </div>
             {auth?.has_key ? (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-ui">A key is saved.</span>
-                <button onClick={() => void clearCredential("key")} className={subtleButton} disabled={savingAuth}>Remove</button>
+                <button
+                  onClick={() => void clearCredential("key")}
+                  className={subtleButton}
+                  disabled={savingAuth}
+                >
+                  Remove
+                </button>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
@@ -322,7 +368,9 @@ export function CivitaiBrowser({
                   placeholder="Paste CivitAI API key"
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveKey(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveKey();
+                  }}
                 />
                 <button onClick={saveKey} className={primaryButton} disabled={savingAuth || !keyInput.trim()}>
                   {savingAuth ? "Saving…" : "Save & verify"}
@@ -334,11 +382,20 @@ export function CivitaiBrowser({
 
           {/* Session login — native account auth, reused for image upload later. */}
           <div className="space-y-1.5 border-t border-line pt-2.5">
-            <div className="text-[11px] font-medium text-ui">Session login <span className="font-normal text-ui-subtle">— downloads + future image upload</span></div>
+            <div className="text-[11px] font-medium text-ui">
+              Session login{" "}
+              <span className="font-normal text-ui-subtle">— downloads + future image upload</span>
+            </div>
             {auth?.has_cookie ? (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-ui">Logged in (session saved).</span>
-                <button onClick={() => void clearCredential("cookie")} className={subtleButton} disabled={savingAuth}>Log out</button>
+                <button
+                  onClick={() => void clearCredential("cookie")}
+                  className={subtleButton}
+                  disabled={savingAuth}
+                >
+                  Log out
+                </button>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
@@ -348,17 +405,33 @@ export function CivitaiBrowser({
                   placeholder="Paste __Secure-civitai-token cookie"
                   value={cookieInput}
                   onChange={(e) => setCookieInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveCookie(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveCookie();
+                  }}
                 />
-                <button onClick={saveCookie} className={primaryButton} disabled={savingAuth || !cookieInput.trim()}>
+                <button
+                  onClick={saveCookie}
+                  className={primaryButton}
+                  disabled={savingAuth || !cookieInput.trim()}
+                >
                   {savingAuth ? "Saving…" : "Save & verify"}
                 </button>
               </div>
             )}
             <p className="text-[11px] text-ui-subtle">
-              Log in to <a href="https://civitai.com/login" target="_blank" rel="noreferrer" className="underline decoration-dotted hover:text-ui">civitai.com</a>,
-              then copy the <span className="font-mono">__Secure-civitai-token</span> cookie (DevTools → Application → Cookies → civitai.com).
-              Stored locally in <span className="font-mono">data/secrets.json</span>; expires, so re-paste when downloads start failing.
+              Log in to{" "}
+              <a
+                href="https://civitai.com/login"
+                target="_blank"
+                rel="noreferrer"
+                className="underline decoration-dotted hover:text-ui"
+              >
+                civitai.com
+              </a>
+              , then copy the <span className="font-mono">__Secure-civitai-token</span> cookie (DevTools →
+              Application → Cookies → civitai.com). Stored locally in{" "}
+              <span className="font-mono">data/secrets.json</span>; expires, so re-paste when downloads start
+              failing.
             </p>
           </div>
         </div>
@@ -375,26 +448,54 @@ export function CivitaiBrowser({
             <li key={model.id} className={openModel === model.id ? "bg-accent/5" : ""}>
               <div className="flex items-start gap-2.5 px-3 py-2">
                 {model.preview?.url ? (
-                  <img src={model.preview.url} alt="" loading="lazy" className="h-14 w-14 shrink-0 rounded object-cover" />
+                  <img
+                    src={model.preview.url}
+                    alt=""
+                    loading="lazy"
+                    className="h-14 w-14 shrink-0 rounded object-cover"
+                  />
                 ) : (
                   <div className="h-14 w-14 shrink-0 rounded bg-raised" />
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="min-w-0 truncate text-[13px] text-ui-strong" title={model.name}>{model.name}</span>
-                    {model.type ? <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">{model.type}</span> : null}
-                    {model.base_model ? <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">{model.base_model}</span> : null}
-                    {model.nsfw ? <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-200">adult</span> : null}
+                    <span className="min-w-0 truncate text-[13px] text-ui-strong" title={model.name}>
+                      {model.name}
+                    </span>
+                    {model.type ? (
+                      <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">
+                        {model.type}
+                      </span>
+                    ) : null}
+                    {model.base_model ? (
+                      <span className="rounded border border-line bg-raised px-1.5 py-0.5 text-[10px] text-ui-subtle">
+                        {model.base_model}
+                      </span>
+                    ) : null}
+                    {model.nsfw ? (
+                      <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-200">
+                        adult
+                      </span>
+                    ) : null}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ui-subtle">
                     {model.creator ? <span>by {model.creator}</span> : null}
                     <span>{fmtCount(model.downloads)} downloads</span>
                     <span>{fmtCount(model.likes)} likes</span>
-                    <span>{model.version_count} version{model.version_count === 1 ? "" : "s"}</span>
+                    <span>
+                      {model.version_count} version{model.version_count === 1 ? "" : "s"}
+                    </span>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <a href={model.url} target="_blank" rel="noreferrer" className="ui-button rounded-md px-2.5 py-1 text-xs">Card</a>
+                  <a
+                    href={model.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ui-button rounded-md px-2.5 py-1 text-xs"
+                  >
+                    Card
+                  </a>
                   <button onClick={() => openCard(model)} className={subtleButton} disabled={disabled}>
                     {openModel === model.id ? "Hide" : "Get"}
                   </button>
@@ -410,10 +511,13 @@ export function CivitaiBrowser({
                           key={v.id}
                           onClick={() => void openVersion(v.id)}
                           className={`rounded px-2 py-0.5 text-[11px] transition ${
-                            versionId === v.id ? "bg-accent/15 text-accent-fg" : "bg-raised text-ui-muted hover:bg-control-hover hover:text-ui"
+                            versionId === v.id
+                              ? "bg-accent/15 text-accent-fg"
+                              : "bg-raised text-ui-muted hover:bg-control-hover hover:text-ui"
                           }`}
                         >
-                          {v.name}{v.base_model ? ` · ${v.base_model}` : ""}
+                          {v.name}
+                          {v.base_model ? ` · ${v.base_model}` : ""}
                         </button>
                       ))}
                     </div>
@@ -425,7 +529,8 @@ export function CivitaiBrowser({
                     <>
                       {files.trained_words.length ? (
                         <div className="text-[11px] text-ui-subtle">
-                          Trigger words: <span className="font-mono text-ui">{files.trained_words.join(", ")}</span>
+                          Trigger words:{" "}
+                          <span className="font-mono text-ui">{files.trained_words.join(", ")}</span>
                         </div>
                       ) : null}
                       <ul className="space-y-0.5">
@@ -439,10 +544,23 @@ export function CivitaiBrowser({
                                 checked={selectedFile === f.id}
                                 onChange={() => setSelectedFile(f.id)}
                               />
-                              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ui" title={f.name}>{f.name}</span>
-                              {f.format ? <span className="shrink-0 text-[10px] text-ui-subtle">{f.format}</span> : null}
-                              {f.primary ? <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent-fg">primary</span> : null}
-                              <span className="shrink-0 text-[11px] text-ui-subtle">{f.size_kb ? fmtBytes(f.size_kb * 1024) : "—"}</span>
+                              <span
+                                className="min-w-0 flex-1 truncate font-mono text-[12px] text-ui"
+                                title={f.name}
+                              >
+                                {f.name}
+                              </span>
+                              {f.format ? (
+                                <span className="shrink-0 text-[10px] text-ui-subtle">{f.format}</span>
+                              ) : null}
+                              {f.primary ? (
+                                <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent-fg">
+                                  primary
+                                </span>
+                              ) : null}
+                              <span className="shrink-0 text-[11px] text-ui-subtle">
+                                {f.size_kb ? fmtBytes(f.size_kb * 1024) : "—"}
+                              </span>
                             </label>
                           </li>
                         ))}
@@ -450,9 +568,20 @@ export function CivitaiBrowser({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] text-ui-subtle">Save to</span>
-                          <div className="w-40"><Select value={kind} onChange={setKind} options={kindOptions} /></div>
+                          <div className="w-40">
+                            <Select
+                              ariaLabel="Model destination"
+                              value={kind}
+                              onChange={setKind}
+                              options={kindOptions}
+                            />
+                          </div>
                         </div>
-                        <button onClick={() => void download()} className={primaryButton} disabled={busy || disabled || selectedFile == null}>
+                        <button
+                          onClick={() => void download()}
+                          className={primaryButton}
+                          disabled={busy || disabled || selectedFile == null}
+                        >
                           {disabled ? "Downloading…" : "Download"}
                         </button>
                       </div>

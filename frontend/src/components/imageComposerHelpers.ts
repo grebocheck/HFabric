@@ -1,8 +1,6 @@
-// Pure, view-agnostic helpers extracted from ImageComposer (P11.1): persisted
-// composer state, model ranking / default selection, LoRA compatibility, and
-// small formatters. Side-effect-free (beyond localStorage) so they unit-test
-// without rendering the composer.
+// Image-composer persistence, model ranking, defaults, and LoRA compatibility.
 
+import { storage } from "../lib/storage";
 import type { ComposerApply, ImageItem, Lora, Model } from "../types";
 
 export const STORE_KEY = "hfabric.image.composer";
@@ -12,26 +10,27 @@ export const promptHistoryLimit = 14;
 export const DEFAULT_STEPS = 28;
 export const DEFAULT_GUIDANCE = 3.5;
 export const DEFAULT_SIZE = 1024;
-export const ANIMA_STEPS = 30;
-export const ANIMA_GUIDANCE = 4.0;
-export const ANIMA_SIZE = 1024;
-export const FLUX2_STEPS = 6;
-export const FLUX2_GUIDANCE = 4.0;
-export const FLUX2_SIZE = 768;
-export const QWEN_IMAGE_STEPS = 50;
-export const QWEN_IMAGE_GUIDANCE = 4.0;
-export const QWEN_IMAGE_SIZE = 1328;
-export const Z_IMAGE_TURBO_STEPS = 9;
-export const Z_IMAGE_TURBO_GUIDANCE = 0.0;
-export const Z_IMAGE_BASE_STEPS = 50;
-export const Z_IMAGE_BASE_GUIDANCE = 4.0;
-export const Z_IMAGE_STEPS = Z_IMAGE_TURBO_STEPS;
-export const Z_IMAGE_GUIDANCE = Z_IMAGE_TURBO_GUIDANCE;
-export const Z_IMAGE_SIZE = 1024;
+const ANIMA_STEPS = 30;
+const ANIMA_GUIDANCE = 4.0;
+const ANIMA_SIZE = 1024;
+const FLUX2_STEPS = 6;
+const FLUX2_GUIDANCE = 4.0;
+const FLUX2_SIZE = 768;
+const QWEN_IMAGE_STEPS = 50;
+const QWEN_IMAGE_GUIDANCE = 4.0;
+const QWEN_IMAGE_SIZE = 1328;
+const Z_IMAGE_TURBO_STEPS = 9;
+const Z_IMAGE_TURBO_GUIDANCE = 0.0;
+const Z_IMAGE_BASE_STEPS = 50;
+const Z_IMAGE_BASE_GUIDANCE = 4.0;
+const Z_IMAGE_SIZE = 1024;
 
 export type ImageFamilyDefaults = { steps: number; guidance: number; width: number; height: number };
 
-export function imageFamilyDefaults(family: string | undefined, model?: Model): ImageFamilyDefaults | undefined {
+export function imageFamilyDefaults(
+  family: string | undefined,
+  model?: Model,
+): ImageFamilyDefaults | undefined {
   if (family === "anima") {
     return { steps: ANIMA_STEPS, guidance: ANIMA_GUIDANCE, width: ANIMA_SIZE, height: ANIMA_SIZE };
   }
@@ -39,19 +38,48 @@ export function imageFamilyDefaults(family: string | undefined, model?: Model): 
     return { steps: FLUX2_STEPS, guidance: FLUX2_GUIDANCE, width: FLUX2_SIZE, height: FLUX2_SIZE };
   }
   if (family === "qwen-image") {
-    return { steps: QWEN_IMAGE_STEPS, guidance: QWEN_IMAGE_GUIDANCE, width: QWEN_IMAGE_SIZE, height: QWEN_IMAGE_SIZE };
+    return {
+      steps: QWEN_IMAGE_STEPS,
+      guidance: QWEN_IMAGE_GUIDANCE,
+      width: QWEN_IMAGE_SIZE,
+      height: QWEN_IMAGE_SIZE,
+    };
   }
   if (family === "z-image") {
     if (model && !isZImageTurbo(model)) {
-      return { steps: Z_IMAGE_BASE_STEPS, guidance: Z_IMAGE_BASE_GUIDANCE, width: Z_IMAGE_SIZE, height: Z_IMAGE_SIZE };
+      return {
+        steps: Z_IMAGE_BASE_STEPS,
+        guidance: Z_IMAGE_BASE_GUIDANCE,
+        width: Z_IMAGE_SIZE,
+        height: Z_IMAGE_SIZE,
+      };
     }
-    return { steps: Z_IMAGE_TURBO_STEPS, guidance: Z_IMAGE_TURBO_GUIDANCE, width: Z_IMAGE_SIZE, height: Z_IMAGE_SIZE };
+    return {
+      steps: Z_IMAGE_TURBO_STEPS,
+      guidance: Z_IMAGE_TURBO_GUIDANCE,
+      width: Z_IMAGE_SIZE,
+      height: Z_IMAGE_SIZE,
+    };
   }
   return undefined;
 }
 
-const knownStepDefaults = [DEFAULT_STEPS, ANIMA_STEPS, FLUX2_STEPS, QWEN_IMAGE_STEPS, Z_IMAGE_TURBO_STEPS, Z_IMAGE_BASE_STEPS];
-const knownGuidanceDefaults = [DEFAULT_GUIDANCE, ANIMA_GUIDANCE, FLUX2_GUIDANCE, QWEN_IMAGE_GUIDANCE, Z_IMAGE_TURBO_GUIDANCE, Z_IMAGE_BASE_GUIDANCE];
+const knownStepDefaults = [
+  DEFAULT_STEPS,
+  ANIMA_STEPS,
+  FLUX2_STEPS,
+  QWEN_IMAGE_STEPS,
+  Z_IMAGE_TURBO_STEPS,
+  Z_IMAGE_BASE_STEPS,
+];
+const knownGuidanceDefaults = [
+  DEFAULT_GUIDANCE,
+  ANIMA_GUIDANCE,
+  FLUX2_GUIDANCE,
+  QWEN_IMAGE_GUIDANCE,
+  Z_IMAGE_TURBO_GUIDANCE,
+  Z_IMAGE_BASE_GUIDANCE,
+];
 const knownSizeDefaults = [DEFAULT_SIZE, ANIMA_SIZE, FLUX2_SIZE, QWEN_IMAGE_SIZE, Z_IMAGE_SIZE];
 
 export const isKnownStepDefault = (value: number): boolean => knownStepDefaults.includes(value);
@@ -99,7 +127,7 @@ export function inferTouched(saved: SavedComposer): TouchedFields {
 
 export function readSaved(): SavedComposer {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = storage.get(STORE_KEY);
     return raw ? (JSON.parse(raw) as SavedComposer) : {};
   } catch {
     return {};
@@ -108,7 +136,7 @@ export function readSaved(): SavedComposer {
 
 export function loadPromptHistory(): string[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) ?? "[]");
+    const parsed = JSON.parse(storage.get(PROMPT_HISTORY_KEY) ?? "[]");
     return Array.isArray(parsed)
       ? parsed.filter((x): x is string => typeof x === "string").slice(0, promptHistoryLimit)
       : [];
@@ -159,6 +187,8 @@ export function familyColor(family: string): string {
   if (family === "gguf") return "bg-amber-700/50 text-amber-100";
   if (family === "ltx-video") return "bg-cyan-700/50 text-cyan-100";
   if (family === "wan-video") return "bg-violet-700/50 text-violet-100";
+  if (family === "hunyuan-video") return "bg-indigo-700/50 text-indigo-100";
+  if (family === "cogvideo") return "bg-sky-700/50 text-sky-100";
   return "bg-white/10 text-white/65";
 }
 
@@ -180,10 +210,12 @@ export function imageModelRank(model: Model): number {
 
 export function pickDefaultImageModel(models: Model[]): Model | undefined {
   const available = models.filter(isModelAvailable);
-  return available.find((m) => m.family === "flux" && isNunchaku(m))
-    ?? available.find((m) => m.family === "z-image")
-    ?? available.find((m) => !m.slow)
-    ?? available[0];
+  return (
+    available.find((m) => m.family === "flux" && isNunchaku(m)) ??
+    available.find((m) => m.family === "z-image") ??
+    available.find((m) => !m.slow) ??
+    available[0]
+  );
 }
 
 export function buildComposerApply(
@@ -195,7 +227,7 @@ export function buildComposerApply(
   const model = models.find((m) => m.job_type === "image" && m.name === modelName);
   return {
     model_id: model?.id,
-    params: { ...image.params, seed: opts.keepSeed ? image.seed ?? -1 : -1 },
+    params: { ...image.params, seed: opts.keepSeed ? (image.seed ?? -1) : -1 },
     nonce: opts.nonce ?? Date.now(),
   };
 }

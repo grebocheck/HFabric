@@ -56,6 +56,7 @@ describe("setupDoctorStatus", () => {
     expect(status.headline).toMatch(/AMD/);
     expect(status.headline).toMatch(/experimental/i);
     expect(status.detail).toMatch(/CUDA-only features are disabled/);
+    expect(status.detail).toMatch(/CogVideoX/);
   });
 
   it("reports Apple MPS as experimental", () => {
@@ -69,6 +70,7 @@ describe("setupDoctorStatus", () => {
     expect(status.headline).toMatch(/Apple Silicon/);
     expect(status.headline).toMatch(/experimental/i);
     expect(status.detail).toMatch(/PyTorch MPS/);
+    expect(status.detail).toMatch(/CogVideoX/);
   });
 
   it("explains CPU-safe fallback as a warning", () => {

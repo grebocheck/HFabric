@@ -35,6 +35,13 @@ const framepackModel = {
   family: "hunyuan-video",
 } as Model;
 
+const cogvideoModel = {
+  ...model,
+  id: "cogvideo",
+  name: "CogVideoX",
+  family: "cogvideo",
+} as Model;
+
 beforeEach(() => {
   for (const fn of Object.values(mocks.api)) fn.mockReset();
   mocks.api.createJobs.mockResolvedValue([]);
@@ -87,6 +94,27 @@ describe("VideoComposer", () => {
     expect((screen.getByLabelText("Video clip preset") as HTMLSelectElement).value).toBe("hunyuan-long");
     expect((screen.getByLabelText("Frames") as HTMLInputElement).value).toBe("91");
     expect(screen.getByRole("button", { name: "Choose the first frame" })).toBeTruthy();
+  });
+
+  it("keeps CogVideoX fallback in text-to-video mode", async () => {
+    const user = userEvent.setup();
+    render(<VideoComposer models={[cogvideoModel]} modelsLoading={false} onQueued={vi.fn()} onGetModels={vi.fn()} />);
+
+    await waitFor(() => {
+      expect((screen.getByRole("button", { name: "Image to video" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+    expect((screen.getByLabelText("Video clip preset") as HTMLSelectElement).value).toBe("cogvideo-standard");
+    expect((screen.getByLabelText("FPS") as HTMLInputElement).value).toBe("8");
+
+    await user.type(screen.getByLabelText("Video prompt"), "a light fallback clip");
+    await user.click(screen.getByRole("button", { name: "Generate video" }));
+
+    await waitFor(() => expect(mocks.api.createJobs).toHaveBeenCalledOnce());
+    expect(mocks.api.createJobs.mock.calls[0][0][0]).toMatchObject({
+      type: "video",
+      model_id: "cogvideo",
+      params: { prompt: "a light fallback clip", mode: "t2v", fps: 8 },
+    });
   });
 
   it("renders the mp4 player with poster and controls", () => {

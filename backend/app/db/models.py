@@ -46,6 +46,11 @@ class Job(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    @property
+    def request_id(self) -> str | None:
+        value = (self.params or {}).get("_request_id")
+        return value if isinstance(value, str) else None
+
 class Image(Base):
     __tablename__ = "images"
 
@@ -134,7 +139,7 @@ class Preset(Base):
 
 
 class PromptSnippet(Base):
-    """A named, taggable, reusable image-prompt snippet (P19.4 prompt library)."""
+    """A named, taggable, reusable image-prompt snippet."""
 
     __tablename__ = "prompt_snippets"
 
@@ -158,7 +163,7 @@ class Note(Base):
 
 
 class ModelProfile(Base):
-    """Measured peak RAM/VRAM for a model, learned after real loads (P7.2).
+    """Measured peak RAM/VRAM for a model, learned after real loads.
 
     Stores a conservative running *max* of the per-load measurements so the
     budget guard can replace its static size*factor estimate with reality. RAM

@@ -7,6 +7,7 @@ import argparse
 from collections.abc import Sequence
 from datetime import UTC, datetime
 import difflib
+import json
 from pathlib import Path
 import re
 import sys
@@ -14,6 +15,9 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 INIT_PATH = ROOT / "backend" / "app" / "__init__.py"
 CHANGELOG_PATH = ROOT / "CHANGELOG.md"
+FRONTEND_PACKAGE_PATH = ROOT / "frontend" / "package.json"
+FRONTEND_LOCK_PATH = ROOT / "frontend" / "package-lock.json"
+OPENAPI_PATH = ROOT / "frontend" / "openapi.json"
 REPO_URL = "https://github.com/grebocheck/HFabric"
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -61,6 +65,60 @@ def set_version(init_text: str, new: str) -> str:
     if count != 1:
         raise ValueError("could not find __version__ assignment")
     return updated
+
+
+def read_frontend_versions(text: str, expected: int) -> list[str]:
+    """Read the product version occurrences from an npm manifest or lock file."""
+    document = _read_frontend_document(text)
+    versions = [document.get("version")]
+    if expected == 2:
+        try:
+            versions.append(document["packages"][""].get("version"))
+        except (KeyError, TypeError, AttributeError) as exc:
+            raise ValueError("could not read the root package-lock version") from exc
+    elif expected != 1:
+        raise ValueError(f"unsupported frontend version count: {expected}")
+    for version in versions:
+        if not isinstance(version, str):
+            raise ValueError("frontend version must be a string")
+        _validate_version(version)
+    return list(versions)
+
+
+def set_frontend_version(text: str, new: str, expected: int) -> str:
+    """Update only the HFabric package versions, leaving dependency versions intact."""
+    _validate_version(new)
+    read_frontend_versions(text, expected)
+    document = _read_frontend_document(text)
+    document["version"] = new
+    if expected == 2:
+        document["packages"][""]["version"] = new
+    newline = _detect_newline(text)
+    updated = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    return updated if newline == "\n" else updated.replace("\n", newline)
+
+
+def _read_frontend_document(text: str) -> dict:
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("could not parse frontend package JSON") from exc
+    if not isinstance(document, dict) or document.get("name") != "hfabric-frontend":
+        raise ValueError("frontend package must be named 'hfabric-frontend'")
+    return document
+
+
+def read_openapi_version(text: str) -> str:
+    """Read and validate the generated OpenAPI product version."""
+    try:
+        document = json.loads(text)
+        version = document["info"]["version"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ValueError("could not read frontend OpenAPI version") from exc
+    if not isinstance(version, str):
+        raise ValueError("frontend OpenAPI version must be a string")
+    _validate_version(version)
+    return version
 
 
 def extract_release_notes(changelog_text: str, version: str) -> str:
@@ -195,6 +253,7 @@ def _check_tag(tag: str) -> int:
             file=sys.stderr,
         )
         return 1
+    _require_matching_frontend_versions(version)
     return 0
 
 
@@ -218,20 +277,57 @@ def _prepare(version: str, release_date: str, dry_run: bool) -> int:
 
     old_init = INIT_PATH.read_text(encoding="utf-8")
     old_changelog = CHANGELOG_PATH.read_text(encoding="utf-8")
+    old_frontend_package = FRONTEND_PACKAGE_PATH.read_text(encoding="utf-8")
+    old_frontend_lock = FRONTEND_LOCK_PATH.read_text(encoding="utf-8")
     new_init = set_version(old_init, version)
     new_changelog = roll_changelog(old_changelog, version, release_date)
+    new_frontend_package = set_frontend_version(old_frontend_package, version, 1)
+    new_frontend_lock = set_frontend_version(old_frontend_lock, version, 2)
 
     if dry_run:
         output = (
             _unified_diff("backend/app/__init__.py", old_init, new_init)
             + _unified_diff("CHANGELOG.md", old_changelog, new_changelog)
+            + _unified_diff(
+                "frontend/package.json",
+                old_frontend_package,
+                new_frontend_package,
+            )
+            + _unified_diff(
+                "frontend/package-lock.json",
+                old_frontend_lock,
+                new_frontend_lock,
+            )
         )
         sys.stdout.write(output or "No changes.\n")
         return 0
 
     INIT_PATH.write_text(new_init, encoding="utf-8")
     CHANGELOG_PATH.write_text(new_changelog, encoding="utf-8")
+    FRONTEND_PACKAGE_PATH.write_text(new_frontend_package, encoding="utf-8")
+    FRONTEND_LOCK_PATH.write_text(new_frontend_lock, encoding="utf-8")
     return 0
+
+
+def _require_matching_frontend_versions(version: str) -> None:
+    manifests = (
+        (FRONTEND_PACKAGE_PATH, 1),
+        (FRONTEND_LOCK_PATH, 2),
+    )
+    for path, expected in manifests:
+        versions = read_frontend_versions(path.read_text(encoding="utf-8"), expected)
+        if any(current != version for current in versions):
+            joined = ", ".join(versions)
+            raise ValueError(
+                f"{path.relative_to(ROOT)} version ({joined}) does not match "
+                f"app version '{version}'"
+            )
+    openapi_version = read_openapi_version(OPENAPI_PATH.read_text(encoding="utf-8"))
+    if openapi_version != version:
+        raise ValueError(
+            f"{OPENAPI_PATH.relative_to(ROOT)} version ({openapi_version}) does not "
+            f"match app version '{version}'"
+        )
 
 
 def _validate_version(version: str) -> None:

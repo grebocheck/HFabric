@@ -7,6 +7,7 @@ document context for the current LLM turn.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections import Counter
 from html import unescape
@@ -105,10 +106,14 @@ async def build_user_content(
     parts: list[dict] = []
     if body:
         parts.append({"type": "text", "text": body})
-    for item in image_attachments:
+    image_urls = await asyncio.gather(*(
+        asyncio.to_thread(image_data_url, str(item["token"]))
+        for item in image_attachments
+    ))
+    for image_url in image_urls:
         parts.append({
             "type": "image_url",
-            "image_url": {"url": image_data_url(str(item["token"]))},
+            "image_url": {"url": image_url},
         })
     return parts, enriched
 
@@ -154,14 +159,13 @@ async def build_document_context(
     remaining = max_context_chars
     for idx, item in enumerate(docs, start=1):
         token = str(item.get("token") or "")
-        extracted, error = extract_document_text(token)
+        clean, error = await asyncio.to_thread(_extract_clean_document, token)
         if error:
             item["notice"] = error
             item["extracted_chars"] = 0
             item["included_chars"] = 0
             item["truncated"] = False
             continue
-        clean = _clean_text(extracted)
         item["extracted_chars"] = len(clean)
         if not clean:
             item["notice"] = "no extractable text found"
@@ -222,6 +226,11 @@ def extract_document_text(token: str) -> tuple[str, str | None]:
     return "", "unsupported document format"
 
 
+def _extract_clean_document(token: str) -> tuple[str, str | None]:
+    extracted, error = extract_document_text(token)
+    return (_clean_text(extracted), None) if error is None else ("", error)
+
+
 def _extract_docx(path: Path) -> str:
     with zipfile.ZipFile(path) as zf:
         xml = zf.read("word/document.xml")
@@ -253,7 +262,11 @@ def _clean_text(text: str) -> str:
 
 
 async def _select_relevant_text(text: str, query: str, max_chars: int) -> str:
-    chunks = _chunk_text(text, max(800, min(settings.rag_chunk_chars, 2400)))
+    chunks = await asyncio.to_thread(
+        _chunk_text,
+        text,
+        max(800, min(settings.rag_chunk_chars, 2400)),
+    )
     if not chunks:
         return text[:max_chars]
     embedded = await _select_with_embeddings(chunks, query, max_chars)
@@ -262,6 +275,21 @@ async def _select_relevant_text(text: str, query: str, max_chars: int) -> str:
     query_terms = Counter(t.lower() for t in _TOKEN_RE.findall(query))
     if not query_terms:
         return text[:max_chars]
+    return await asyncio.to_thread(
+        _select_lexical_chunks,
+        text,
+        chunks,
+        query_terms,
+        max_chars,
+    )
+
+
+def _select_lexical_chunks(
+    text: str,
+    chunks: list[str],
+    query_terms: Counter[str],
+    max_chars: int,
+) -> str:
     scored = []
     for idx, chunk in enumerate(chunks):
         terms = Counter(t.lower() for t in _TOKEN_RE.findall(chunk))
@@ -289,10 +317,13 @@ async def _select_with_embeddings(chunks: list[str], query: str, max_chars: int)
     if not clean_query:
         return ""
     try:
-        from .embedding_service import embedding_model_map, embedding_service  # noqa: PLC0415
+        from .embedding_service import (  # noqa: PLC0415
+            embedding_model_map_async,
+            embedding_service,
+        )
     except Exception:
         return ""
-    if not embedding_model_map():
+    if not await embedding_model_map_async():
         return ""
     try:
         vectors = await embedding_service.embed(
@@ -302,6 +333,19 @@ async def _select_with_embeddings(chunks: list[str], query: str, max_chars: int)
         return ""
     if len(vectors) != len(chunks) + 1:
         return ""
+    return await asyncio.to_thread(
+        _select_embedding_chunks,
+        chunks,
+        vectors,
+        max_chars,
+    )
+
+
+def _select_embedding_chunks(
+    chunks: list[str],
+    vectors: list[list[float]],
+    max_chars: int,
+) -> str:
     query_vec = vectors[0]
     scored = []
     for idx, (chunk, vec) in enumerate(zip(chunks, vectors[1:])):

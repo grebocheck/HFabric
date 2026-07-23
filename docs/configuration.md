@@ -14,11 +14,18 @@ If a knob isn't in the table below, it's in the Settings tab.
 
 Copy `.env.example` to `.env` and edit only what you need.
 
+Both platform launchers use `scripts/runtime_env.py` as the canonical parser.
+Process environment variables take precedence over `.env`; values are never
+evaluated as shell or PowerShell code. Malformed assignments fail the launch
+with a line-numbered error instead of being interpreted differently by each
+platform.
+
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `HFAB_HOST` | `127.0.0.1` | Backend bind host. Use a LAN address **only** together with `HFAB_API_TOKEN`. |
 | `HFAB_PORT` | `8260` | Backend port. |
 | `HFAB_API_TOKEN` | unset | Optional bearer token. Leave unset for local-only use without authentication. |
+| `HFAB_ALLOW_INSECURE_LAN` | `false` | Dangerous explicit opt-in for an isolated trusted LAN without a token. Never enable on an untrusted network. |
 | `HFAB_SERVE_FRONTEND` | `false` | Serve the built frontend from FastAPI (production, one port) instead of the Vite dev server. |
 | `HFAB_FRONTEND_HOST` | unset | Optional Vite dev-server bind host. |
 | `HFAB_FRONTEND_PORT` | `5173` | Optional Vite dev-server port. |
@@ -36,10 +43,20 @@ HFabric is a local, single-user app by default. The backend binds to
 bind it to a LAN interface (`HFAB_HOST=0.0.0.0`), set `HFAB_API_TOKEN` and enter
 that token in the UI when prompted.
 
-- CORS is **not** an authentication layer — without a token, LAN clients can call
-  the API directly.
-- `/api/health` stays open so the UI can report security posture even before a
-  token is entered.
+- Startup is fail-closed: a non-loopback bind without a token is rejected before
+  filesystem, database, or subprocess side effects. `HFAB_ALLOW_INSECURE_LAN=true`
+  is a deliberately loud escape hatch for an isolated trusted network.
+- A second request-level guard rejects remote HTTP, static assets and WebSocket
+  clients when uvicorn's actual bind drifts from `HFAB_HOST`.
+- CORS is **not** an authentication layer. With a configured token,
+  `/api/health` stays open so the UI can show the login prompt; other API routes
+  require the bearer token.
+- The browser exchanges the bearer for a ten-minute, HttpOnly, SameSite asset
+  session. Image/video/audio URLs and WebSocket URLs never contain the
+  long-lived token, so it cannot leak through browser history or access logs.
+- Direct custom-download URLs must resolve exclusively to public addresses.
+  Localhost, private/link-local networks, embedded credentials, unsafe redirects
+  and DNS-rebound private peers are rejected.
 - Desktop-reaching actions (e.g. "Show in folder", which spawns the OS file
   manager) are **loopback-only regardless of token** — a remote caller can never
   drive the local desktop.

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..backends.registry import ModelRegistry
 from ..config import settings
 from ..core.arbiter import GpuArbiter
-from ..core.enums import ModelFamily
+from ..core.enums import JobStatus, ModelFamily
+from ..db.models import Job
 from ..schemas import GpuStatusOut, LoraOut, ModelOut, ModelProfileOut
 from ..services import (
     capability_profile,
@@ -21,9 +25,105 @@ from ..services import (
 )
 from ..services import model_profile_service as mps
 from ..util import sysmon
+from .contracts import (
+    ERROR_RESPONSES,
+    CapabilityProfileOut,
+    DeletedCountOut,
+    InstalledModelDeleteOut,
+    InstalledModelsOut,
+    ModelRescanOut,
+    RuntimeSettingsOut,
+    SettingsOverridesOut,
+)
 from .deps import get_arbiter, get_registry, get_session
 
-router = APIRouter(prefix="/api", tags=["models"])
+router = APIRouter(
+    prefix="/api",
+    tags=["models"],
+    responses=ERROR_RESPONSES,
+)
+
+
+def _related_registry_paths(
+    registry: ModelRegistry,
+    paths: set[Path],
+) -> set[Path]:
+    """Add descriptor companions (notably GGUF mmproj files) to busy paths."""
+    protected = set(paths)
+    image_backend_busy = False
+    for descriptor in registry.descriptors():
+        companions = {Path(descriptor.path)}
+        if descriptor.mmproj_path is not None:
+            companions.add(Path(descriptor.mmproj_path))
+        if any(
+            model_storage.paths_overlap(companion, busy)
+            for companion in companions
+            for busy in protected
+        ):
+            protected.update(companions)
+            image_backend_busy = image_backend_busy or (
+                descriptor.job_type.value == "image"
+            )
+    if image_backend_busy:
+        # Diffusers may retain adapter weights in a warm backend after the job
+        # row is done. Its public contract does not expose cache internals, so
+        # conservatively protect all registered LoRAs until the GPU is freed.
+        protected.update(Path(lora.path) for lora in registry.loras())
+    return protected
+
+
+async def _queued_job_paths(
+    session: AsyncSession,
+    registry: ModelRegistry,
+) -> set[Path]:
+    rows = (
+        await session.execute(
+            select(Job.model_id, Job.params).where(
+                Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING])
+            )
+        )
+    ).all()
+    descriptors = {item.id: item for item in registry.descriptors()}
+    loras = {item.id: item for item in registry.loras()}
+    protected: set[Path] = set()
+    for model_id, raw_params in rows:
+        descriptor = descriptors.get(model_id)
+        if descriptor is not None:
+            protected.add(Path(descriptor.path))
+            if descriptor.mmproj_path is not None:
+                protected.add(Path(descriptor.mmproj_path))
+
+        params = raw_params if isinstance(raw_params, dict) else {}
+        for item in params.get("loras") or []:
+            if not isinstance(item, dict):
+                continue
+            lora = loras.get(item.get("id"))
+            if lora is not None:
+                protected.add(Path(lora.path))
+        raw_lora_paths = params.get("_lora_paths")
+        if isinstance(raw_lora_paths, dict):
+            protected.update(
+                Path(path)
+                for path in raw_lora_paths.values()
+                if isinstance(path, str) and path
+            )
+    return protected
+
+
+def _lane_blocks_kind(arbiter: GpuArbiter, kind: str) -> bool:
+    lane_kinds = {
+        "voice": "voice",
+        "tts": "tts",
+        "transcribe": "transcribe",
+    }
+    expected = lane_kinds.get(kind)
+    return bool(
+        expected
+        and any(
+            lane.get("id") == expected
+            for lane in arbiter.status().get("lanes", [])
+        )
+    )
 
 
 @router.get("/models", response_model=list[ModelOut])
@@ -33,7 +133,7 @@ async def list_models(
 ) -> list[ModelOut]:
     current = arbiter.current
     out: list[ModelOut] = []
-    profile = capability_profile.get_capability_profile()
+    profile = await asyncio.to_thread(capability_profile.get_capability_profile)
     for d in registry.descriptors():
         loaded = current is not None and current.descriptor.id == d.id
         existing = registry.peek_backend(d.id)
@@ -73,16 +173,16 @@ async def list_models(
     return out
 
 
-@router.post("/models/rescan")
-async def rescan_models(registry: ModelRegistry = Depends(get_registry)) -> dict[str, int]:
+@router.post("/models/rescan", response_model=ModelRescanOut)
+async def rescan_models(
+    registry: ModelRegistry = Depends(get_registry),
+) -> ModelRescanOut:
     """Re-read the model directories so files added after startup (dropped in by
-    hand or pulled by the in-app download manager) appear without a restart (P24.8).
+    hand or pulled by the in-app download manager) appear without a restart.
 
-    Scanning only reads safetensors headers, so it is fast; run it inline (no
-    ``await`` inside ``scan``) so the descriptor dict is never rebuilt mid-iteration
-    by a concurrently-running request. Cached backends are keyed by the stable
-    filename slug and are left intact, so the resident model is undisturbed."""
-    registry.scan()
+    The disk walk runs off-loop and publishes one complete descriptor snapshot,
+    so concurrent readers never observe a partially rebuilt registry."""
+    await registry.scan_async()
     descriptors = registry.descriptors()
     return {
         "models": len(descriptors),
@@ -93,40 +193,88 @@ async def rescan_models(registry: ModelRegistry = Depends(get_registry)) -> dict
     }
 
 
-@router.get("/models/installed")
-async def list_installed_models(arbiter: GpuArbiter = Depends(get_arbiter)) -> dict[str, Any]:
+@router.get("/models/installed", response_model=InstalledModelsOut)
+async def list_installed_models(
+    arbiter: GpuArbiter = Depends(get_arbiter),
+    registry: ModelRegistry = Depends(get_registry),
+    session: AsyncSession = Depends(get_session),
+) -> InstalledModelsOut:
     """Everything installed on disk across all model kinds, with sizes + in-use flags,
-    for the Model Manager (P25.2)."""
-    items = model_storage.installed(in_use=arbiter.busy_paths())
+    for the Model Manager."""
+    busy = _related_registry_paths(registry, arbiter.busy_paths())
+    busy.update(await _queued_job_paths(session, registry))
+    items, disk = await asyncio.gather(
+        model_storage.installed_async(in_use=busy),
+        asyncio.to_thread(model_download_service.disk_status),
+    )
     return {
         "items": items,
         "kinds": model_storage.KIND_LABELS,
         "total_used_bytes": sum(item["size_bytes"] for item in items),
-        "disk": model_download_service.disk_status(),
+        "disk": disk,
     }
 
 
-@router.delete("/models/installed")
+@router.delete("/models/installed", response_model=InstalledModelDeleteOut)
 async def delete_installed_model(
     kind: str = Query(..., description="model kind (image, llm, lora, tts, …)"),
     path: str = Query(..., description="path of the file or repo folder within the kind folder"),
     registry: ModelRegistry = Depends(get_registry),
     arbiter: GpuArbiter = Depends(get_arbiter),
-) -> dict[str, Any]:
-    """Delete one installed model unit to reclaim disk, then rescan (P25.2)."""
+    session: AsyncSession = Depends(get_session),
+) -> InstalledModelDeleteOut:
+    """Delete one installed model unit to reclaim disk, then rescan."""
+    if model_download_service.is_downloading():
+        raise HTTPException(
+            409,
+            "Model deletion is blocked while a download is writing into the model folders.",
+        )
+    if _lane_blocks_kind(arbiter, kind):
+        raise HTTPException(
+            409,
+            f"The active {kind} session is using this model folder. Stop it before deleting.",
+        )
+
+    job_paths = await _queued_job_paths(session, registry)
+
+    def busy_paths() -> set[Path]:
+        return _related_registry_paths(
+            registry,
+            {*arbiter.busy_paths(), *job_paths},
+        )
+
     try:
-        result = model_storage.delete(kind, path, in_use=arbiter.busy_paths())
+        result = await model_storage.delete_async(
+            kind,
+            path,
+            in_use=busy_paths,
+        )
+        try:
+            await registry.scan_async()
+        except Exception as exc:  # noqa: BLE001 - deletion already committed on disk
+            raise model_storage.ModelInventoryError(
+                f"'{path}' was deleted, but the model inventory refresh failed; "
+                f"run Rescan Models: {exc}"
+            ) from exc
     except model_storage.ModelInUseError as exc:
         raise HTTPException(
             409,
-            "That model is loaded on the GPU. Free the GPU (or stop the session) first, then delete.",
+            "That model, one of its files, or a companion is loaded, warm, "
+            "queued, or currently running. Free/cancel it before deleting.",
         ) from exc
+    except model_storage.ModelInventoryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    except model_storage.ModelDeleteError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404, "model not found") from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    registry.scan()
-    return {**result, "disk": model_download_service.disk_status()}
+    disk = await asyncio.to_thread(model_download_service.disk_status)
+    return {
+        **result,
+        "disk": disk,
+    }
 
 
 @router.get("/loras", response_model=list[LoraOut])
@@ -162,19 +310,24 @@ async def list_model_profiles(
     ]
 
 
-@router.delete("/models/profiles")
-async def reset_all_model_profiles(session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+@router.delete("/models/profiles", response_model=DeletedCountOut)
+async def reset_all_model_profiles(
+    session: AsyncSession = Depends(get_session),
+) -> DeletedCountOut:
     deleted = await mps.delete_all(session)
     sysmon.clear_learned_profiles()
     return {"deleted": deleted}
 
 
-@router.delete("/models/profiles/{model_id}")
+@router.delete(
+    "/models/profiles/{model_id}",
+    response_model=DeletedCountOut,
+)
 async def reset_model_profile(
     model_id: str,
     all_profiles: bool = Query(False, alias="all"),
     session: AsyncSession = Depends(get_session),
-) -> dict[str, int]:
+) -> DeletedCountOut:
     if all_profiles:
         deleted = await mps.delete_all(session)
         sysmon.clear_learned_profiles()
@@ -184,12 +337,46 @@ async def reset_model_profile(
     return {"deleted": deleted}
 
 
-@router.get("/settings")
+def _filesystem_model_counts() -> dict[str, int]:
+    return {
+        "tts_models": (
+            sum(1 for _ in settings.tts_models_dir.glob("*.gguf"))
+            if settings.tts_models_dir.exists()
+            else 0
+        ),
+        "transcription_models": (
+            sum(
+                1
+                for path in settings.transcription_models_dir.iterdir()
+                if not path.name.startswith(".")
+            )
+            if settings.transcription_models_dir.exists()
+            else 0
+        ),
+        "embed_models": (
+            sum(1 for _ in settings.embed_models_dir.glob("*.gguf"))
+            if settings.embed_models_dir.exists()
+            else 0
+        ),
+        "vision_models": (
+            sum(1 for _ in settings.vision_models_dir.glob("*.gguf"))
+            if settings.vision_models_dir.exists()
+            else 0
+        ),
+    }
+
+
+@router.get("/settings", response_model=RuntimeSettingsOut)
 async def runtime_settings(
     registry: ModelRegistry = Depends(get_registry),
     arbiter: GpuArbiter = Depends(get_arbiter),
-) -> dict:
+) -> RuntimeSettingsOut:
     descriptors = registry.descriptors()
+    mem, capability, filesystem_counts = await asyncio.gather(
+        asyncio.to_thread(sysmon.snapshot),
+        asyncio.to_thread(capability_profile.get_capability_profile),
+        asyncio.to_thread(_filesystem_model_counts),
+    )
     return {
         "stub_mode": settings.stub_mode,
         "paths": {
@@ -275,45 +462,39 @@ async def runtime_settings(
                 1 for d in descriptors if d.job_type.value == "llm" and d.multimodal
             ),
             "loras": len(registry.loras()),
-            "tts_models": len(list(settings.tts_models_dir.glob("*.gguf")))
-            if settings.tts_models_dir.exists()
-            else 0,
-            "transcription_models": len(
-                [p for p in settings.transcription_models_dir.iterdir() if not p.name.startswith(".")]
-            )
-            if settings.transcription_models_dir.exists()
-            else 0,
-            "embed_models": len(list(settings.embed_models_dir.glob("*.gguf")))
-            if settings.embed_models_dir.exists()
-            else 0,
-            "vision_models": len(list(settings.vision_models_dir.glob("*.gguf")))
-            if settings.vision_models_dir.exists()
-            else 0,
+            **filesystem_counts,
             "learned_profiles": sysmon.learned_count(),
         },
         "gpu": arbiter.status(),
-        "mem": sysmon.snapshot(),
-        "capability": capability_profile.get_capability_profile(),
+        "mem": mem,
+        "capability": capability,
     }
 
 
-@router.get("/capabilities")
-async def runtime_capabilities(refresh: bool = Query(False)) -> dict[str, Any]:
-    return capability_profile.get_capability_profile(refresh=refresh)
+@router.get("/capabilities", response_model=CapabilityProfileOut)
+async def runtime_capabilities(
+    refresh: bool = Query(False),
+) -> CapabilityProfileOut:
+    return await asyncio.to_thread(
+        capability_profile.get_capability_profile,
+        refresh=refresh,
+    )
 
 
-@router.get("/settings/overrides")
-async def get_settings_overrides() -> dict[str, Any]:
-    return settings_overrides.payload()
+@router.get("/settings/overrides", response_model=SettingsOverridesOut)
+async def get_settings_overrides() -> SettingsOverridesOut:
+    return await asyncio.to_thread(settings_overrides.payload)
 
 
-@router.put("/settings/overrides")
-async def put_settings_overrides(body: dict[str, Any]) -> dict[str, Any]:
+@router.put("/settings/overrides", response_model=SettingsOverridesOut)
+async def put_settings_overrides(
+    body: dict[str, Any],
+) -> SettingsOverridesOut:
     unknown = sorted(set(body) - settings_overrides.WRITABLE_KEYS)
     if unknown:
         raise HTTPException(422, f"settings are env-only or unknown: {', '.join(unknown)}")
     try:
-        return settings_overrides.save(body)
+        return await asyncio.to_thread(settings_overrides.save, body)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
 

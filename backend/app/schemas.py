@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .core.enums import JobStatus, JobType, ModelFamily
 
@@ -24,7 +24,7 @@ class ModelOut(BaseModel):
     mmproj_path: str | None = None
     mmproj_size_bytes: int = 0
     estimated_vram_gb: float | None = None
-    # True when estimated_vram_gb comes from a real measurement (P7.2), not the
+    # True when estimated_vram_gb comes from a real measurement, not the
     # static heuristic — the UI labels it "measured".
     vram_measured: bool = False
     # True for models that are slow / memory-heavy on 16 GB (raw fp8 FLUX) so the
@@ -34,7 +34,7 @@ class ModelOut(BaseModel):
     runtime_mode: str = "real"
     unavailable_reason: str | None = None
     compatibility_warnings: list[str] = Field(default_factory=list)
-    # Hardware-fit hint from the capability profile's model_policy (P20.3/P20.7):
+    # Hardware-fit hint from the capability profile's model_policy:
     # "recommended" | "advanced" | "hidden" | "neutral".
     recommendation: str = "neutral"
 
@@ -87,11 +87,19 @@ class JobOut(BaseModel):
     progress: float
     result: dict[str, Any] | None = None
     error: str | None = None
+    request_id: str | None = None
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def hide_internal_params(cls, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+        return {key: item for key, item in value.items() if not str(key).startswith("_")}
 
 
 class PriorityUpdate(BaseModel):

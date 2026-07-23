@@ -1,7 +1,8 @@
 import { Logo } from "./Logo";
 import type { AppTheme, GpuStatus, MemSnapshot } from "../types";
-
-export type View = "images" | "video" | "history" | "llm" | "notes" | "tts" | "transcription" | "code" | "rag" | "voice" | "models" | "system" | "settings";
+import type { EventConnectionState } from "../api/useEvents";
+import type { View } from "../workspaces";
+export type { View } from "../workspaces";
 
 const familyColor: Record<string, string> = {
   flux: "bg-accent",
@@ -11,6 +12,8 @@ const familyColor: Record<string, string> = {
   sdxl: "bg-pink-600",
   "ltx-video": "bg-cyan-600",
   "wan-video": "bg-violet-600",
+  "hunyuan-video": "bg-indigo-600",
+  cogvideo: "bg-sky-600",
   gguf: "bg-emerald-600",
 };
 
@@ -23,28 +26,63 @@ const themeLabel: Record<AppTheme, string> = {
 export function ModelStatus({
   gpu,
   connected,
+  connectionState,
+  lastSyncAt,
   busy,
   mem,
   view,
   theme,
   tabs,
   onView,
+  onPrefetch,
   onFree,
   onTheme,
   onPalette,
 }: {
   gpu: GpuStatus;
   connected: boolean;
+  connectionState: EventConnectionState;
+  lastSyncAt: number | null;
   busy: boolean;
   mem: MemSnapshot | null;
   view: View;
   theme: AppTheme;
   tabs: { id: View; label: string }[];
   onView: (v: View) => void;
+  onPrefetch?: (view: View) => void;
   onFree: () => void;
   onTheme: () => void;
   onPalette: () => void;
 }) {
+  const socketLabel =
+    connectionState === "ready"
+      ? `Synced${lastSyncAt ? ` ${new Date(lastSyncAt).toLocaleTimeString()}` : ""}`
+      : connectionState === "syncing"
+        ? "Connected, synchronizing state"
+        : connectionState === "degraded"
+          ? "Connected, state refresh failed"
+          : connectionState === "offline"
+            ? "Offline"
+            : connectionState === "reconnecting"
+              ? "Reconnecting"
+              : "Connecting";
+  const connectionColor =
+    connectionState === "ready" ? "bg-emerald-400" : connected ? "bg-amber-400" : "bg-red-500";
+
+  const moveTab = (index: number, key: string) => {
+    let next = index;
+    if (key === "ArrowRight") next = (index + 1) % tabs.length;
+    else if (key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+    else if (key === "Home") next = 0;
+    else if (key === "End") next = tabs.length - 1;
+    else return false;
+    const target = tabs[next];
+    if (!target) return false;
+    onView(target.id);
+    requestAnimationFrame(() => document.getElementById(`workspace-tab-${target.id}`)?.focus());
+    return true;
+  };
+
   return (
     <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-line bg-base/95 px-3 py-2 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-5 md:py-3">
       <div className="contents">
@@ -52,23 +90,42 @@ export function ModelStatus({
           <Logo className="h-7 w-7" />
           <span className="text-lg font-semibold tracking-tight">HFabric</span>
           {busy ? (
-            <svg className="h-3.5 w-3.5 animate-spin text-accent" viewBox="0 0 24 24" fill="none" aria-label="working">
+            <svg
+              className="h-3.5 w-3.5 animate-spin text-accent"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-label="working"
+            >
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-25" />
               <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
             </svg>
           ) : (
-            <span
-              className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-red-500"}`}
-              title={connected ? "connected" : "disconnected"}
-            />
+            <output className={`inline-block h-2 w-2 rounded-full ${connectionColor}`} title={socketLabel}>
+              <span className="sr-only">{socketLabel}</span>
+            </output>
           )}
         </div>
 
-        <nav className="col-span-2 row-start-2 flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-line bg-control p-1 md:col-span-1 md:col-start-2 md:row-start-1 md:w-auto md:justify-self-start">
-          {tabs.map((t) => (
+        <div
+          role="tablist"
+          aria-label="Workspaces"
+          aria-orientation="horizontal"
+          className="col-span-2 row-start-2 flex w-full min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-line bg-control p-1 md:col-span-1 md:col-start-2 md:row-start-1"
+        >
+          {tabs.map((t, index) => (
             <button
+              id={`workspace-tab-${t.id}`}
               key={t.id}
+              role="tab"
+              aria-selected={view === t.id}
+              aria-controls={`workspace-panel-${t.id}`}
+              tabIndex={view === t.id ? 0 : -1}
               onClick={() => onView(t.id)}
+              onMouseEnter={() => onPrefetch?.(t.id)}
+              onFocus={() => onPrefetch?.(t.id)}
+              onKeyDown={(event) => {
+                if (moveTab(index, event.key)) event.preventDefault();
+              }}
               className={`rounded-md px-3 py-1 text-sm font-medium transition ${
                 view === t.id
                   ? "bg-accent text-ui-inverse shadow-sm"
@@ -78,7 +135,7 @@ export function ModelStatus({
               {t.label}
             </button>
           ))}
-        </nav>
+        </div>
       </div>
 
       <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-2 text-sm md:col-start-3 md:gap-3">
@@ -91,7 +148,9 @@ export function ModelStatus({
             <div className="h-1.5 w-16 overflow-hidden rounded-full bg-control-active">
               <div
                 className="h-full bg-accent transition-all"
-                style={{ width: `${Math.min(100, (mem.vram.used_gb / Math.max(1, mem.vram.total_gb)) * 100)}%` }}
+                style={{
+                  width: `${Math.min(100, (mem.vram.used_gb / Math.max(1, mem.vram.total_gb)) * 100)}%`,
+                }}
               />
             </div>
           </div>
@@ -106,7 +165,9 @@ export function ModelStatus({
             >
               {gpu.family}
             </span>
-            <span className="max-w-52 truncate font-mono" title={gpu.model}>{gpu.model}</span>
+            <span className="max-w-52 truncate font-mono" title={gpu.model}>
+              {gpu.model}
+            </span>
             <span className="rounded border border-success-border bg-success-bg px-1.5 py-0.5 text-[10px] font-medium text-success-fg">
               {gpu.pin ? gpu.pin.label : "on GPU"}
             </span>
@@ -143,11 +204,7 @@ export function ModelStatus({
         >
           Free GPU
         </button>
-        <button
-          onClick={onTheme}
-          title="Cycle theme"
-          className="ui-button rounded px-2.5 py-1 text-xs"
-        >
+        <button onClick={onTheme} title="Cycle theme" className="ui-button rounded px-2.5 py-1 text-xs">
           {themeLabel[theme]}
         </button>
         <button

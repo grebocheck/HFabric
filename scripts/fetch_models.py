@@ -174,7 +174,7 @@ ADVANCED_IMAGE_JOBS = [
     ),
 ]
 
-# Optional P27 catalog entries. They are intentionally not part of setup-all:
+# Optional video catalog entries. They are intentionally not part of setup-all:
 # together they are large and should be an explicit Video-workspace choice.
 VIDEO_JOBS = [
     FetchJob(
@@ -204,6 +204,19 @@ VIDEO_JOBS = [
         profiles=("nvidia-cuda",),
         source="hf-repo",
         local_subdir="wan2.2-ti2v-5b",
+        exclude_patterns=("media/*", "examples/*", "assets/*", "*.mp4", "*.gif", "*.png"),
+    ),
+    FetchJob(
+        "zai-org/CogVideoX-2b",
+        "",
+        MODELS / "video",
+        "CogVideoX-2B local Diffusers repo",
+        "light text-to-video fallback for CUDA, ROCm, and Apple MPS profiles",
+        approx_size_mb=10_500,
+        license="Apache-2.0",
+        profiles=("nvidia-cuda", "amd-rocm-linux", "apple-mps"),
+        source="hf-repo",
+        local_subdir="cogvideo-2b",
         exclude_patterns=("media/*", "examples/*", "assets/*", "*.mp4", "*.gif", "*.png"),
     ),
     FetchJob(

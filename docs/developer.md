@@ -8,14 +8,15 @@ install/run see the [README](../README.md); for runtime knobs see
 
 ```
 backend/app/
-  core/        arbiter, scheduler, events, enums   (the GPU-correctness core)
+  core/        arbiter, scheduler, planning, results, events, enums
+               (the GPU-correctness core)
   backends/    registry (model scan), image_diffusers, llm_llamacpp
-  api/         FastAPI routers (one file per workspace) + ws
+  api/         FastAPI routers + named response contracts + ws
   services/    capability_profile, model_compatibility, runtime_tuning,
                chat/rag/embedding/gallery/queue services, llama_manager,
                voice_engine/ (native RVC engine)
   db/          SQLAlchemy models + async session + Alembic wiring
-  util/        sysmon, security, uploads, logging, pidfiles
+  util/        sysmon, security, async files, uploads, logging, pidfiles
 frontend/src/  React + Tailwind 4; one component per workspace tab
 scripts/       hardware probe, installer resolver, model/llama fetchers,
                GPU smoke runners, backup
@@ -44,7 +45,7 @@ backend, eslint + `tsc -b` + `npm run build` + vitest on the frontend.
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\pip install -r backend\requirements-dev.txt
+.\.venv\Scripts\pip install --require-hashes -r backend\requirements-dev.lock
 .\.venv\Scripts\ruff check backend scripts
 .\.venv\Scripts\python -m pytest backend\tests
 ```
@@ -58,19 +59,66 @@ capability layer is covered by fake-probe tests (`test_install_profiles.py`,
 `test_install_smoke.py`, `test_fetch_models.py`) so resolver decisions are
 verified in CI without owning every GPU.
 
-**Frontend** (vitest + Testing Library):
+Coverage uses real branch instrumentation. Hardware-only model-construction
+adapters listed in `backend/.coveragerc` are validated by the real-GPU smoke
+matrix; scheduler, arbiter, registry, generation callbacks, persistence and API
+control flow remain in the CI scope.
+
+**Frontend** (Vitest + Testing Library + Playwright):
 
 ```powershell
 cd frontend
-npm install
-npm run lint     # eslint + prettier
-npx tsc -b       # typecheck
-npm test         # vitest run
+npm ci
+npm run lint
+npm run typecheck
+npm run test:coverage
+npm run build
+npx playwright install chromium  # once per machine
+npm run test:e2e
+```
+
+The browser suite intercepts the API and runs without a GPU. It covers first
+run, token authentication, critical workspace flows, accessibility checks and
+narrow viewports. Generated API types must stay synchronized:
+
+```powershell
+.\.venv\Scripts\python backend\scripts\export_openapi.py frontend\openapi.json
+cd frontend
+npm run openapi:generate
+npm run openapi:check
+```
+
+To inspect reproducible caches/build output without touching models, user data,
+credentials, managed runtimes, or dependencies:
+
+```powershell
+python scripts/clean_dev.py          # dry run
+python scripts/clean_dev.py --apply  # remove only the printed allowlist
 ```
 
 Flow tests cover the high-value screens: ChatPanel (send → streamed reply →
 thinking split), Gallery (filter chips + bulk select), QueuePanel (job states +
 cancel), plus the Select control and model-picker helpers.
+
+## Dependency profiles and locks
+
+`backend/dependency-profiles.json` is the single source for Python 3.12,
+resolver version, torch versions, platform targets and lock outputs. The
+installer selects one of the universal foundation/development locks or the
+Windows CUDA, Linux CUDA, Linux ROCm and macOS arm64 MPS locks.
+
+```powershell
+# after intentionally editing an input/manifest
+python scripts/install_profiles.py --compile-locks
+
+# byte-for-byte freshness + hash/index/backend/drift validation
+python scripts/install_profiles.py --check-locks
+python scripts/check_dependency_consistency.py
+```
+
+Never edit a compiled lock directly. ROCm installs its pinned torch trio from
+the official ROCm index first; the hashed shared dependency lock deliberately
+omits that trio so it cannot replace the accelerator wheels.
 
 ## Real-GPU validation
 
@@ -145,5 +193,6 @@ When reporting a problem, include:
 - Exact steps and the model(s) involved.
 
 Before opening a PR: `ruff check`, `pytest`, `npm run lint`, `tsc -b`, and
-`npm test` should all pass, and GPU-path changes should be smoke-tested per
+`npm run test:coverage`, `npm run test:e2e`, and `npm run build` should all
+pass, and GPU-path changes should be smoke-tested per
 `gpu-smoke.md`.

@@ -10,9 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Note
 from ..schemas import NoteCreate, NoteOut, NoteUpdate
+from .contracts import ERROR_RESPONSES, DeleteOut
 from .deps import get_session
 
-router = APIRouter(prefix="/api/notes", tags=["notes"])
+router = APIRouter(
+    prefix="/api/notes",
+    tags=["notes"],
+    responses=ERROR_RESPONSES,
+)
 
 
 def _now() -> datetime:
@@ -77,8 +82,11 @@ async def update_note(
     return NoteOut.model_validate(note)
 
 
-@router.delete("/{note_id}")
-async def delete_note(note_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+@router.delete("/{note_id}", response_model=DeleteOut)
+async def delete_note(
+    note_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> DeleteOut:
     note = await session.get(Note, note_id)
     if not note:
         raise HTTPException(404, "note not found")

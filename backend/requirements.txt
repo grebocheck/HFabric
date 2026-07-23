@@ -1,21 +1,21 @@
 # --- HFabric backend: foundation (light) deps ---
 # These let the whole app run in STUB mode without any GPU/ML stack.
-fastapi==0.115.6
+fastapi==0.139.2
 uvicorn[standard]==0.34.0
 websockets==16.0
-pydantic==2.10.4
-pydantic-settings==2.7.1
-SQLAlchemy==2.0.36
-alembic==1.14.0
-aiosqlite==0.20.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
+SQLAlchemy==2.0.51
+alembic==1.18.5
+aiosqlite==0.22.1
 greenlet==3.1.1
 httpx==0.28.1
 huggingface-hub==0.36.2
-python-multipart==0.0.20
-Pillow==11.1.0
+python-multipart==0.0.32
+Pillow==12.3.0
 imageio==2.37.0
 imageio-ffmpeg==0.6.0
-psutil==6.1.1
-nvidia-ml-py==12.560.30   # NVML VRAM telemetry without creating a CUDA context
+psutil==7.2.2
+nvidia-ml-py==13.610.43   # NVML VRAM telemetry without creating a CUDA context
 numpy>=1.26
 soxr>=1.0

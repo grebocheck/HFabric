@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from httpx import ASGITransport, AsyncClient
@@ -23,16 +24,24 @@ async def test_legacy_db_without_image_metadata_columns_upgrades(isolated_runtim
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/images")
     assert response.status_code == 200
-    assert response.json()[0]["favorite"] is False
+    # The broken row is retained for diagnosis but is not advertised as valid
+    # gallery media after startup reconciliation.
+    assert response.json() == []
     with sqlite3.connect(isolated_runtime["db_path"]) as conn:
         column_rows = list(conn.execute("PRAGMA table_info(images)"))
         columns = {row[1] for row in column_rows}
         job_id = next(row for row in column_rows if row[1] == "job_id")
         image_foreign_keys = list(conn.execute("PRAGMA foreign_key_list(images)"))
+        image_row = conn.execute(
+            "SELECT favorite, params FROM images WHERE id = 'img1'"
+        ).fetchone()
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     assert {"family", "favorite", "tags"} <= columns
     assert job_id[3] == 0  # nullable: recovered images have no queue row
     assert not any(row[3] == "job_id" for row in image_foreign_keys)
+    assert image_row is not None
+    assert image_row[0] == 0
+    assert json.loads(image_row[1])["_hfabric_media_status"] == "missing_original"
     assert version == "0005_video_workspace"
 
 

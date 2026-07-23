@@ -22,9 +22,19 @@ from pydantic import BaseModel, Field
 
 from ..config import settings
 from ..core.arbiter import GpuArbiter
+from .contracts import (
+    ERROR_RESPONSES,
+    TtsGenerateOut,
+    TtsStatusOut,
+    binary_response,
+)
 from .deps import get_arbiter
 
-router = APIRouter(prefix="/api/tts", tags=["tts"])
+router = APIRouter(
+    prefix="/api/tts",
+    tags=["tts"],
+    responses=ERROR_RESPONSES,
+)
 
 
 class TtsGenerateIn(BaseModel):
@@ -59,6 +69,13 @@ def _day_dir() -> Path:
     return d
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def _audio_path(audio_id: str) -> Path | None:
     if not re.fullmatch(r"[a-f0-9]{32}", audio_id):
         return None
@@ -67,9 +84,9 @@ def _audio_path(audio_id: str) -> Path | None:
     return None
 
 
-@router.get("/status")
-async def tts_status() -> dict:
-    models = _models()
+@router.get("/status", response_model=TtsStatusOut)
+async def tts_status() -> TtsStatusOut:
+    models = await asyncio.to_thread(_models)
     return {
         "binary": str(settings.llama_tts_bin),
         "binary_exists": settings.llama_tts_bin.exists(),
@@ -79,11 +96,11 @@ async def tts_status() -> dict:
     }
 
 
-@router.post("/generate")
+@router.post("/generate", response_model=TtsGenerateOut)
 async def generate_tts(
     body: TtsGenerateIn,
     arbiter: GpuArbiter = Depends(get_arbiter),
-) -> dict:
+) -> TtsGenerateOut:
     if not settings.llama_tts_bin.exists():
         raise HTTPException(503, "llama-tts binary not found")
 
@@ -91,7 +108,7 @@ async def generate_tts(
     if not text:
         raise HTTPException(422, "text is empty")
 
-    models = _model_map()
+    models = await asyncio.to_thread(_model_map)
     model = models.get(body.model_id)
     if not model:
         raise HTTPException(404, "TTS model not found")
@@ -103,7 +120,8 @@ async def generate_tts(
             raise HTTPException(404, "TTS vocoder model not found")
 
     audio_id = uuid.uuid4().hex
-    out_path = _day_dir() / f"tts-{audio_id}.wav"
+    output_dir = await asyncio.to_thread(_day_dir)
+    out_path = output_dir / f"tts-{audio_id}.wav"
     command = [
         str(settings.llama_tts_bin),
         "-m",
@@ -120,7 +138,7 @@ async def generate_tts(
     if body.use_guide_tokens:
         command.append("--tts-use-guide-tokens")
 
-    # Report a GPU lane only when actually offloading layers (P24.10); a CPU run
+    # Report a GPU lane only when actually offloading layers; a CPU run
     # (-ngl 0) doesn't touch VRAM, so it shouldn't claim the GPU is busy.
     lane = (
         arbiter.gpu_lane("tts", "TTS synthesis")
@@ -171,7 +189,7 @@ async def generate_tts(
         "created_at": datetime.now(UTC).isoformat(),
     }
     meta_path = out_path.with_suffix(".json")
-    meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    await asyncio.to_thread(_write_json, meta_path, metadata)
 
     return {
         "id": audio_id,
@@ -184,9 +202,13 @@ async def generate_tts(
     }
 
 
-@router.get("/audio/{audio_id}/file")
+@router.get(
+    "/audio/{audio_id}/file",
+    response_class=FileResponse,
+    responses=binary_response("audio/wav", "Generated WAV audio"),
+)
 async def tts_audio(audio_id: str) -> FileResponse:
-    path = _audio_path(audio_id)
+    path = await asyncio.to_thread(_audio_path, audio_id)
     if not path or not path.exists():
         raise HTTPException(404, "audio not found")
     return FileResponse(path, media_type="audio/wav")

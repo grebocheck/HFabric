@@ -9,16 +9,22 @@ the real `data/hfabric.db` and the registry still has something to discover.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
 import struct
+import sys
 import tempfile
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-_TMP = Path(tempfile.gettempdir()) / "hfabric_test"
+# Import-time settings still need seed paths before fixtures run. Make that
+# bootstrap tree unique per pytest process; every test gets its own DB below.
+_TMP = Path(tempfile.mkdtemp(prefix="hfabric_test_"))
 _IMAGE_DIR = _TMP / "image"
 _LLM_DIR = _TMP / "llm"
 _VISION_DIR = _TMP / "vision"
@@ -59,6 +65,7 @@ os.environ.setdefault("HFAB_STUB_MODE", "true")
 # developer's real HFAB_API_TOKEN/HFAB_HOST would leak into the suite (every
 # request suddenly 401s). Env vars take precedence over env_file - pin them.
 os.environ["HFAB_API_TOKEN"] = ""
+os.environ["HFAB_ALLOW_INSECURE_LAN"] = "false"
 os.environ["HFAB_HOST"] = "127.0.0.1"
 os.environ["HFAB_PORT"] = "8260"
 os.environ["HFAB_DB_PATH"] = str(_TMP / "hfabric_test.db")
@@ -72,21 +79,26 @@ os.environ["HFAB_VIDEO_MODELS_DIR"] = str(_VIDEO_DIR)
 os.environ.setdefault("HFAB_LEARN_MEMORY_PROFILES", "false")
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 async def isolated_runtime(monkeypatch, tmp_path):
     """Point global settings + DB session helpers at a per-test runtime tree."""
     from app.config import settings
     from app.db import session as db_session
-    from app.services import settings_overrides
+    from app.services import capability_profile
+    from app.services.embedding_service import embedding_service
+    from app.services.voice_engine import engine as voice_engine
+    from app.services.voice_engine import realtime
+    from app.util import sysmon
 
-    # The /settings/overrides API mutates the global `settings` singleton with a
-    # raw setattr (not monkeypatch), so any test that PUTs an override would leak
-    # values like `min_free_ram_gb` into later tests (e.g. the sysmon budget
-    # guard). Snapshot the writable keys here and restore them on teardown.
+    loop = asyncio.get_running_loop()
+    previous_loop_handler = loop.get_exception_handler()
+    previous_excepthook = sys.excepthook
+    # Several APIs mutate the process-wide Settings singleton directly. Snapshot
+    # every declared field, not only today's writable override allowlist, so a
+    # newly-added runtime knob cannot silently leak into the next test.
     settings_snapshot = {
-        key: getattr(settings, key)
-        for key in settings_overrides.WRITABLE_KEYS
-        if hasattr(settings, key)
+        key: deepcopy(getattr(settings, key))
+        for key in type(settings).model_fields
     }
 
     data_dir = tmp_path / "data"
@@ -116,6 +128,19 @@ async def isolated_runtime(monkeypatch, tmp_path):
             "backups_dir": settings.backups_dir,
         }
     finally:
+        # App lifespan normally performs these stops. Repeating them here makes
+        # teardown safe even when startup or a test aborts before lifespan exits.
+        with suppress(Exception):
+            await asyncio.to_thread(realtime.stop_session)
+        with suppress(Exception):
+            await embedding_service.stop()
+        voice_engine._ENGINE = None
+        sysmon.clear_learned_profiles()
+        cache_clear = getattr(capability_profile._hardware_profile, "cache_clear", None)
+        if cache_clear is not None:
+            cache_clear()
+        loop.set_exception_handler(previous_loop_handler)
+        sys.excepthook = previous_excepthook
         await new_engine.dispose()
         db_session.engine = old_engine
         db_session.SessionLocal = old_session_local

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { SNAPSHOT_REFRESH_EVENT } from "../api/sync";
 import { CivitaiBrowser } from "./CivitaiBrowser";
 import { HfBrowser } from "./HfBrowser";
 import { Select } from "./Select";
@@ -7,12 +8,10 @@ import { Panel, SectionTitle, SkeletonRows } from "./WorkspaceChrome";
 import { toast } from "./Toast";
 import type { CustomDownloadItem, ModelDownloadItem, ModelDownloadState } from "../types";
 
-const subtleButton =
-  "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
+const subtleButton = "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
 const primaryButton =
   "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-ui-inverse transition hover:bg-accent-hover disabled:opacity-35";
-const field =
-  "ui-field w-full rounded-md px-2.5 py-1.5 text-[13px]";
+const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-[13px]";
 
 // The model kinds the custom downloader can target (mirrors the backend folders).
 const KIND_OPTIONS = [
@@ -35,7 +34,7 @@ function errMsg(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-// Model download manager (P18.4): curated, hardware-aware starter models with
+// Model download manager: curated, hardware-aware starter models with
 // size/license, recommended preselected, impossible ones behind Advanced, and a
 // disk-budget guard. Files land in the models/ folders the registry scans.
 export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => void }) {
@@ -44,6 +43,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [rescanning, setRescanning] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const prevState = useRef("idle");
   const initialized = useRef(false);
   const onModelsChangedRef = useRef(onModelsChanged);
@@ -52,13 +52,20 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
   const refresh = useCallback(async () => {
     try {
       setData(await api.downloadsState());
-    } catch {
-      /* keep last known state if the backend blips */
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(errMsg(error, "Could not refresh downloads"));
     }
   }, []);
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const handleSnapshot = () => void refresh();
+    window.addEventListener(SNAPSHOT_REFRESH_EVENT, handleSnapshot);
+    return () => window.removeEventListener(SNAPSHOT_REFRESH_EVENT, handleSnapshot);
   }, [refresh]);
 
   // Preselect the recommended, not-yet-present models once, when the catalog loads.
@@ -81,7 +88,7 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
     if (!status) return;
     if (prevState.current === "running" && status.state === "done") {
       toast.success(status.message || "Downloads complete");
-      // The backend rescans on completion (P24.8); pull the fresh catalog + the
+      // The backend rescans on completion; pull the fresh catalog + the
       // app-wide model list so a just-downloaded model is usable without a restart.
       void refresh();
       onModelsChangedRef.current?.();
@@ -119,7 +126,12 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
       toast.error("Enter a direct download URL");
       return;
     }
-    const item: CustomDownloadItem = { source: "url", kind, url: trimmed, filename: filename.trim() || undefined };
+    const item: CustomDownloadItem = {
+      source: "url",
+      kind,
+      url: trimmed,
+      filename: filename.trim() || undefined,
+    };
     setBusy(true);
     try {
       await api.downloadsCustom([item]);
@@ -160,7 +172,9 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
       }`}
     >
       {item.present ? (
-        <span className="mt-0.5 text-success-fg" aria-hidden>✓</span>
+        <span className="mt-0.5 text-success-fg" aria-hidden>
+          ✓
+        </span>
       ) : (
         <input
           type="checkbox"
@@ -230,15 +244,23 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
         }
       />
       <div className="space-y-3 p-3 text-xs">
-        {!data ? (
+        {!data && loadError ? (
+          <div className="rounded-md border border-error-border bg-error-bg px-3 py-3 text-error-fg">
+            <p>{loadError}</p>
+            <button onClick={() => void refresh()} className={`${subtleButton} mt-2`}>
+              Retry
+            </button>
+          </div>
+        ) : !data ? (
           <SkeletonRows rows={3} />
         ) : (
           <>
             {!data.available ? (
               <div className="rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-warn-fg">
                 In-app downloads need <span className="font-mono">huggingface_hub</span>, which is not
-                installed in this environment. Run the accelerator setup (<span className="font-mono">setup … real</span>)
-                or <span className="font-mono">pip install huggingface_hub</span>.
+                installed in this environment. Run the accelerator setup (
+                <span className="font-mono">setup … real</span>) or{" "}
+                <span className="font-mono">pip install huggingface_hub</span>.
               </div>
             ) : null}
 
@@ -261,7 +283,12 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                 {freeMb != null ? `${fmtMb(freeMb)} free on ${data.disk.models_root}/` : "disk space unknown"}
               </span>
               <div className="flex items-center gap-2">
-                <button onClick={() => void rescan()} className={subtleButton} disabled={downloading || rescanning} title="Re-read the model folders so files added by hand appear without a restart">
+                <button
+                  onClick={() => void rescan()}
+                  className={subtleButton}
+                  disabled={downloading || rescanning}
+                  title="Re-read the model folders so files added by hand appear without a restart"
+                >
                   {rescanning ? "Rescanning…" : "Rescan models"}
                 </button>
                 <button onClick={() => void refresh()} className={subtleButton} disabled={downloading}>
@@ -332,17 +359,38 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
                     <span className="text-[11px] text-ui-subtle">Save to</span>
-                    <div className="w-44"><Select value={kind} onChange={setKind} options={KIND_OPTIONS} /></div>
+                    <div className="w-44">
+                      <Select
+                        ariaLabel="Model destination"
+                        value={kind}
+                        onChange={setKind}
+                        options={KIND_OPTIONS}
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <input className={field} placeholder="https://… direct file URL" value={url} onChange={(e) => setUrl(e.target.value)} />
-                    <input className={field} placeholder="save as (optional)" value={filename} onChange={(e) => setFilename(e.target.value)} />
+                    <input
+                      className={field}
+                      placeholder="https://… direct file URL"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                    />
+                    <input
+                      className={field}
+                      placeholder="save as (optional)"
+                      value={filename}
+                      onChange={(e) => setFilename(e.target.value)}
+                    />
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] text-ui-subtle">
                       Lands in <span className="font-mono">models/{kind}/</span>. Review the license first.
                     </span>
-                    <button onClick={() => void addCustom()} className={primaryButton} disabled={busy || downloading}>
+                    <button
+                      onClick={() => void addCustom()}
+                      className={primaryButton}
+                      disabled={busy || downloading}
+                    >
                       {downloading ? "Downloading…" : "Download"}
                     </button>
                   </div>
@@ -357,7 +405,9 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
                   onClick={() => setInstalledOpen((v) => !v)}
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] text-ui-muted hover:text-ui"
                 >
-                  <span>Installed starter models · {installed.length} · {fmtMb(installedMb)}</span>
+                  <span>
+                    Installed starter models · {installed.length} · {fmtMb(installedMb)}
+                  </span>
                   <span className="text-ui-subtle">{installedOpen ? "–" : "+"}</span>
                 </button>
                 {installedOpen ? (

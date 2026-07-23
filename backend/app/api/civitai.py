@@ -14,8 +14,18 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..services import civitai_auth, civitai_service
 from ..util import security
+from .contracts import (
+    ERROR_RESPONSES,
+    CivitaiAuthOut,
+    CivitaiSearchOut,
+    CivitaiVersionFilesOut,
+)
 
-router = APIRouter(prefix="/api/civitai", tags=["civitai"])
+router = APIRouter(
+    prefix="/api/civitai",
+    tags=["civitai"],
+    responses=ERROR_RESPONSES,
+)
 
 
 def _require_loopback(request: Request) -> None:
@@ -25,7 +35,7 @@ def _require_loopback(request: Request) -> None:
         raise HTTPException(403, "managing the CivitAI key is only allowed from loopback clients")
 
 
-@router.get("/search")
+@router.get("/search", response_model=CivitaiSearchOut)
 async def search_civitai(
     q: str = "",
     types: str | None = Query(default=None, description="comma-separated CivitAI types"),
@@ -35,10 +45,11 @@ async def search_civitai(
     nsfw: bool = False,
     limit: int = 24,
     page: int = 1,
-) -> dict[str, Any]:
+) -> CivitaiSearchOut:
     type_list = [t.strip() for t in (types or "").split(",") if t.strip()]
     base_list = [b.strip() for b in (base_models or "").split(",") if b.strip()]
     try:
+        headers = await asyncio.to_thread(civitai_auth.auth_headers)
         return await asyncio.to_thread(
             civitai_service.search_models,
             q,
@@ -49,34 +60,50 @@ async def search_civitai(
             nsfw=nsfw,
             limit=limit,
             page=page,
-            headers=civitai_auth.auth_headers(),
+            headers=headers,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
-@router.get("/versions/{version_id}/files")
-async def civitai_version_files(version_id: int, nsfw: bool = False) -> dict[str, Any]:
+@router.get(
+    "/versions/{version_id}/files",
+    response_model=CivitaiVersionFilesOut,
+)
+async def civitai_version_files(
+    version_id: int,
+    nsfw: bool = False,
+) -> CivitaiVersionFilesOut:
     try:
+        headers = await asyncio.to_thread(civitai_auth.auth_headers)
         return await asyncio.to_thread(
-            civitai_service.version_files, version_id, nsfw=nsfw, headers=civitai_auth.auth_headers()
+            civitai_service.version_files,
+            version_id,
+            nsfw=nsfw,
+            headers=headers,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
-def _auth_status() -> dict[str, Any]:
-    return {"has_key": civitai_auth.has_key(), "has_cookie": civitai_auth.has_cookie()}
+def _auth_status() -> CivitaiAuthOut:
+    return {
+        "has_key": civitai_auth.has_key(),
+        "has_cookie": civitai_auth.has_cookie(),
+    }
 
 
-@router.get("/auth")
-async def civitai_auth_status() -> dict[str, Any]:
+@router.get("/auth", response_model=CivitaiAuthOut)
+async def civitai_auth_status() -> CivitaiAuthOut:
     """Which CivitAI credentials are stored. The secrets themselves are never returned."""
-    return _auth_status()
+    return await asyncio.to_thread(_auth_status)
 
 
-@router.put("/auth")
-async def civitai_auth_save(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+@router.put("/auth", response_model=CivitaiAuthOut)
+async def civitai_auth_save(
+    request: Request,
+    body: dict[str, Any] | None = None,
+) -> CivitaiAuthOut:
     """Store a CivitAI API key and/or session cookie (loopback-only) and verify it.
 
     Send exactly one of ``api_key`` / ``session_cookie`` per call; the response's
@@ -88,21 +115,34 @@ async def civitai_auth_save(request: Request, body: dict[str, Any] | None = None
 
     if api_key is not None and str(api_key).strip():
         result = await asyncio.to_thread(civitai_auth.verify_key, str(api_key))
-        civitai_auth.set_key(str(api_key))
-        return {**_auth_status(), "which": "key", **result}
+        await asyncio.to_thread(civitai_auth.set_key, str(api_key))
+        status = await asyncio.to_thread(_auth_status)
+        return {
+            **status,
+            "which": "key",
+            **result,
+        }
     if session_cookie is not None and str(session_cookie).strip():
         result = await asyncio.to_thread(civitai_auth.verify_cookie, str(session_cookie))
-        civitai_auth.set_cookie(str(session_cookie))
-        return {**_auth_status(), "which": "cookie", **result}
+        await asyncio.to_thread(civitai_auth.set_cookie, str(session_cookie))
+        status = await asyncio.to_thread(_auth_status)
+        return {
+            **status,
+            "which": "cookie",
+            **result,
+        }
     raise HTTPException(422, "api_key or session_cookie is required")
 
 
-@router.delete("/auth")
-async def civitai_auth_clear(request: Request, target: str = "all") -> dict[str, Any]:
+@router.delete("/auth", response_model=CivitaiAuthOut)
+async def civitai_auth_clear(
+    request: Request,
+    target: str = "all",
+) -> CivitaiAuthOut:
     """Forget the stored CivitAI key, cookie, or both (loopback-only)."""
     _require_loopback(request)
     if target in ("key", "all"):
-        civitai_auth.clear_key()
+        await asyncio.to_thread(civitai_auth.clear_key)
     if target in ("cookie", "all"):
-        civitai_auth.clear_cookie()
-    return _auth_status()
+        await asyncio.to_thread(civitai_auth.clear_cookie)
+    return await asyncio.to_thread(_auth_status)

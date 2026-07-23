@@ -58,8 +58,10 @@ defaults, chosen to fit — all are tunable.
 
 **Recommended initial set:** ship **LTX-Video** first (fast default that fits with
 room to spare), then **Wan 2.2 TI2V-5B** (the quality tier), then **FramePack**
-(long video). AnimateDiff-SDXL is the universal lightweight fallback and the
-easiest non-NVIDIA path because it leans on the SDXL pipeline we already validate.
+(long video). CogVideoX-2B is the first universal lightweight T2V fallback because
+it is a single Diffusers pipeline with CUDA/ROCm/MPS placement hooks; AnimateDiff-SDXL
+remains the second fallback candidate once the SDXL motion-adapter composition is
+worth wiring.
 
 ### Out of scope (budget-blowing or niche — declined like FLUX.2 [dev])
 
@@ -125,11 +127,12 @@ same spine as image generation, with a different output container. Concretely:
 - **Tests** — pytest for `classify_video_dir`, the sysmon video budget, STUB
   `generate`, and the `/api/videos` range serving; vitest for the player + composer.
 - **Capability gating (P20.5/P27.5)** — implemented for the runnable video surface:
-  CUDA profiles now expose `model_policy.video`, LTX is recommended, Wan/FramePack are
-  advanced, unimplemented CogVideoX/AnimateDiff are hidden, and Ada+ fp8 video paths
-  are gated separately from Blackwell-only fast paths. CPU/ROCm/MPS still hide real
-  video queueing; AnimateDiff-SDXL / CogVideoX-2B remain the tracked light fallback
-  candidates until their backend path and real hardware validation land.
+  CUDA profiles now expose `model_policy.video`, LTX is recommended, Wan/FramePack/CogVideoX
+  are advanced, and Ada+ fp8 video paths are gated separately from Blackwell-only
+  fast paths. ROCm/MPS profiles expose `video_light_fallback` and recommend
+  CogVideoX-2B while hiding CUDA-only LTX/Wan/FramePack and still-unimplemented
+  AnimateDiff. Compatibility blocks unsupported family/mode combinations early;
+  CogVideoX still needs real ROCm/MPS smoke before non-NVIDIA video is claimed proven.
 - **Model downloads** — add the chosen video models to the in-app download catalog
   (`model_download_service`) as a video category, with the same managed-download UX.
   FramePack is a three-entry composite download so the app can avoid the unused

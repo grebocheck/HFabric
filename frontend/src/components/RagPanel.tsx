@@ -51,7 +51,9 @@ export function RagPanel({
     api.ragStatus().then((s) => {
       setStatus(s);
       setEmbedModelId((prev) => prev || s.models[0]?.id || "");
-    }).catch(() => {}).finally(() => setStatusLoading(false));
+    }).catch((error: unknown) => {
+      setNote(error instanceof Error ? error.message : "Could not load RAG status");
+    }).finally(() => setStatusLoading(false));
     refreshDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -169,8 +171,8 @@ export function RagPanel({
         <StatusPill label={search ? `${search.results.length} matches` : "no search"} tone={search ? "info" : "neutral"} />
       </WorkspaceHeader>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3">
-      <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,330px)_minmax(0,1fr)_minmax(320px,380px)] gap-3 max-[980px]:block max-[980px]:overflow-x-hidden max-[980px]:overflow-y-auto">
+      <Panel className="flex min-h-0 flex-col overflow-hidden max-[980px]:mb-3 max-[980px]:h-[420px]">
         <SectionTitle title="Documents" subtitle={ready ? "embed ready" : "waiting for embed model"} actions={<StatusPill label={String(docs.length)} />} />
         <div className="border-b border-border p-3">
           <input
@@ -203,7 +205,7 @@ export function RagPanel({
         </div>
       </Panel>
 
-      <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <Panel className="flex min-h-0 flex-col overflow-hidden max-[980px]:mb-3 max-[980px]:h-[460px]">
         <SectionTitle title="Search" subtitle={search ? `${search.results.length} retrieved chunks` : "Ask against indexed documents"} />
         <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-border p-3">
           <input
@@ -242,7 +244,7 @@ export function RagPanel({
         </div>
       </Panel>
 
-      <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <Panel className="flex min-h-0 flex-col overflow-hidden max-[980px]:h-[520px]">
         <SectionTitle title="Indexing" subtitle={note || "Embedding and LLM handoff"} />
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         <InfoRows
@@ -260,6 +262,7 @@ export function RagPanel({
             <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
           ) : (
             <Select
+              ariaLabel="Embedding model"
               value={embedModelId}
               onChange={setEmbedModelId}
               placeholder="no embed models"
@@ -275,6 +278,7 @@ export function RagPanel({
             <SkeletonLine className="mt-1 h-9 w-full rounded-md" />
           ) : (
             <Select
+              ariaLabel="RAG LLM model"
               value={llmModelId}
               onChange={setLlmModelId}
               placeholder="no LLM models"

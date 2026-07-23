@@ -55,6 +55,26 @@ def test_backup_retention_keeps_newest_n(tmp_path):
     assert len(backups) == 2
 
 
+def test_snapshot_db_includes_committed_wal_sidecar_rows(tmp_path):
+    backup = _load_backup_module()
+    source_path = tmp_path / "source.db"
+    snapshot_path = tmp_path / "snapshot.db"
+
+    with sqlite3.connect(source_path) as source:
+        assert source.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        source.execute("PRAGMA wal_autocheckpoint=0")
+        source.execute("CREATE TABLE sample (value TEXT NOT NULL)")
+        source.execute("INSERT INTO sample (value) VALUES ('from-wal')")
+        source.commit()
+        assert source_path.with_name(f"{source_path.name}-wal").exists()
+
+        backup.snapshot_db(source_path, snapshot_path)
+
+    with sqlite3.connect(snapshot_path) as snapshot:
+        assert snapshot.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert snapshot.execute("SELECT value FROM sample").fetchone()[0] == "from-wal"
+
+
 def _create_db(path: Path) -> None:
     with sqlite3.connect(path) as conn:
         conn.execute("CREATE TABLE sample (value TEXT NOT NULL)")

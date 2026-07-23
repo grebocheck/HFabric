@@ -174,7 +174,11 @@ ok "pip upgraded"
 
 # --- foundation deps ---------------------------------------------------------
 section "Installing foundation dependencies"
-"$PIPBIN" install -r backend/requirements.txt >/dev/null
+if [ -f backend/requirements-foundation.lock ]; then
+  "$PIPBIN" install --require-hashes -r backend/requirements-foundation.lock >/dev/null
+else
+  "$PIPBIN" install -r backend/requirements.txt >/dev/null
+fi
 ok "Foundation packages installed (FastAPI, SQLAlchemy, Pydantic, ...)"
 
 # --- GPU / ML stack ----------------------------------------------------------
@@ -205,7 +209,7 @@ if [ "$REAL" -eq 1 ]; then
   while IFS= read -r req; do
     [ -n "$req" ] || continue
     echo "  installing backend requirements from $req..."
-    "$PIPBIN" install -r "$req" >/dev/null
+    "$PIPBIN" install --require-hashes -r "$req" >/dev/null
   done < <(profile_list install.requirements)
   ok "Accelerated backend packages installed"
 
@@ -236,7 +240,7 @@ section "Installing frontend dependencies"
 if frontend_ready && [ "$FORCE" -eq 0 ]; then
   ok "node_modules already exists"
 else
-  ( cd frontend && npm install >/dev/null )
+  ( cd frontend && if [ -f package-lock.json ]; then npm ci >/dev/null; else npm install >/dev/null; fi )
   ok "Frontend packages installed (React, Tailwind, Vite, ...)"
 fi
 

@@ -9,14 +9,41 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import json
 import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from typing import Any
 
-PYTORCH_VERSION = "2.11.0"
-TORCHVISION_VERSION = "0.26.0"
-TORCHAUDIO_VERSION = "2.11.0"
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST_PATH = ROOT / "backend" / "dependency-profiles.json"
+
+
+def _load_dependency_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot load dependency profile manifest {path}: {exc}") from exc
+    if manifest.get("schema_version") != 1:
+        raise RuntimeError(
+            f"unsupported dependency profile manifest schema: {manifest.get('schema_version')!r}"
+        )
+    required_sections = {"resolver", "torch", "locks", "profiles"}
+    missing = sorted(required_sections - manifest.keys())
+    if missing:
+        raise RuntimeError(f"dependency profile manifest is missing: {', '.join(missing)}")
+    return manifest
+
+
+DEPENDENCY_MANIFEST = _load_dependency_manifest()
+PYTORCH_VERSION = str(DEPENDENCY_MANIFEST["torch"]["torch"])
+TORCHVISION_VERSION = str(DEPENDENCY_MANIFEST["torch"]["torchvision"])
+TORCHAUDIO_VERSION = str(DEPENDENCY_MANIFEST["torch"]["torchaudio"])
 
 # Ordered worst -> best so recommendations can compare tiers by rank.
 TIER_ORDER = (
@@ -52,9 +79,10 @@ CUDA_VIDEO_FAMILIES = {
     "ltx-video": {"min_tier": "safe_8gb", "recommended": True},
     "wan-video": {"min_tier": "rich_16gb_plus", "recommended": False},
     "hunyuan-video": {"min_tier": "rich_16gb_plus", "recommended": False},
+    "cogvideo": {"min_tier": "safe_8gb", "recommended": False},
 }
 
-VIDEO_FALLBACK_CANDIDATES = ("animatediff", "cogvideo")
+VIDEO_FALLBACK_CANDIDATES = ("cogvideo", "animatediff")
 
 # Largest LLM (in billions of params) worth preselecting per tier. Lower tiers
 # still *allow* bigger quantized models, but the resolver won't recommend them.
@@ -67,84 +95,55 @@ LLM_RECOMMENDED_PARAMS_B = {
     "large_24gb_plus": 70,
 }
 
-PROFILE_DEFS: dict[str, dict[str, Any]] = {
-    "nvidia-cuda": {
-        "label": "NVIDIA CUDA",
-        "torch_index_url": "https://download.pytorch.org/whl/cu128",
-        "torch_packages": [
-            f"torch=={PYTORCH_VERSION}",
-            f"torchvision=={TORCHVISION_VERSION}",
-            f"torchaudio=={TORCHAUDIO_VERSION}",
-        ],
-        "requirements": ["backend/requirements-gpu.txt"],
-        "verify": "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))",
-        "optional_features": ["nunchaku_cuda", "cuda_llama_binaries", "onnxruntime_cuda"],
-        "disabled_features": [],
-    },
-    "amd-rocm-linux": {
-        "label": "AMD ROCm (Linux)",
-        "torch_index_url": "https://download.pytorch.org/whl/rocm7.2",
-        "torch_packages": [
-            f"torch=={PYTORCH_VERSION}",
-            f"torchvision=={TORCHVISION_VERSION}",
-            f"torchaudio=={TORCHAUDIO_VERSION}",
-        ],
-        "requirements": ["backend/requirements-rocm.txt"],
-        "verify": "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0), torch.version.hip)",
-        "optional_features": [],
-        "disabled_features": [
-            "nunchaku_cuda",
-            "cuda_llama_binaries",
-            "onnxruntime_cuda",
-            "video_diffusers_cuda",
-            "video_fp8_fast_paths",
-        ],
-    },
-    "apple-mps": {
-        "label": "Apple Silicon (MPS)",
-        "torch_index_url": None,
-        "torch_packages": [
-            f"torch=={PYTORCH_VERSION}",
-            f"torchvision=={TORCHVISION_VERSION}",
-            f"torchaudio=={TORCHAUDIO_VERSION}",
-        ],
-        "requirements": ["backend/requirements-mps.txt"],
-        "verify": "import torch; assert torch.backends.mps.is_available(); print('mps', torch.__version__)",
-        "optional_features": ["metal_llama_binaries"],
-        "disabled_features": [
-            "nunchaku_cuda",
-            "cuda_llama_binaries",
-            "onnxruntime_cuda",
-            "realtime_cuda_voice",
-            "blackwell_fast_paths",
-            "video_diffusers_cuda",
-            "video_fp8_fast_paths",
-        ],
-    },
-    "cpu-safe": {
-        "label": "CPU-safe",
-        "torch_index_url": "https://download.pytorch.org/whl/cpu",
-        "torch_packages": [
-            f"torch=={PYTORCH_VERSION}",
-            f"torchvision=={TORCHVISION_VERSION}",
-            f"torchaudio=={TORCHAUDIO_VERSION}",
-        ],
-        "requirements": [],
-        "verify": "import torch; print(torch.__version__)",
-        "optional_features": [],
-        "disabled_features": [
-            "heavy_image_models",
-            "nunchaku_cuda",
-            "cuda_llama_binaries",
-            "onnxruntime_cuda",
-            "realtime_cuda_voice",
-            "blackwell_fast_paths",
-            "video_diffusers_cuda",
-            "video_fp8_fast_paths",
-            "heavy_video_models",
-        ],
-    },
-}
+def _profile_definitions() -> dict[str, dict[str, Any]]:
+    torch_packages = [
+        f"torch=={PYTORCH_VERSION}",
+        f"torchvision=={TORCHVISION_VERSION}",
+        f"torchaudio=={TORCHAUDIO_VERSION}",
+    ]
+    definitions: dict[str, dict[str, Any]] = {}
+    locks = DEPENDENCY_MANIFEST["locks"]
+    for profile_id, raw in DEPENDENCY_MANIFEST["profiles"].items():
+        profile = deepcopy(raw)
+        profile["torch_packages"] = list(torch_packages)
+        # Compatibility keys remain available to the capability service and
+        # third-party scripts, but are derived from the manifest rather than
+        # maintained as a second source of truth.
+        targets = profile.get("targets") or []
+        profile["torch_index_url"] = targets[0].get("torch_index_url") if targets else None
+        profile["requirements"] = [
+            locks[target["lock"]]["output"]
+            for target in targets
+            if target.get("lock")
+        ]
+        definitions[profile_id] = profile
+    return definitions
+
+
+PROFILE_DEFS = _profile_definitions()
+
+
+def _install_target(profile_id: str, report: dict[str, Any]) -> dict[str, Any] | None:
+    profile = PROFILE_DEFS[profile_id]
+    os_info = report.get("os") or {}
+    system = str(os_info.get("system") or "").lower()
+    machine = str(os_info.get("machine") or "").lower()
+    fallback: dict[str, Any] | None = None
+    for target in profile.get("targets") or []:
+        systems = {str(value).lower() for value in target.get("systems") or []}
+        machines = {str(value).lower() for value in target.get("machines") or []}
+        if not systems:
+            fallback = target
+            continue
+        if system not in systems:
+            continue
+        # Older probe fixtures did not include machine. Treat an unknown
+        # architecture as the profile's documented default, but reject an
+        # explicitly unsupported architecture.
+        if machine and machines and machine not in machines:
+            continue
+        return target
+    return fallback
 
 
 def resolve_profile(report: dict[str, Any], prefer: str | None = None) -> dict[str, Any]:
@@ -157,6 +156,15 @@ def resolve_profile(report: dict[str, Any], prefer: str | None = None) -> dict[s
         selected = candidates[0]
 
     profile = deepcopy(PROFILE_DEFS[selected["id"]])
+    target = _install_target(selected["id"], report)
+    if target is None:
+        raise ValueError(f"profile {selected['id']!r} has no supported install target for this host")
+    lock_id = target.get("lock")
+    requirements = (
+        [str(DEPENDENCY_MANIFEST["locks"][lock_id]["output"])]
+        if lock_id
+        else []
+    )
     primary_gpu = selected.get("gpu")
     tier = hardware_tier(primary_gpu)
     runtime_defaults = _runtime_defaults(selected["id"], primary_gpu, tier)
@@ -173,11 +181,15 @@ def resolve_profile(report: dict[str, Any], prefer: str | None = None) -> dict[s
         "primary_gpu": _public_gpu(primary_gpu),
         "candidates": [_public_candidate(candidate) for candidate in candidates],
         "install": {
+            "target": target["id"],
+            "foundation_lock": DEPENDENCY_MANIFEST["locks"]["foundation"]["output"],
             "torch": {
                 "packages": profile["torch_packages"],
-                "index_url": profile["torch_index_url"],
+                "backend": target.get("torch_backend"),
+                "index_url": target.get("torch_index_url"),
             },
-            "requirements": profile["requirements"],
+            "requirements": requirements,
+            "hashes_required": bool(requirements),
             "verify": profile["verify"],
         },
         "runtime_defaults": runtime_defaults,
@@ -202,7 +214,8 @@ def _candidate_profiles(report: dict[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
 
     nvidia = _best_gpu(gpus, "nvidia")
-    if nvidia and os_name != "darwin":
+    nvidia_target = _install_target("nvidia-cuda", report)
+    if nvidia and nvidia_target is not None:
         warnings = []
         vram = _vram_mb(nvidia)
         if vram is not None and vram < 8192:
@@ -218,7 +231,8 @@ def _candidate_profiles(report: dict[str, Any]) -> list[dict[str, Any]]:
     amd = _best_gpu(gpus, "amd")
     if amd:
         rocm_support = _amd_rocm_support(amd, report)
-        if os_name == "linux" and rocm_support in {"official", "community_experimental", "visible"}:
+        rocm_target = _install_target("amd-rocm-linux", report)
+        if rocm_target is not None and rocm_support in {"official", "community_experimental", "visible"}:
             warnings = ["CUDA-only acceleration is disabled on ROCm; expect feature parity work to continue."]
             if rocm_support != "official":
                 warnings.append(
@@ -235,7 +249,7 @@ def _candidate_profiles(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "gpu": amd,
                 "warnings": warnings,
             })
-        elif os_name == "linux":
+        elif rocm_target is not None:
             candidates.append({
                 "id": "cpu-safe",
                 "confidence": "medium",
@@ -254,7 +268,10 @@ def _candidate_profiles(report: dict[str, Any]) -> list[dict[str, Any]]:
 
     apple = _best_gpu(gpus, "apple")
     machine = str((report.get("os") or {}).get("machine") or "").lower()
-    if os_name == "darwin" and (apple or machine in {"arm64", "aarch64"}):
+    if (
+        _install_target("apple-mps", report) is not None
+        and (apple or machine in {"arm64", "aarch64"})
+    ):
         torch_info = report.get("torch") or {}
         mps_available = bool(torch_info.get("mps_available"))
         candidates.append({
@@ -420,7 +437,7 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
             "video_fp8_fast_paths": False,
-            "video_light_fallback": False,
+            "video_light_fallback": True,
         })
     elif profile_id == "apple-mps":
         defaults.update({
@@ -433,7 +450,7 @@ def _runtime_defaults(profile_id: str, gpu: dict[str, Any] | None, tier: str) ->
             "flux_step_cache": "off",
             "blackwell_fast_paths": False,
             "video_fp8_fast_paths": False,
-            "video_light_fallback": False,
+            "video_light_fallback": True,
             "prefer_cpu_offload": False,
         })
     else:
@@ -489,8 +506,8 @@ def _model_policy(profile_id: str, defaults: dict[str, Any], tier: str) -> dict[
     """Bucket image families into recommended / advanced / hidden for this GPU.
 
     ``recommended`` is preselected UX, ``advanced`` runs but is a stretch at this
-    tier, ``hidden`` cannot run on this hardware path at all (P20.7 wires this to
-    the download manager).
+    tier, while ``hidden`` cannot run on this hardware path and is omitted from
+    the download manager.
     """
     backend = str(defaults.get("backend") or "cpu")
     allow_nunchaku = bool(defaults.get("allow_nunchaku"))
@@ -540,10 +557,9 @@ def _model_policy(profile_id: str, defaults: dict[str, Any], tier: str) -> dict[
 def _video_policy(defaults: dict[str, Any], tier: str, notes: list[str]) -> dict[str, Any]:
     """Bucket runnable video families separately from planned fallback candidates.
 
-    The registry can recognize CogVideoX/AnimateDiff repos, but the real backend
-    currently implements only LTX, Wan, and FramePack Hunyuan. Keep unimplemented
-    families hidden in every profile so queueing fails early with a clear reason
-    instead of reaching a loader branch that cannot run them yet.
+    The registry can recognize CogVideoX/AnimateDiff repos. CogVideoX-2B is the
+    light fallback path for ROCm/MPS; AnimateDiff stays hidden until its SDXL
+    adapter composition is implemented and validated.
     """
     backend = str(defaults.get("backend") or "cpu")
     tier_rank = TIER_RANK.get(tier, 0)
@@ -552,13 +568,15 @@ def _video_policy(defaults: dict[str, Any], tier: str, notes: list[str]) -> dict
     hidden: list[str] = []
 
     if backend != "cuda":
-        hidden = list(VIDEO_FAMILIES)
-        if backend in {"rocm", "mps"}:
+        if backend in {"rocm", "mps"} and defaults.get("video_light_fallback"):
+            recommended = ["cogvideo"]
+            hidden = [family for family in VIDEO_FAMILIES if family not in recommended]
             notes.append(
-                "Video on ROCm/MPS is validation-pending: AnimateDiff/CogVideoX are tracked as "
-                "fallback candidates, but real video queueing stays hidden until that backend path is proven."
+                "ROCm/MPS video exposes CogVideoX-2B as the light T2V fallback; "
+                "LTX/Wan/FramePack remain CUDA-only and real-machine fallback smoke is still required."
             )
         else:
+            hidden = list(VIDEO_FAMILIES)
             notes.append("CPU-safe/STUB mode hides real video models; use STUB output or an accelerator profile.")
         return {
             "recommended": recommended,
@@ -628,6 +646,193 @@ def _public_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+LOCK_FINGERPRINT_RE = re.compile(r"^# hfabric-lock-input-sha256: ([0-9a-f]{64})$", re.MULTILINE)
+
+
+def lock_fingerprint(
+    lock_id: str,
+    *,
+    manifest: dict[str, Any] = DEPENDENCY_MANIFEST,
+    root: Path = ROOT,
+) -> str:
+    """Hash every source and resolver option that can affect a compiled lock."""
+    try:
+        spec = manifest["locks"][lock_id]
+    except KeyError as exc:
+        raise ValueError(f"unknown dependency lock {lock_id!r}") from exc
+    payload = {
+        "schema_version": manifest["schema_version"],
+        "python_version": manifest["python_version"],
+        "resolver": manifest["resolver"],
+        "torch": manifest["torch"],
+        "lock_id": lock_id,
+        "spec": spec,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    for relative in spec.get("source_files") or []:
+        path = root / relative
+        digest.update(b"\0path\0")
+        digest.update(str(relative).replace("\\", "/").encode("utf-8"))
+        digest.update(b"\0content\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def read_lock_fingerprint(path: Path) -> str | None:
+    match = LOCK_FINGERPRINT_RE.search(path.read_text(encoding="utf-8"))
+    return match.group(1) if match else None
+
+
+def _find_uv() -> Path:
+    executable = "uv.exe" if os.name == "nt" else "uv"
+    adjacent = Path(sys.executable).with_name(executable)
+    if adjacent.is_file():
+        return adjacent
+    found = shutil.which("uv")
+    if found:
+        return Path(found)
+    raise RuntimeError(
+        "uv is required to compile dependency locks; install backend/requirements-dev.lock first"
+    )
+
+
+def _assert_uv_version(uv: Path) -> None:
+    expected = str(DEPENDENCY_MANIFEST["resolver"]["version"])
+    result = subprocess.run(
+        [str(uv), "--version"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    match = re.search(r"\b(\d+\.\d+\.\d+)\b", result.stdout)
+    actual = match.group(1) if match else result.stdout.strip()
+    if actual != expected:
+        raise RuntimeError(f"dependency locks require uv {expected}; found {actual or 'unknown'}")
+
+
+def _normalise_compiled_lock(
+    text: str,
+    *,
+    lock_id: str,
+    replacements: dict[str, str],
+) -> str:
+    for source, replacement in replacements.items():
+        text = text.replace(source, replacement)
+        text = text.replace(source.replace("\\", "/"), replacement)
+    marker = f"# hfabric-lock-input-sha256: {lock_fingerprint(lock_id)}"
+    lines = text.splitlines()
+    lines = [line for line in lines if not line.startswith("# hfabric-lock-input-sha256:")]
+    return "\n".join([marker, *lines]) + "\n"
+
+
+def compile_dependency_locks(
+    lock_ids: list[str] | tuple[str, ...] | None = None,
+    *,
+    check: bool = False,
+) -> list[str]:
+    """Compile or compare deterministic, platform-specific hashed locks.
+
+    All requested outputs are staged first, so a resolver failure cannot leave
+    the repository with a partially refreshed lock set.
+    """
+    locks: dict[str, dict[str, Any]] = DEPENDENCY_MANIFEST["locks"]
+    requested = list(lock_ids or locks)
+    unknown = sorted(set(requested) - locks.keys())
+    if unknown:
+        raise ValueError(f"unknown dependency lock(s): {', '.join(unknown)}")
+    # Preserve manifest order, both for stable output and so development can
+    # constrain against the freshly staged foundation lock during a full run.
+    requested_set = set(requested)
+    ordered = [lock_id for lock_id in locks if lock_id in requested_set]
+    uv = _find_uv()
+    _assert_uv_version(uv)
+    resolver = DEPENDENCY_MANIFEST["resolver"]
+    python_version = str(DEPENDENCY_MANIFEST["python_version"])
+    command_label = str(resolver["command"])
+    stale: list[str] = []
+
+    temp_parent = ROOT / ".tmp"
+    temp_parent.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="dependency-locks-", dir=temp_parent) as temp_name:
+        temp_root = Path(temp_name)
+        staged: dict[str, Path] = {}
+        for lock_id in ordered:
+            spec = locks[lock_id]
+            stage = temp_root / f"{lock_id}.lock"
+            args = [
+                str(uv),
+                "pip",
+                "compile",
+                str(spec["input"]),
+                "--output-file",
+                str(stage),
+                "--python-version",
+                python_version,
+                "--generate-hashes",
+                "--custom-compile-command",
+                command_label,
+                "--exclude-newer",
+                str(resolver["exclude_newer"]),
+                "--quiet",
+            ]
+            if spec.get("universal"):
+                args.append("--universal")
+            if spec.get("python_platform"):
+                args.extend(["--python-platform", str(spec["python_platform"])])
+            if spec.get("torch_backend"):
+                args.extend(["--torch-backend", str(spec["torch_backend"])])
+            for package in spec.get("omit_packages") or []:
+                args.extend(["--no-emit-package", str(package)])
+
+            replacements: dict[str, str] = {}
+            constraint_id = spec.get("constraint_lock")
+            if constraint_id:
+                constraint_path = staged.get(constraint_id)
+                if constraint_path is None:
+                    constraint_path = ROOT / locks[constraint_id]["output"]
+                args.extend(["--constraint", str(constraint_path)])
+                canonical = str(locks[constraint_id]["output"]).replace("\\", "/")
+                replacements[str(constraint_path)] = canonical
+                try:
+                    replacements[str(constraint_path.relative_to(ROOT))] = canonical
+                except ValueError:
+                    pass
+
+            result = subprocess.run(
+                args,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                details = (result.stderr or result.stdout).strip()
+                raise RuntimeError(f"failed to compile {lock_id}: {details}")
+
+            normalised = _normalise_compiled_lock(
+                stage.read_text(encoding="utf-8"),
+                lock_id=lock_id,
+                replacements=replacements,
+            )
+            stage.write_text(normalised, encoding="utf-8", newline="\n")
+            staged[lock_id] = stage
+
+        for lock_id in ordered:
+            target = ROOT / locks[lock_id]["output"]
+            generated = staged[lock_id].read_text(encoding="utf-8")
+            current = target.read_text(encoding="utf-8") if target.is_file() else None
+            if check:
+                if current != generated:
+                    stale.append(lock_id)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(staged[lock_id], target)
+            print(f"compiled {lock_id}: {target.relative_to(ROOT)}")
+    return stale
+
+
 def _load_report(path: str | None) -> dict[str, Any]:
     if path:
         with open(path, encoding="utf-8") as handle:
@@ -640,12 +845,54 @@ def _load_report(path: str | None) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Resolve HFabric install profile JSON.")
+    parser = argparse.ArgumentParser(
+        description="Resolve an HFabric install profile or compile its dependency locks."
+    )
+    lock_actions = parser.add_mutually_exclusive_group()
+    lock_actions.add_argument(
+        "--compile-locks",
+        action="store_true",
+        help="Compile manifest-declared hashed lock files atomically with the pinned uv resolver.",
+    )
+    lock_actions.add_argument(
+        "--check-locks",
+        action="store_true",
+        help="Resolve locks into a temporary directory and fail if committed outputs differ.",
+    )
+    parser.add_argument(
+        "--lock",
+        action="append",
+        choices=sorted(DEPENDENCY_MANIFEST["locks"]),
+        help="Limit --compile-locks/--check-locks to one lock (repeatable).",
+    )
     parser.add_argument("--probe", help="Path to a hardware_probe.py JSON report. If omitted, probe now.")
     parser.add_argument("--prefer", choices=sorted(PROFILE_DEFS), help="Require a specific valid profile.")
     parser.add_argument("--output", "-o", help="Write JSON to this file instead of stdout.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON.")
     args = parser.parse_args(argv)
+
+    if args.lock and not (args.compile_locks or args.check_locks):
+        parser.error("--lock requires --compile-locks or --check-locks")
+    if args.compile_locks or args.check_locks:
+        if args.probe or args.prefer or args.output or args.pretty:
+            parser.error("profile-resolution options cannot be combined with lock actions")
+        try:
+            stale = compile_dependency_locks(args.lock, check=args.check_locks)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"dependency lock error: {exc}", file=sys.stderr)
+            return 1
+        if stale:
+            print(
+                "dependency locks are stale: "
+                + ", ".join(stale)
+                + "; run "
+                + str(DEPENDENCY_MANIFEST["resolver"]["command"]),
+                file=sys.stderr,
+            )
+            return 1
+        if args.check_locks:
+            print("dependency locks match the canonical profile inputs")
+        return 0
 
     result = resolve_profile(_load_report(args.probe), args.prefer)
     data = json.dumps(result, indent=2 if args.pretty else None, sort_keys=True) + "\n"
