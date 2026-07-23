@@ -72,8 +72,9 @@ async def test_code_workspace_lists_reads_and_rejects_bad_paths(app_client):
 
     roadmap = (await app_client.get("/api/code/file", params={"path": "ROADMAP.md"})).json()
     assert roadmap["path"] == "ROADMAP.md"
-    # Assert on the current roadmap identity, not a completed historical phase.
-    assert "план стабілізації" in roadmap["content"]
+    # Assert on stable document identity, not wording from a completed phase.
+    assert roadmap["content"].startswith("# HFabric")
+    assert "стабілізації" in roadmap["content"]
     assert roadmap["truncated"] is False
 
     escape = await app_client.get("/api/code/file", params={"path": "../.env"})

@@ -34,9 +34,9 @@ on your machine; nothing is sent to a cloud service.
   </tr>
 </table>
 
-> **Project status: public beta (v0.3.0, B+).** `v0.1.0`, `v0.2.0`, and `v0.3.0`
-> are tagged and released. The app is solid for the author's own daily use and now
-> open to other testers, but it has **not** had wide hardware coverage yet.
+> **Project status: public beta (v0.4.0, B+).** `v0.1.0` through `v0.4.0`
+> are the published release line. The app is solid for the author's own daily use
+> and now open to other testers, but it has **not** had wide hardware coverage yet.
 >
 > - **What works:** the full local pipeline — chat LLM, image/edit generation, video
 >   generation, the VRAM arbiter, and the workspaces — is real-GPU validated on

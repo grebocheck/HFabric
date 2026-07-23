@@ -14,6 +14,50 @@ def test_read_version_and_set_version():
     assert release.set_version(init_text, "2.0.0") == '"""Package."""\n\n__version__ = "2.0.0"\n'
 
 
+def test_frontend_version_helpers_update_only_product_versions():
+    release = _load_release_module()
+    package = '{\n  "name": "hfabric-frontend",\n  "version": "1.2.3",\n  "dependencies": {}\n}\n'
+    lock = """{
+  "name": "hfabric-frontend",
+  "version": "1.2.3",
+  "packages": {
+    "": {
+      "name": "hfabric-frontend",
+      "version": "1.2.3"
+    },
+    "node_modules/example": {
+      "version": "1.2.3"
+    }
+  }
+}
+"""
+
+    assert release.read_frontend_versions(package, 1) == ["1.2.3"]
+    assert release.read_frontend_versions(lock, 2) == ["1.2.3", "1.2.3"]
+    updated_package = release.set_frontend_version(package, "2.0.0", 1)
+    updated_lock = release.set_frontend_version(lock, "2.0.0", 2)
+    assert release.read_frontend_versions(updated_package, 1) == ["2.0.0"]
+    assert release.read_frontend_versions(updated_lock, 2) == ["2.0.0", "2.0.0"]
+    assert '"node_modules/example": {\n      "version": "1.2.3"' in updated_lock
+
+
+def test_frontend_version_helpers_reject_unexpected_manifest_shape():
+    release = _load_release_module()
+
+    with pytest.raises(ValueError, match="hfabric-frontend"):
+        release.read_frontend_versions('{"name": "other", "version": "1.2.3"}', 1)
+
+
+def test_read_openapi_version_validates_shape_and_version():
+    release = _load_release_module()
+
+    assert release.read_openapi_version('{"info": {"version": "1.2.3"}}') == "1.2.3"
+    with pytest.raises(ValueError, match="could not read"):
+        release.read_openapi_version('{"info": {}}')
+    with pytest.raises(ValueError, match="must be a string"):
+        release.read_openapi_version('{"info": {"version": 123}}')
+
+
 def test_extract_release_notes_reads_matching_section():
     release = _load_release_module()
     changelog = """# Changelog

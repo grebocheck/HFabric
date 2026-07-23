@@ -13,7 +13,7 @@ reporting.
 
 | Version | Supported |
 |---------|-----------|
-| latest `0.3.x` / `main` | ✅ |
+| latest `0.4.x` / `main` | ✅ |
 | older pre-releases | ❌ |
 
 ## Reporting a vulnerability

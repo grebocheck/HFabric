@@ -9,7 +9,7 @@
 3. First try **STUB mode** to see the UI with no GPU: `run.bat stub` on Windows or
    `./run.sh stub` on Linux/macOS.
 4. Start in REAL mode with `run.bat` or `./run.sh`.
-5. Open **System → Model downloads** and fetch a starter model.
+5. Open **Models → Downloads** and fetch a starter model.
 
 Platform support: NVIDIA CUDA is validated; AMD ROCm on Linux and Apple Silicon
 MPS are experimental with conservative SDXL + CogVideoX fallback paths — testers

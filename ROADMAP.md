@@ -26,9 +26,9 @@
 
 | Контур | Результат |
 | --- | --- |
-| Backend tests | 609 зібрано: **608 passed, 1 skipped** |
+| Backend tests | 612 зібрано: **611 passed, 1 skipped** |
 | Детермінізм backend | coverage-прогін, повторний прогін і shuffled seed `20260723` — green |
-| Backend coverage | **82.74%** lines/statements, **65.81%** branches, **79.26%** combined |
+| Backend coverage | **82.73%** lines/statements, **65.81%** branches, **79.25%** combined |
 | Frontend unit tests | **125/125** у 27 test files |
 | Frontend coverage | 30.32% statements, 25.97% branches, 26.86% functions, 31.37% lines |
 | Browser E2E | **10/10** |
