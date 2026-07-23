@@ -1,4 +1,4 @@
-// Shared on/off switch (P5.D3 control kit). Accent-colored when on.
+// Shared on/off switch. Accent-colored when on.
 export function Toggle({
   checked,
   onChange,

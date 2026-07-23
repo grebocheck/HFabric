@@ -184,6 +184,100 @@ async def test_session_lifecycle_and_metrics(client):
     assert stopped.json()["live"] is False
 
 
+async def test_session_start_rejects_pinned_llm_without_partial_handoff(client):
+    enabled = await client.post(
+        "/api/llm/server",
+        json={"enabled": True, "model_id": "stub-llm"},
+    )
+    assert enabled.status_code == 200
+
+    response = await client.post(
+        "/api/voice/engine/session/start",
+        json={"model_id": "stub-voice"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "resident_pinned"
+    assert not realtime.session_active()
+    gpu = (await client.get("/api/gpu")).json()
+    assert gpu["model_id"] == "stub-llm"
+    assert gpu["pin"]["id"] == "llm_api"
+    assert gpu["lanes"] == []
+
+    assert (await client.post(
+        "/api/llm/server",
+        json={"enabled": False},
+    )).status_code == 200
+
+
+async def test_session_start_failure_rolls_back_voice_lane(client, monkeypatch):
+    previous = app.state.registry.get_backend("stub-llm")
+    await app.state.arbiter.ensure(previous)
+
+    def fail_start(*args, **kwargs):  # noqa: ARG001
+        raise OSError("device unavailable")
+
+    monkeypatch.setattr(realtime, "start_session", fail_start)
+    response = await client.post(
+        "/api/voice/engine/session/start",
+        json={"model_id": "stub-voice"},
+    )
+
+    assert response.status_code == 500
+    assert not realtime.session_active()
+    assert (await client.get("/api/gpu")).json()["lanes"] == []
+    assert app.state.arbiter.current is previous
+    assert previous.loaded
+
+
+async def test_session_stop_releases_lane_when_audio_teardown_fails(client, monkeypatch):
+    started = await client.post(
+        "/api/voice/engine/session/start",
+        json={"model_id": "stub-voice"},
+    )
+    assert started.status_code == 200
+    original_stop = realtime.stop_session
+
+    def fail_stop() -> bool:
+        raise OSError("device teardown failed")
+
+    monkeypatch.setattr(realtime, "stop_session", fail_stop)
+    response = await client.post("/api/voice/engine/session/stop")
+
+    assert response.status_code == 500
+    assert (await client.get("/api/gpu")).json()["lanes"] == []
+
+    # Restore before the fixture's own defensive teardown.
+    monkeypatch.setattr(realtime, "stop_session", original_stop)
+    original_stop()
+
+
+async def test_app_shutdown_stops_realtime_and_clears_voice_lane(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "shutdown-data")
+    monkeypatch.setattr(settings, "voice_models_dir", tmp_path / "shutdown-voice")
+    monkeypatch.setattr(settings, "voice_pretrain_dir", tmp_path / "shutdown-pretrain")
+    monkeypatch.setattr(engine_mod, "_ENGINE", None)
+
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as shutdown_client:
+            started = await shutdown_client.post(
+                "/api/voice/engine/session/start",
+                json={"model_id": "stub-voice"},
+            )
+            assert started.status_code == 200
+            arbiter = app.state.arbiter
+            assert arbiter.status()["lanes"] == [
+                {"id": "voice", "label": "voice session"}
+            ]
+
+    assert not realtime.session_active()
+    assert arbiter.status()["lanes"] == []
+    assert arbiter.current is None
+
+
 async def test_session_records_live_phrase(client):
     assert (await client.post("/api/voice/engine/recording/start")).status_code == 409
 
@@ -222,6 +316,31 @@ async def test_session_records_live_phrase(client):
 
     stopped = await client.post("/api/voice/engine/session/stop")
     assert stopped.status_code == 200
+
+
+async def test_recording_stop_device_failure_keeps_session_state_consistent(
+    client, monkeypatch
+):
+    assert (await client.post(
+        "/api/voice/engine/session/start",
+        json={"model_id": "stub-voice"},
+    )).status_code == 200
+    assert (await client.post("/api/voice/engine/recording/start")).status_code == 200
+    session = realtime.current_session()
+    assert session is not None
+
+    def fail_recording_stop():
+        raise RuntimeError("input device failed")
+
+    monkeypatch.setattr(session, "stop_recording", fail_recording_stop)
+    response = await client.post("/api/voice/engine/recording/stop")
+
+    assert response.status_code == 409
+    assert realtime.session_active()
+    assert (await client.get("/api/gpu")).json()["lanes"] == [
+        {"id": "voice", "label": "voice session"}
+    ]
+    assert (await client.post("/api/voice/engine/session/stop")).status_code == 200
 
 
 async def test_session_start_unknown_model_404(client):

@@ -24,14 +24,14 @@ export function WorkspaceHeader({
   children?: ReactNode;
 }) {
   return (
-    <header className="flex shrink-0 items-start justify-between gap-4">
+    <header className="flex shrink-0 items-start justify-between gap-4 max-[640px]:flex-col max-[640px]:gap-3">
       <div className="min-w-0">
         {eyebrow ? <div className="text-xs font-medium uppercase tracking-wide text-ui-subtle">{eyebrow}</div> : null}
         <h2 className="truncate text-lg font-semibold text-ui-strong">{title}</h2>
         {subtitle ? <p className="mt-1 max-w-3xl text-sm leading-5 text-ui-muted">{subtitle}</p> : null}
         {children ? <div className="mt-2 flex flex-wrap items-center gap-1.5">{children}</div> : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-[640px]:w-full max-[640px]:justify-start">{actions}</div> : null}
     </header>
   );
 }

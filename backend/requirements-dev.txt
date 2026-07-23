@@ -3,4 +3,8 @@
 pytest>=8.4,<10
 pytest-asyncio>=1.4,<2
 pytest-cov>=7,<8
+pytest-randomly>=3.16,<5
+pip-audit>=2.10,<3
+uv==0.11.31
 ruff>=0.15,<0.16
+vulture>=2.16,<3

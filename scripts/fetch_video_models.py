@@ -1,4 +1,4 @@
-"""Pre-stage the P27 video-generation weights into ``models/video/``.
+"""Pre-stage video-generation weights into ``models/video/``.
 
 Standalone + resumable: run it any time, it skips what's already on disk
 (``snapshot_download`` resumes partial files). The same repositories are also

@@ -1,5 +1,4 @@
-import type { VoiceEngineStatus } from "../types";
-import { formatMs, meter, waveformSlots } from "./voiceHelpers";
+import { meter, waveformSlots } from "./voiceHelpers";
 
 export type MeterSample = {
   input: number;
@@ -63,71 +62,6 @@ export function WaveformMonitor({ samples }: { samples: MeterSample[] }) {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-type VoiceMetrics = VoiceEngineStatus["metrics"];
-
-function timingEntries(metrics?: VoiceMetrics): { label: string; value: number }[] {
-  const raw = metrics?.timings_ms;
-  return Object.entries(raw ?? {})
-    .filter(([, value]) => Number.isFinite(value))
-    .slice(0, 6)
-    .map(([label, value]) => ({ label, value: Number(value) }));
-}
-
-export function PerformanceBreakdown({ metrics }: { metrics?: VoiceMetrics }) {
-  const timings = timingEntries(metrics);
-  const total = metrics?.total_ms ?? null;
-  const chunk = metrics?.chunk_ms ?? null;
-  const max = Math.max(1, Number(total ?? 0), Number(chunk ?? 0), ...timings.map((entry) => entry.value));
-  const overruns = Number(metrics?.overruns ?? 0);
-  const underruns = Number(metrics?.underruns ?? 0);
-  const squelched = Boolean(metrics?.squelched);
-
-  return (
-    <div className="ui-card rounded-md px-3 py-2">
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <span className="uppercase tracking-wide text-ui-subtle">Timing</span>
-        <span className="font-mono text-ui-muted">{formatMs(total ?? chunk)}</span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <MetricPill label="chunk" value={formatMs(chunk)} />
-        <MetricPill label="total" value={formatMs(total)} />
-        <MetricPill label="overruns" value={String(overruns)} />
-        <MetricPill label="underruns" value={String(underruns)} />
-        <MetricPill label="squelch" value={squelched ? "silence" : "voice"} />
-      </div>
-      <div className="mt-3 flex flex-col gap-2">
-        {timings.length === 0 ? (
-          <div className="rounded border border-border bg-control px-2 py-1.5 text-xs text-ui-subtle">waiting for stages</div>
-        ) : (
-          timings.map(({ label, value }) => (
-            <div key={`${label}-${value}`} className="min-w-0">
-              <div className="flex items-center justify-between gap-3 text-[11px]">
-                <span className="truncate uppercase tracking-wide text-ui-subtle">{label}</span>
-                <span className="shrink-0 font-mono text-ui-muted">{formatMs(value)}</span>
-              </div>
-              <div className="mt-1 h-1 rounded-full bg-control-active">
-                <div
-                  className="h-full rounded-full bg-accent/75"
-                  style={{ width: `${Math.min(100, Math.max(4, (value / max) * 100))}%` }}
-                />
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MetricPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded border border-border bg-control px-2 py-1.5">
-      <div className="truncate text-[10px] uppercase tracking-wide text-ui-subtle">{label}</div>
-      <div className="truncate font-mono text-xs text-ui-muted">{value}</div>
     </div>
   );
 }

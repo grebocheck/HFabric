@@ -11,13 +11,24 @@ settings file).
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from ..config import settings
+from .atomic_json import AtomicJSONStore
 
 _KEY = "civitai_api_key"
 _COOKIE = "civitai_session_cookie"
+_SCHEMA = "hfabric.local-secrets"
+SECRET_STORAGE_DECISION = {
+    "format": "local-json",
+    "redaction": "values-never-exposed",
+    "backups": False,
+    "posix_permissions": "0600",
+    "windows": (
+        "inherit the data-directory ACL; DPAPI/keyring are intentionally not used "
+        "so unattended startup and portable backup/restore keep working"
+    ),
+}
 # CivitAI's NextAuth session cookie. Reusable for downloads now and for the
 # future image-upload flow (it acts on behalf of the logged-in account).
 _COOKIE_NAME = "__Secure-civitai-token"
@@ -28,25 +39,42 @@ def _secrets_path():
     return settings.data_dir / "secrets.json"
 
 
+def _store() -> AtomicJSONStore:
+    # The on-disk store is deliberately local and permission-restricted. Values
+    # are never included in API/diagnostics payloads. Native keyring/DPAPI is not
+    # used because this file must remain available to unattended local startup.
+    return AtomicJSONStore(
+        _secrets_path(),
+        schema=_SCHEMA,
+        max_bytes=256 * 1024,
+        mode=0o600,
+        backup=False,
+    )
+
+
+def _validate(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("local secrets must be a JSON object")
+    return dict(raw)
+
+
 def _load() -> dict[str, Any]:
-    path = _secrets_path()
-    if not path.exists():
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    return _store().read({}, validator=_validate)
 
 
-def _save(data: dict[str, Any]) -> None:
-    path = _secrets_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    try:  # best-effort tightening; a no-op on Windows
-        path.chmod(0o600)
-    except OSError:
-        pass
+def _update(mutator) -> dict[str, Any]:
+    return _store().update({}, mutator, validator=_validate)
+
+
+def redacted_status() -> dict[str, Any]:
+    """Safe storage posture for diagnostics; credential values never leave here."""
+    data = _load()
+    return {
+        "api_key": "<redacted>" if data.get(_KEY) else None,
+        "session_cookie": "<redacted>" if data.get(_COOKIE) else None,
+        "storage": "atomic-user-file",
+        "protection": dict(SECRET_STORAGE_DECISION),
+    }
 
 
 def get_key() -> str | None:
@@ -60,18 +88,23 @@ def has_key() -> bool:
 
 def set_key(api_key: str) -> None:
     clean = (api_key or "").strip()
-    data = _load()
-    if clean:
-        data[_KEY] = clean
-    else:
-        data.pop(_KEY, None)
-    _save(data)
+
+    def mutate(data: dict[str, Any]) -> dict[str, Any]:
+        if clean:
+            data[_KEY] = clean
+        else:
+            data.pop(_KEY, None)
+        return data
+
+    _update(mutate)
 
 
 def clear_key() -> None:
-    data = _load()
-    if data.pop(_KEY, None) is not None:
-        _save(data)
+    def mutate(data: dict[str, Any]) -> dict[str, Any]:
+        data.pop(_KEY, None)
+        return data
+
+    _update(mutate)
 
 
 # --------------------------------------------------------------------------- #
@@ -99,18 +132,23 @@ def has_cookie() -> bool:
 
 def set_cookie(raw: str) -> None:
     value = _normalize_cookie(raw)
-    data = _load()
-    if value:
-        data[_COOKIE] = value
-    else:
-        data.pop(_COOKIE, None)
-    _save(data)
+
+    def mutate(data: dict[str, Any]) -> dict[str, Any]:
+        if value:
+            data[_COOKIE] = value
+        else:
+            data.pop(_COOKIE, None)
+        return data
+
+    _update(mutate)
 
 
 def clear_cookie() -> None:
-    data = _load()
-    if data.pop(_COOKIE, None) is not None:
-        _save(data)
+    def mutate(data: dict[str, Any]) -> dict[str, Any]:
+        data.pop(_COOKIE, None)
+        return data
+
+    _update(mutate)
 
 
 # --------------------------------------------------------------------------- #

@@ -33,7 +33,9 @@ export function TranscriptionPanel() {
     api.transcriptionStatus().then((s) => {
       setStatus(s);
       setModelId((prev) => prev || s.models[0]?.id || "");
-    }).catch(() => {});
+    }).catch((nextError: unknown) => {
+      setError(nextError instanceof Error ? nextError.message : "Could not load transcription status");
+    });
   }, []);
 
   const models = status?.models ?? [];
@@ -76,8 +78,8 @@ export function TranscriptionPanel() {
         <StatusPill label={file ? file.name : "no file"} tone={file ? "info" : "neutral"} />
       </WorkspaceHeader>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3">
-        <Panel className="flex min-h-0 flex-col overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-3 max-[760px]:block max-[760px]:overflow-x-hidden max-[760px]:overflow-y-auto">
+        <Panel className="flex min-h-0 flex-col overflow-hidden max-[760px]:mb-3 max-[760px]:h-[520px]">
           <SectionTitle title="Audio setup" subtitle={ready ? "ready to transcribe" : statusText} />
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         <InfoRows
@@ -89,16 +91,17 @@ export function TranscriptionPanel() {
           ]}
         />
 
-        <label>
+        <div>
           <div className="text-xs uppercase tracking-wide text-ui-subtle">Model</div>
           <Select
             value={modelId}
             onChange={setModelId}
             placeholder="no transcription models"
+            ariaLabel="Transcription model"
             className="mt-1"
             options={models.map((m) => ({ value: m.id, label: m.name, hint: `${m.engine}, ${size(m.size_bytes)}` }))}
           />
-        </label>
+        </div>
 
         <label>
           <div className="text-xs uppercase tracking-wide text-ui-subtle">Audio</div>
@@ -111,18 +114,19 @@ export function TranscriptionPanel() {
         </label>
 
         <div className="grid grid-cols-2 gap-2">
-          <label>
+          <div>
             <div className="text-xs uppercase tracking-wide text-ui-subtle">Task</div>
             <Select
               value={task}
               onChange={setTask}
+              ariaLabel="Transcription task"
               className="mt-1"
               options={[
                 { value: "transcribe", label: "transcribe" },
                 { value: "translate", label: "translate" },
               ]}
             />
-          </label>
+          </div>
           <label>
             <div className="text-xs uppercase tracking-wide text-ui-subtle">Language</div>
             <input
@@ -145,7 +149,7 @@ export function TranscriptionPanel() {
           </div>
         </Panel>
 
-      <Panel className="flex min-w-0 flex-col overflow-hidden">
+      <Panel className="flex min-w-0 flex-col overflow-hidden max-[760px]:h-[520px]">
         <SectionTitle
           title="Transcript"
           subtitle={file?.name || "No audio selected"}

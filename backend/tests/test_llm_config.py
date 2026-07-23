@@ -266,3 +266,37 @@ async def test_backend_switch_resets_unsupported_context_type(client, restore_ll
     assert body["context_type"] == "f16"
     assert body["note"] and "reset" in body["note"]
     assert settings.llama_context_type == "f16"
+
+
+async def test_config_unloads_resident_but_never_claims_false_reload(
+    client, restore_llm_settings
+):
+    backend = app.state.registry.get_backend("stub-llm")
+    await app.state.arbiter.ensure(backend)
+    assert backend.loaded
+
+    response = await client.post(
+        "/api/llm/config",
+        json={"ctx": settings.llama_ctx + 512},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is True
+    assert body["unloaded"] is True
+    assert body["reloaded"] is False
+    assert app.state.arbiter.current is None
+    assert not backend.loaded
+
+
+async def test_config_does_not_mutate_when_worker_wins_idle_race(
+    client, monkeypatch, restore_llm_settings
+):
+    before = settings.llama_ctx
+    monkeypatch.setattr(app.state.worker, "_current_job_id", "running-job")
+
+    response = await client.post("/api/llm/config", json={"ctx": before + 512})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "gpu_busy"
+    assert settings.llama_ctx == before

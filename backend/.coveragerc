@@ -1,11 +1,19 @@
 [run]
 branch = True
 source = app
-# GPU/ML-only modules: they lazy-import torch/onnxruntime and only execute with
-# the real ML stack + model weights, which CI's stub mode (light requirements,
-# no GPU) never installs. Excluded so the coverage floor measures CI-testable code.
+# GPU/ML adapter construction imports torch/onnxruntime and requires real model
+# weights. It is validated by the hardware smoke matrix. Orchestration,
+# generation callbacks, registry, video and memory-budget policy stay in scope.
 omit =
     app/backends/image_diffusers.py
+    app/backends/image_diffusers_parts/anima.py
+    app/backends/image_diffusers_parts/anima_runtime.py
+    app/backends/image_diffusers_parts/flux.py
+    app/backends/image_diffusers_parts/flux2.py
+    app/backends/image_diffusers_parts/memory.py
+    app/backends/image_diffusers_parts/pipelines.py
+    app/backends/image_diffusers_parts/qwen_z.py
+    app/backends/image_diffusers_parts/sdxl.py
     app/backends/llm_llamacpp.py
     app/services/voice_engine/realtime.py
     app/services/voice_engine/rvc/*

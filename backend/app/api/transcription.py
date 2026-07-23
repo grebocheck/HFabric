@@ -19,13 +19,24 @@ from typing import Any
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from ..config import settings
 from ..core.arbiter import GpuArbiter
 from ..util import uploads as uploads_util
+from .contracts import (
+    ERROR_RESPONSES,
+    TranscriptionMetadataOut,
+    TranscriptionResultOut,
+    TranscriptionStatusOut,
+)
 from .deps import get_arbiter
 
-router = APIRouter(prefix="/api/transcription", tags=["transcription"])
+router = APIRouter(
+    prefix="/api/transcription",
+    tags=["transcription"],
+    responses=ERROR_RESPONSES,
+)
 
 ALLOWED_EXTS = {
     ".aac",
@@ -107,6 +118,13 @@ def _safe_ext(filename: str | None) -> str:
     return ext if ext in ALLOWED_EXTS else ".wav"
 
 
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def _metadata_path(transcription_id: str) -> Path | None:
     if not re.fullmatch(r"[a-f0-9]{32}", transcription_id):
         return None
@@ -115,13 +133,17 @@ def _metadata_path(transcription_id: str) -> Path | None:
     return None
 
 
-@router.get("/status")
-async def transcription_status() -> dict:
-    engines = {
-        "faster-whisper": _has("faster_whisper"),
-        "openai-whisper": _has("whisper"),
-    }
-    models = _models()
+@router.get("/status", response_model=TranscriptionStatusOut)
+async def transcription_status() -> TranscriptionStatusOut:
+    engines, models = await asyncio.gather(
+        asyncio.to_thread(
+            lambda: {
+                "faster-whisper": _has("faster_whisper"),
+                "openai-whisper": _has("whisper"),
+            }
+        ),
+        asyncio.to_thread(_models),
+    )
     return {
         "models_dir": str(settings.transcription_models_dir),
         "models": models,
@@ -133,7 +155,7 @@ async def transcription_status() -> dict:
     }
 
 
-@router.post("/transcribe")
+@router.post("/transcribe", response_model=TranscriptionResultOut)
 async def transcribe_audio(
     file: UploadFile = File(...),
     model_id: str = Form(...),
@@ -141,17 +163,17 @@ async def transcribe_audio(
     task: str = Form("transcribe"),
     initial_prompt: str | None = Form(None),
     arbiter: GpuArbiter = Depends(get_arbiter),
-) -> dict:
+) -> TranscriptionResultOut:
     if task not in {"transcribe", "translate"}:
         raise HTTPException(422, "task must be transcribe or translate")
 
-    model = _model_map().get(model_id)
+    model = (await asyncio.to_thread(_model_map)).get(model_id)
     if not model:
         raise HTTPException(404, "transcription model not found")
 
     engine = model["engine"]
     module_name = "faster_whisper" if engine == "faster-whisper" else "whisper"
-    if not _has(module_name):
+    if not await asyncio.to_thread(_has, module_name):
         raise HTTPException(503, f"{engine} is not installed")
 
     payload = await uploads_util.read_limited_upload(
@@ -163,10 +185,11 @@ async def transcribe_audio(
         raise HTTPException(422, "audio file is empty")
 
     transcription_id = uuid.uuid4().hex
-    audio_path = _day_dir() / f"transcription-{transcription_id}{_safe_ext(file.filename)}"
-    audio_path.write_bytes(payload)
+    output_dir = await asyncio.to_thread(_day_dir)
+    audio_path = output_dir / f"transcription-{transcription_id}{_safe_ext(file.filename)}"
+    await asyncio.to_thread(audio_path.write_bytes, payload)
 
-    # Report a GPU lane only when the model runs on an accelerator (P24.10); a CPU
+    # Report a GPU lane only when the model runs on an accelerator; a CPU
     # transcribe doesn't touch VRAM, so it shouldn't claim the GPU is busy.
     lane = (
         arbiter.gpu_lane("transcribe", "transcription")
@@ -208,7 +231,7 @@ async def transcribe_audio(
         **result,
     }
     meta_path = audio_path.with_name(f"transcription-{transcription_id}.json")
-    meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    await asyncio.to_thread(_write_json, meta_path, metadata)
 
     return {
         "id": transcription_id,
@@ -219,11 +242,19 @@ async def transcribe_audio(
     }
 
 
-@router.get("/result/{transcription_id}/metadata")
-async def transcription_metadata(transcription_id: str):
-    from fastapi.responses import FileResponse
-
-    path = _metadata_path(transcription_id)
+@router.get(
+    "/result/{transcription_id}/metadata",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "model": TranscriptionMetadataOut,
+            "description": "Persisted transcription metadata",
+            "content": {"application/json": {}},
+        }
+    },
+)
+async def transcription_metadata(transcription_id: str) -> FileResponse:
+    path = await asyncio.to_thread(_metadata_path, transcription_id)
     if not path or not path.exists():
         raise HTTPException(404, "transcription metadata not found")
     return FileResponse(path, media_type="application/json")

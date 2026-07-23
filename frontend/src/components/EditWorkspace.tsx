@@ -372,7 +372,7 @@ export function EditWorkspace({
             <section className={section}>
               <div className="flex items-center justify-between text-xs text-ui-subtle"><span>Strength</span><span className="font-mono">{strength.toFixed(2)}</span></div>
               <Slider value={strength} min={0.05} max={1} step={0.05} onChange={setStrength} />
-              <div className="mt-2"><Select value={resizeMode} onChange={setResizeMode} options={[{ value: "crop", label: "Crop to fit" }, { value: "pad", label: "Pad to fit" }, { value: "stretch", label: "Stretch" }]} /></div>
+              <div className="mt-2"><Select ariaLabel="Resize mode" value={resizeMode} onChange={setResizeMode} options={[{ value: "crop", label: "Crop to fit" }, { value: "pad", label: "Pad to fit" }, { value: "stretch", label: "Stretch" }]} /></div>
             </section>
           ) : null}
 
@@ -383,7 +383,7 @@ export function EditWorkspace({
                 <Num label="Grow / shrink" value={maskGrow} set={setMaskGrow} />
                 <Num label="Blur" value={maskBlur} set={setMaskBlur} />
                 <Num label="Crop padding" value={paddingCrop} set={setPaddingCrop} />
-                <label className="flex items-end gap-2 pb-1 text-xs text-ui-muted"><Toggle checked={maskInvert} onChange={setMaskInvert} ariaLabel="Invert mask" />Invert</label>
+                <div className="flex items-end gap-2 pb-1 text-xs text-ui-muted"><Toggle checked={maskInvert} onChange={setMaskInvert} ariaLabel="Invert mask" />Invert</div>
               </div>
             </section>
           ) : null}
@@ -400,8 +400,8 @@ export function EditWorkspace({
           {mode === "controlnet" ? (
             <section className={section}>
               <div className={label}>ControlNet</div>
-              <div className="mt-1.5"><Select value={controlType} onChange={setControlType} options={["canny", "depth", "pose", "scribble", "union-canny", "union-depth", "union-pose", "union-scribble"].map((value) => ({ value, label: value }))} /></div>
-              <label className="mt-2 flex items-center gap-2 text-xs text-ui-muted"><Toggle checked={controlMask} onChange={(enabled) => { setControlMask(enabled); if (!enabled) setMaskDraft(null); }} ariaLabel="Use an inpaint mask with ControlNet" />Use inpaint mask</label>
+              <div className="mt-1.5"><Select ariaLabel="ControlNet type" value={controlType} onChange={setControlType} options={["canny", "depth", "pose", "scribble", "union-canny", "union-depth", "union-pose", "union-scribble"].map((value) => ({ value, label: value }))} /></div>
+              <div className="mt-2 flex items-center gap-2 text-xs text-ui-muted"><Toggle checked={controlMask} onChange={(enabled) => { setControlMask(enabled); if (!enabled) setMaskDraft(null); }} ariaLabel="Use an inpaint mask with ControlNet" />Use inpaint mask</div>
               <div className="mt-2 flex items-center justify-between text-xs text-ui-subtle"><span>Scale</span><span>{controlScale.toFixed(2)}</span></div>
               <Slider value={controlScale} min={0} max={2} step={0.05} onChange={setControlScale} />
             </section>
@@ -421,7 +421,7 @@ export function EditWorkspace({
 
           <section className={section}>
             <div className={label}>Preset</div>
-            <div className="mt-1.5 flex gap-2"><div className="min-w-0 flex-1"><Select value={presetId} onChange={setPresetId} options={[{ value: "", label: "unsaved" }, ...imagePresets.map((preset) => ({ value: preset.id, label: preset.name }))]} /></div><button onClick={applyPreset} disabled={!presetId} className="ui-button rounded-md px-3 text-xs">Apply</button></div>
+            <div className="mt-1.5 flex gap-2"><div className="min-w-0 flex-1"><Select ariaLabel="Edit preset" value={presetId} onChange={setPresetId} options={[{ value: "", label: "unsaved" }, ...imagePresets.map((preset) => ({ value: preset.id, label: preset.name }))]} /></div><button onClick={applyPreset} disabled={!presetId} className="ui-button rounded-md px-3 text-xs">Apply</button></div>
           </section>
         </div>
         <div className="border-t border-border bg-raised p-3">

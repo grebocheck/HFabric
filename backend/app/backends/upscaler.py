@@ -116,7 +116,8 @@ class ImageUpscalerBackend(UpscaleBackend):
             "width": width,
             "height": height,
         }
-        return [self._persist(img, meta, width, height)]
+        record = await asyncio.to_thread(self._persist, img, meta, width, height)
+        return [record]
 
     def _upscale_sync(self, source_path: Path, scale: int):
         img = PILImage.open(source_path).convert("RGB")

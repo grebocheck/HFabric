@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api/client";
+import { Dialog } from "./Dialog";
 import { toast } from "./Toast";
 import { ZoomableImage } from "./ZoomableImage";
 import type { ImageItem, Model } from "../types";
@@ -107,13 +108,16 @@ export function DetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-30 flex bg-black/85" onClick={onClose}>
-      <div
-        className="m-auto flex max-h-[96vh] w-[min(1760px,97vw)] gap-4 overflow-hidden rounded-lg border border-line bg-surface p-4 shadow-popover"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog
+      open
+      title="Image details"
+      onClose={onClose}
+      overlayClassName="bg-black/85"
+      panelClassName="flex w-[min(1760px,97vw)] gap-4 p-4 max-[760px]:flex-col max-[760px]:overflow-y-auto"
+      titleClassName="sr-only"
+    >
         <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
-          <ZoomableImage key={image.id} src={image.url} className="h-[90vh] w-full rounded" />
+          <ZoomableImage key={image.id} src={image.url} className="h-[90dvh] w-full rounded max-[760px]:h-[50dvh]" />
           {hasPrev && onPrev && (
             <button
               onClick={(e) => { e.stopPropagation(); onPrev(); }}
@@ -133,7 +137,7 @@ export function DetailModal({
             </button>
           )}
         </div>
-        <aside className="flex w-72 shrink-0 flex-col overflow-y-auto">
+        <aside className="flex w-72 shrink-0 flex-col overflow-y-auto max-[760px]:w-full max-[760px]:overflow-visible">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="font-semibold text-ui-strong">Details</h3>
             <div className="flex items-center gap-2">
@@ -214,7 +218,11 @@ export function DetailModal({
             <div className="flex items-center justify-between">
               <div className="text-xs uppercase tracking-wide text-ui-subtle">Prompt</div>
               <button
-                onClick={() => navigator.clipboard?.writeText(text(params.prompt)).catch(() => {})}
+                onClick={() => {
+                  void navigator.clipboard?.writeText(text(params.prompt)).catch(() => {
+                    toast.error("Could not copy prompt");
+                  });
+                }}
                 className="text-[11px] text-ui-subtle hover:text-ui-strong"
               >
                 copy
@@ -239,8 +247,7 @@ export function DetailModal({
             </button>
           </div>
         </aside>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 

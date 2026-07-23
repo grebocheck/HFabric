@@ -84,4 +84,27 @@ async def test_settings_overrides_get_put_validation_and_persistence(
     assert roundtrip["values"] == values
 
     path = isolated_runtime["data_dir"] / "settings-overrides.json"
-    assert json.loads(path.read_text(encoding="utf-8")) == values
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted == {
+        "schema": "hfabric.settings-overrides",
+        "version": 1,
+        "data": values,
+    }
+
+
+async def test_corrupt_settings_file_is_quarantined_without_blocking_startup(
+    isolated_runtime,
+):
+    path = isolated_runtime["data_dir"] / "settings-overrides.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"default_steps":', encoding="utf-8")
+
+    async for client in _client():
+        health = await client.get("/api/health")
+        overrides = (await client.get("/api/settings/overrides")).json()
+
+    assert health.status_code == 200
+    assert not path.exists()
+    quarantined = list(path.parent.glob("settings-overrides.corrupt-*.json"))
+    assert len(quarantined) == 1
+    assert overrides["persistence_warnings"][0]["quarantined_as"] == quarantined[0].name

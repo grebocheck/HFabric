@@ -1,4 +1,4 @@
-"""Collect a P24.7 first-run audit snapshot.
+"""Collect a first-run audit snapshot.
 
 This script does not replace the human checklist in ``docs/first-run-audit.md``.
 It creates a consistent machine-readable / pasteable report around that checklist:

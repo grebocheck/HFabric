@@ -21,7 +21,6 @@ import sys
 import time
 
 from PIL import Image, ImageDraw
-import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
@@ -43,6 +42,8 @@ def gb(n: float) -> float:
 
 
 def accel_mem(runtime: accelerator_runtime.AcceleratorRuntime) -> str:
+    import torch  # noqa: PLC0415 - hardware-only dependency, keep module importable in STUB CI
+
     if runtime.cuda_available(torch):
         free, total = torch.cuda.mem_get_info()
         return (
@@ -101,6 +102,8 @@ def source_token(width: int, height: int) -> str:
 
 
 async def main() -> None:
+    import torch  # noqa: PLC0415 - only the real hardware entrypoint needs PyTorch
+
     model = os.environ.get("MODEL", "wan2.2-ti2v-5b")
     family = family_for_model(model)
     mode = os.environ.get("MODE", "i2v" if family is ModelFamily.HUNYUAN_VIDEO else "t2v")

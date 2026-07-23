@@ -45,7 +45,26 @@ export default defineConfig(({ mode }) => {
       // Component tests run in a DOM; pure-logic tests ignore it harmlessly.
       environment: "jsdom",
       include: ["src/**/*.test.{ts,tsx}"],
+      maxWorkers: 4,
       restoreMocks: true,
+      coverage: {
+        provider: "v8",
+        include: ["src/**/*.{ts,tsx}"],
+        exclude: [
+          "src/**/*.test.{ts,tsx}",
+          "src/**/*.d.ts",
+          "src/main.tsx",
+          "src/types.ts",
+          "src/types.generated.ts",
+        ],
+        reporter: ["text", "json-summary", "html"],
+        thresholds: {
+          statements: 30,
+          branches: 25,
+          functions: 25,
+          lines: 31,
+        },
+      },
     },
     server: {
       host: env("HFAB_FRONTEND_HOST", "") || undefined,

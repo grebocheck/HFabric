@@ -246,7 +246,7 @@ export function HfBrowser({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
           />
-          <Select value={sort} onChange={setSort} options={SORT_OPTIONS} />
+          <Select ariaLabel="Hugging Face sort" value={sort} onChange={setSort} options={SORT_OPTIONS} />
           <button onClick={() => void search()} className={primaryButton} disabled={searching}>
             {searching ? "Searching..." : "Search"}
           </button>
@@ -381,7 +381,7 @@ export function HfBrowser({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-ui-subtle">Save to</span>
-                <div className="w-44"><Select value={kind} onChange={setKind} options={kindOptions} /></div>
+                <div className="w-44"><Select ariaLabel="Model destination" value={kind} onChange={setKind} options={kindOptions} /></div>
                 <span className="text-[11px] text-ui-subtle">
                   {selectedVisibleCount}/{visibleFiles.length} shown selected
                 </span>

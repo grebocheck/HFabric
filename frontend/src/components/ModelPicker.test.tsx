@@ -28,7 +28,7 @@ describe("ModelPicker", () => {
   it("renders styled options with family + fast-path badges and VRAM", async () => {
     const user = userEvent.setup();
     render(<ModelPicker models={MODELS} value="" onChange={() => {}} />);
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("combobox"));
     // family badge + fast-path badge for the nunchaku model + measured VRAM
     expect(screen.getByText("flux")).toBeTruthy();
     expect(screen.getByText("fast")).toBeTruthy();
@@ -40,7 +40,7 @@ describe("ModelPicker", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<ModelPicker models={MODELS} value="" onChange={onChange} />);
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("combobox"));
     await user.click(screen.getByText("SDXL base"));
     expect(onChange).toHaveBeenCalledWith("sdxl");
   });
@@ -52,7 +52,7 @@ describe("ModelPicker", () => {
       value=""
       onChange={() => {}}
     />);
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("combobox"));
     expect(screen.getByText("recommended")).toBeTruthy();
   });
 
@@ -68,7 +68,7 @@ describe("ModelPicker", () => {
       value=""
       onChange={() => {}}
     />);
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("combobox"));
     const disabled = screen.getByText("Disabled model").closest("button") as HTMLButtonElement | null;
     expect(disabled?.disabled).toBe(true);
     expect(screen.getByText("disabled")).toBeTruthy();

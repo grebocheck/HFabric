@@ -195,7 +195,7 @@ Write-Success "pip upgraded"
 # --- Install foundation deps --------------------------------------------------
 
 Write-Section "Installing foundation dependencies"
-Write-Host "  Installing from backend/requirements.txt..." -ForegroundColor Cyan
+Write-Host "  Installing the compiled foundation lock..." -ForegroundColor Cyan
 Install-FoundationDeps $venvPy
 Write-Success "Foundation packages installed (FastAPI, SQLAlchemy, Pydantic, etc.)"
 

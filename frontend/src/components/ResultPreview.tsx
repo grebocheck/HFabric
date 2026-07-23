@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { ImageItem } from "../types";
+import { Dialog } from "./Dialog";
+import { ResilientImage } from "./ResilientImage";
 import { ZoomableImage } from "./ZoomableImage";
 
 const actionBtn = "ui-button rounded-md px-2.5 py-1.5 text-xs";
@@ -131,7 +133,12 @@ export function ResultPreview({
             className="group flex h-full w-full items-center justify-center p-4"
             title="Open detail view"
           >
-            <img src={selected.url} alt="" className="max-h-full max-w-full object-contain shadow-2xl shadow-black/50" />
+            <ResilientImage
+              sources={[selected.url]}
+              alt=""
+              placeholder="result unavailable"
+              className="max-h-full max-w-full object-contain shadow-2xl shadow-black/50"
+            />
             <span className="absolute right-3 top-3 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[11px] text-white/65 opacity-0 backdrop-blur transition group-hover:opacity-100">
               Detail
             </span>
@@ -221,7 +228,13 @@ export function ResultPreview({
                   selected?.id === img.id ? "border-accent/90" : "border-line hover:border-border-strong"
                 }`}
               >
-                <img src={img.thumb_url ?? img.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                <ResilientImage
+                  sources={[img.thumb_url, img.url]}
+                  alt=""
+                  loading="lazy"
+                  placeholder="preview unavailable"
+                  className="h-full w-full object-cover"
+                />
               </button>
             ))}
           </div>
@@ -229,11 +242,15 @@ export function ResultPreview({
       </div>
 
       {lightbox && selected && (
-        <div
-          className="fixed inset-0 z-30 flex items-center justify-center bg-black/90"
-          onClick={() => setLightbox(false)}
+        <Dialog
+          open
+          title="Generated image detail"
+          onClose={() => setLightbox(false)}
+          overlayClassName="bg-black/90"
+          panelClassName="relative flex h-[94dvh] w-[96vw] max-w-none border-0 bg-transparent shadow-none"
+          titleClassName="sr-only"
         >
-          <ZoomableImage key={selected.id} src={selected.url} className="h-[94vh] w-[96vw]" />
+          <ZoomableImage key={selected.id} src={selected.url} className="h-full w-full" />
           {index > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); goPrev(); }}
@@ -259,11 +276,12 @@ export function ResultPreview({
           )}
           <button
             onClick={() => setLightbox(false)}
+            aria-label="Close image detail"
             className="absolute right-5 top-5 rounded-md border border-white/20 bg-black/60 px-3 py-1.5 text-sm hover:bg-white/10"
           >
             Close
           </button>
-        </div>
+        </Dialog>
       )}
     </section>
   );

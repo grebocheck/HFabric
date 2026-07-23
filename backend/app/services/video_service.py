@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from sqlalchemy import select
@@ -25,7 +26,18 @@ async def delete_video(session: AsyncSession, video_id: str) -> bool:
     video = await session.get(Video, video_id)
     if video is None:
         return False
-    paths = [video.path, video.poster_path, video.thumb_path, str(Path(video.path).with_suffix(".json"))]
+    paths = (
+        video.path,
+        video.poster_path,
+        video.thumb_path,
+        str(Path(video.path).with_suffix(".json")),
+    )
+    await asyncio.to_thread(_unlink_video_files, paths)
+    await session.delete(video)
+    return True
+
+
+def _unlink_video_files(paths: tuple[str | None, ...]) -> None:
     for raw in paths:
         if not raw:
             continue
@@ -33,8 +45,6 @@ async def delete_video(session: AsyncSession, video_id: str) -> bool:
             Path(raw).unlink(missing_ok=True)
         except OSError:
             pass
-    await session.delete(video)
-    return True
 
 
 def to_out_dict(video: Video) -> dict:

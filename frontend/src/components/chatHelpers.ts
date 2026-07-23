@@ -1,14 +1,8 @@
-// Pure, view-agnostic helpers extracted from ChatPanel (P11.1): localStorage
-// persistence, sampling-field coercion, model labelling, and the defensive
-// import-bundle parsing. Kept side-effect-free (beyond the browser APIs they
-// wrap) so they can be unit-tested without rendering the chat screen.
+// Chat persistence, sampling-field coercion, model labelling, and defensive
+// import-bundle parsing.
 
-import type {
-  ChatConversationImport,
-  ChatImportMessage,
-  Model,
-  PresetImportItem,
-} from "../types";
+import { storage } from "../lib/storage";
+import type { ChatConversationImport, ChatImportMessage, Model, PresetImportItem } from "../types";
 
 export type NumOrEmpty = number | "";
 export type ImportBundle = { conversations: ChatConversationImport[]; presets: PresetImportItem[] };
@@ -26,7 +20,7 @@ export function loadDefaults(): {
   rag_top_k?: number;
 } {
   try {
-    return JSON.parse(localStorage.getItem(DEFAULTS_KEY) ?? "{}");
+    return JSON.parse(storage.get(DEFAULTS_KEY) ?? "{}");
   } catch {
     return {};
   }
@@ -34,7 +28,7 @@ export function loadDefaults(): {
 
 export function loadPromptHistory(): string[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) ?? "[]");
+    const parsed = JSON.parse(storage.get(PROMPT_HISTORY_KEY) ?? "[]");
     return Array.isArray(parsed)
       ? parsed.filter((x): x is string => typeof x === "string").slice(0, promptHistoryLimit)
       : [];
@@ -46,11 +40,14 @@ export function loadPromptHistory(): string[] {
 export const numOrUndef = (v: NumOrEmpty): number | undefined => (v === "" ? undefined : Number(v));
 
 export const parseStop = (s: string): string[] | undefined => {
-  const items = s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+  const items = s
+    .split(/[\n,]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
   return items.length ? items : undefined;
 };
 
-export function modelHint(model: Model): string | undefined {
+function modelHint(model: Model): string | undefined {
   const tags = [
     model.multimodal ? "vision" : "",
     model.quant ?? "",
@@ -67,26 +64,28 @@ export function modelTitle(model: Model): string {
 
 export function pickImageModel(models: Model[]): Model | undefined {
   const img = models.filter((m) => m.job_type === "image");
-  return img.find((m) => m.family === "flux2")
-    ?? img.find((m) => m.family === "z-image")
-    ?? img.find((m) => m.quant?.startsWith("nunchaku"))
-    ?? img.find((m) => !m.slow)
-    ?? img[0];
+  return (
+    img.find((m) => m.family === "flux2") ??
+    img.find((m) => m.family === "z-image") ??
+    img.find((m) => m.quant?.startsWith("nunchaku")) ??
+    img.find((m) => !m.slow) ??
+    img[0]
+  );
 }
 
-export function isRecord(v: unknown): v is Record<string, unknown> {
+function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-export function stringOrNull(v: unknown): string | null | undefined {
+function stringOrNull(v: unknown): string | null | undefined {
   return typeof v === "string" ? v : v === null ? null : undefined;
 }
 
-export function asRecord(v: unknown): Record<string, unknown> {
+function asRecord(v: unknown): Record<string, unknown> {
   return isRecord(v) ? v : {};
 }
 
-export function isPresent<T>(v: T | null | undefined): v is T {
+function isPresent<T>(v: T | null | undefined): v is T {
   return v != null;
 }
 
@@ -95,7 +94,7 @@ export function hasActiveSelection(): boolean {
   return Boolean(selection && !selection.isCollapsed && selection.toString());
 }
 
-export function asMessageImport(v: unknown): ChatImportMessage | null {
+function asMessageImport(v: unknown): ChatImportMessage | null {
   if (!isRecord(v)) return null;
   const role = v.role;
   if (role !== "user" && role !== "assistant" && role !== "system") return null;
@@ -107,12 +106,13 @@ export function asMessageImport(v: unknown): ChatImportMessage | null {
   };
 }
 
-export function asConversationImport(v: unknown): ChatConversationImport | null {
+function asConversationImport(v: unknown): ChatConversationImport | null {
   if (!isRecord(v)) return null;
-  const hasConversationShape = Array.isArray(v.messages)
-    || typeof v.title === "string"
-    || typeof v.system === "string"
-    || typeof v.model_id === "string";
+  const hasConversationShape =
+    Array.isArray(v.messages) ||
+    typeof v.title === "string" ||
+    typeof v.system === "string" ||
+    typeof v.model_id === "string";
   if (!hasConversationShape) return null;
   return {
     title: typeof v.title === "string" ? v.title : undefined,
@@ -125,7 +125,7 @@ export function asConversationImport(v: unknown): ChatConversationImport | null 
   };
 }
 
-export function asPresetImport(v: unknown): PresetImportItem | null {
+function asPresetImport(v: unknown): PresetImportItem | null {
   if (!isRecord(v)) return null;
   if (typeof v.name !== "string" || (v.type !== "llm" && v.type !== "image")) return null;
   return { name: v.name, type: v.type, params: asRecord(v.params) };
@@ -143,7 +143,9 @@ export function parseImportBundle(data: unknown): ImportBundle {
 
   const conversations = Array.isArray(data.conversations)
     ? data.conversations.map(asConversationImport).filter(isPresent)
-    : (Array.isArray(data.messages) ? [asConversationImport(data)].filter(isPresent) : []);
+    : Array.isArray(data.messages)
+      ? [asConversationImport(data)].filter(isPresent)
+      : [];
   const presets = Array.isArray(data.presets)
     ? data.presets.map(asPresetImport).filter(isPresent)
     : [asPresetImport(data)].filter(isPresent);

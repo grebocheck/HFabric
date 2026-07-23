@@ -5,7 +5,7 @@ import { Badge } from "./Badge";
 import { familyColor, formatVram, isModelAvailable, isNunchaku } from "./imageComposerHelpers";
 import { Select } from "./Select";
 
-// A compact model selector (P13.1): the always-expanded card grid ate too much
+// A compact model selector: the always-expanded card grid ate too much
 // vertical space, so we collapse it into the shared Select but keep the card look
 // in each option — name + measured VRAM + all badges on a single row.
 export function ModelPicker({
@@ -21,17 +21,19 @@ export function ModelPicker({
 }) {
   const byId = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
   const options = useMemo(
-    () => models.map((m) => ({
-      value: m.id,
-      label: m.name,
-      hint: m.unavailable_reason ?? formatVram(m),
-      disabled: !isModelAvailable(m),
-    })),
+    () =>
+      models.map((m) => ({
+        value: m.id,
+        label: m.name,
+        hint: m.unavailable_reason ?? formatVram(m),
+        disabled: !isModelAvailable(m),
+      })),
     [models],
   );
 
   return (
     <Select
+      ariaLabel="Model"
       value={value}
       options={options}
       onChange={onChange}
@@ -44,7 +46,9 @@ export function ModelPicker({
         return (
           <span className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate font-medium" title={m.name}>{m.name}</span>
+              <span className="min-w-0 flex-1 truncate font-medium" title={m.name}>
+                {m.name}
+              </span>
               {vram ? <span className="shrink-0 font-mono text-[11px] text-ui-muted">{vram}</span> : null}
             </span>
             <span className="flex items-center gap-1 overflow-hidden">

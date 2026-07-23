@@ -110,7 +110,7 @@ def compatibility_for_model(
 def _recommendation(desc: ModelDescriptor, profile: dict[str, Any]) -> str:
     """Hardware-fit hint for an available model: recommended / advanced / neutral.
 
-    Derived from the capability profile's per-family `model_policy` (P20.3). LLMs
+    Derived from the capability profile's per-family ``model_policy``. LLMs
     have no per-family policy yet, so they stay neutral.
     """
     if desc.job_type is JobType.VIDEO:

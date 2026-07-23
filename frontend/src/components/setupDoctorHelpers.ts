@@ -9,7 +9,7 @@ export interface DoctorStatus {
 }
 
 /**
- * Plain-language one-liner for the Setup doctor headline (P20.6). Intentionally
+ * Plain-language one-liner for the Setup doctor headline. Intentionally
  * avoids CUDA/ROCm jargon in the headline and explains the trade-off in detail.
  */
 export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
@@ -73,7 +73,7 @@ export function setupDoctorStatus(cap: CapabilityProfile | null): DoctorStatus {
   };
 }
 
-/** Backends that are implemented but not yet validated on real hardware (P21.3). */
+/** Backends that are implemented but not yet validated on real hardware. */
 export function isExperimentalBackend(cap: CapabilityProfile | null): boolean {
   return cap?.backend === "rocm" || cap?.backend === "mps";
 }

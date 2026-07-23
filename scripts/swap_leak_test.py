@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the P0.3 LLM -> FLUX -> SDXL -> LLM swap-loop leak test.
+"""Run the LLM -> FLUX -> SDXL -> LLM swap-loop leak test.
 
 The script talks to a running HFabric backend. It queues one job at a time
 to force the exact swap order, does warmup cycles by default so lazy imports

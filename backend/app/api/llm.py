@@ -2,12 +2,15 @@
 
 ``llama-server`` is started with a fixed context size (``-c``) and GPU-offload
 layer count (``-ngl``); changing those means relaunching the process. These
-endpoints mutate the shared settings and, if an LLM is currently resident, free
-it so the next chat reloads with the new values. Per-message knobs (temperature,
-max_tokens) are NOT here — they travel with each ``/api/jobs/chat`` request.
+endpoints validate launch settings and, if an unpinned LLM is resident, unload
+it before committing the new values so the next chat starts a genuinely new
+process. Per-message knobs (temperature, max_tokens) are NOT here — they travel
+with each ``/api/jobs/chat`` request.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -23,9 +26,14 @@ from ..core.arbiter import GpuArbiter
 from ..core.enums import ModelFamily
 from ..core.scheduler import Worker
 from ..services import model_compatibility
+from .contracts import ERROR_RESPONSES, LlmConfigOut, StoppedOut
 from .deps import get_arbiter, get_registry, get_worker
 
-router = APIRouter(prefix="/api/llm", tags=["llm"])
+router = APIRouter(
+    prefix="/api/llm",
+    tags=["llm"],
+    responses=ERROR_RESPONSES,
+)
 
 CTX_MIN, CTX_MAX = 512, 131072
 NGL_MIN, NGL_MAX = 0, 999
@@ -67,6 +75,18 @@ def _llm_resident(arbiter: GpuArbiter) -> bool:
     return bool(cur and cur.descriptor.family is ModelFamily.GGUF)
 
 
+def _worker_idle_guard(
+    worker: Worker, action: str
+) -> Callable[[], str | None]:
+    def guard() -> str | None:
+        job_id = worker.running_job_id
+        if job_id is None:
+            return None
+        return f"wait for the running job ({job_id}) to finish before {action}"
+
+    return guard
+
+
 def _backends_status() -> list[dict]:
     out = []
     for bid, spec in LLAMA_BACKENDS.items():
@@ -81,7 +101,7 @@ def _backends_status() -> list[dict]:
     return out
 
 
-def _status(arbiter: GpuArbiter, **extra) -> dict:
+def _status(arbiter: GpuArbiter, **extra) -> LlmConfigOut:
     cur = arbiter.current
     loaded = _llm_resident(arbiter)
     return {
@@ -142,8 +162,10 @@ def _server_status(arbiter: GpuArbiter) -> LlmApiServerStatus:
     )
 
 
-@router.post("/stop")
-async def stop_generation(arbiter: GpuArbiter = Depends(get_arbiter)) -> dict:
+@router.post("/stop", response_model=StoppedOut)
+async def stop_generation(
+    arbiter: GpuArbiter = Depends(get_arbiter),
+) -> StoppedOut:
     """Interrupt the LLM that is currently streaming (best-effort)."""
     cur = arbiter.current
     if cur and cur.descriptor.family is ModelFamily.GGUF and hasattr(cur, "request_stop"):
@@ -168,10 +190,11 @@ async def set_api_server(
         raise HTTPException(409, "wait for the running job to finish before toggling LLM API serving")
 
     if not body.enabled:
-        was_enabled = bool((arbiter.resident_pin or {}).get("id") == LLM_API_PIN_ID)
-        await arbiter.unpin(LLM_API_PIN_ID)
-        if was_enabled and _llm_resident(arbiter):
-            await arbiter.free_all(force=True)
+        await arbiter.release_pin(
+            LLM_API_PIN_ID,
+            unload=True,
+            idle_guard=_worker_idle_guard(worker, "disabling LLM API serving"),
+        )
         return _server_status(arbiter)
 
     model_id = body.model_id
@@ -192,26 +215,29 @@ async def set_api_server(
     except ValueError as exc:
         raise HTTPException(409, str(exc))
 
-    pin = arbiter.resident_pin
-    if pin and pin.get("id") == LLM_API_PIN_ID and pin.get("model_id") != desc.id:
-        await arbiter.unpin(LLM_API_PIN_ID)
-        await arbiter.free_all(force=True)
-
     backend = registry.get_backend(desc.id)
-    await arbiter.ensure(backend)
-    await arbiter.pin_current(LLM_API_PIN_ID, LLM_API_PIN_LABEL)
+    await arbiter.ensure_pinned(
+        backend,
+        LLM_API_PIN_ID,
+        LLM_API_PIN_LABEL,
+        idle_guard=_worker_idle_guard(worker, "toggling LLM API serving"),
+    )
     return _server_status(arbiter)
 
 
-@router.get("/config")
-async def get_config(arbiter: GpuArbiter = Depends(get_arbiter)) -> dict:
+@router.get("/config", response_model=LlmConfigOut)
+async def get_config(
+    arbiter: GpuArbiter = Depends(get_arbiter),
+) -> LlmConfigOut:
     return _status(arbiter)
 
 
-@router.post("/config")
+@router.post("/config", response_model=LlmConfigOut)
 async def set_config(
-    body: LlmConfigUpdate, arbiter: GpuArbiter = Depends(get_arbiter)
-) -> dict:
+    body: LlmConfigUpdate,
+    arbiter: GpuArbiter = Depends(get_arbiter),
+    worker: Worker = Depends(get_worker),
+) -> LlmConfigOut:
     # Compute the target backend / context-type first and validate the *pair*
     # before committing anything, so we never leave settings in a state the
     # selected llama build can't actually launch.
@@ -261,33 +287,29 @@ async def set_config(
         or target_backend != settings.llama_backend
         or target_ct != settings.llama_context_type
     )
-    if would_change and _llm_resident(arbiter) and arbiter.resident_pin is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="turn off LLM API serving before changing launch settings",
+    unloaded = False
+    if would_change:
+
+        def apply() -> None:
+            settings.llama_ctx = target_ctx
+            settings.llama_ngl = target_ngl
+            settings.llama_backend = target_backend
+            settings.llama_context_type = target_ct
+
+        # Guard, unload and commit are serialized by the arbiter. A worker can
+        # no longer start in the route-level check-to-unload gap.
+        unloaded = await arbiter.reconfigure(
+            apply,
+            family=ModelFamily.GGUF,
+            idle_guard=_worker_idle_guard(worker, "changing LLM launch settings"),
         )
 
-    # Commit.
-    changed = False
-    if target_ctx != settings.llama_ctx:
-        settings.llama_ctx = target_ctx
-        changed = True
-    if target_ngl != settings.llama_ngl:
-        settings.llama_ngl = target_ngl
-        changed = True
-    if target_backend != settings.llama_backend:
-        settings.llama_backend = target_backend
-        changed = True
-    if target_ct != settings.llama_context_type:
-        settings.llama_context_type = target_ct
-        changed = True
-
-    # New launch knobs only bite on the next server start, so drop the running
-    # LLM (the next chat reloads it). Image models are untouched unless the LLM
-    # is the current resident.
-    reloaded = False
-    if changed and _llm_resident(arbiter):
-        await arbiter.free_all()
-        reloaded = True
-
-    return _status(arbiter, changed=changed, reloaded=reloaded, note=note)
+    # This endpoint unloads rather than eagerly relaunching. ``reloaded`` must
+    # only become true after an actual new process/model instance exists.
+    return _status(
+        arbiter,
+        changed=would_change,
+        unloaded=unloaded,
+        reloaded=False,
+        note=note,
+    )

@@ -1,5 +1,5 @@
 # Shared Windows setup helpers for setup.ps1, scripts/run.ps1, and update.ps1:
-# managed local Python / Node provisioning plus a robust frontend `npm install`.
+# managed local Python / Node provisioning plus a robust lockfile-first npm install.
 #
 # Dot-source this file so the functions land in the caller's scope:
 #     . "$PSScriptRoot\_windows_prereqs.ps1"
@@ -324,7 +324,12 @@ sys.exit(1 if missing else 0)
 function Install-FoundationDeps {
     param([string]$VenvPy)
     Write-Host "[setup] installing foundation backend packages..." -ForegroundColor Cyan
-    & $VenvPy -m pip install -r backend\requirements.txt
+    $lock = "backend\requirements-foundation.lock"
+    if (Test-Path $lock) {
+        & $VenvPy -m pip install --require-hashes -r $lock
+    } else {
+        & $VenvPy -m pip install -r backend\requirements.txt
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[setup] foundation dependency install failed (exit $LASTEXITCODE)." -ForegroundColor Red
         exit 1
@@ -432,7 +437,7 @@ function Install-AcceleratorStack {
     foreach ($req in @($Profile.install.requirements)) {
         if ([string]::IsNullOrWhiteSpace($req)) { continue }
         Write-Host "[setup] installing backend requirements: $req ..." -ForegroundColor Cyan
-        & $VenvPy -m pip install -r $req
+        & $VenvPy -m pip install --require-hashes -r $req
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[setup] '$req' install failed (exit $LASTEXITCODE)." -ForegroundColor Red
             exit 1
@@ -479,11 +484,12 @@ function Install-FrontendDeps {
     $npm = Get-NpmCommand
     Push-Location $FrontendDir
     try {
-        & $npm install
+        $installArgs = if (Test-Path "package-lock.json") { @("ci") } else { @("install") }
+        & $npm @installArgs
         if ($LASTEXITCODE -eq 0) { return }
-        Write-Host "[setup] npm install failed (exit $LASTEXITCODE); clearing cache and retrying once..." -ForegroundColor DarkYellow
+        Write-Host "[setup] npm $($installArgs[0]) failed (exit $LASTEXITCODE); clearing cache and retrying once..." -ForegroundColor DarkYellow
         & $npm cache clean --force
-        & $npm install
+        & $npm @installArgs
         if ($LASTEXITCODE -eq 0) { return }
         $code = $LASTEXITCODE
     } finally {

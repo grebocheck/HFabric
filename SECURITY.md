@@ -13,7 +13,7 @@ reporting.
 
 | Version | Supported |
 |---------|-----------|
-| latest `0.1.x` / `main` | ✅ |
+| latest `0.3.x` / `main` | ✅ |
 | older pre-releases | ❌ |
 
 ## Reporting a vulnerability
@@ -41,11 +41,17 @@ HFabric's intended posture (full detail in the
 
 - The backend binds to `127.0.0.1:8260` by default; the API is not reachable off
   the machine unless you deliberately set `HFAB_HOST=0.0.0.0`.
-- If you bind to a network interface, set `HFAB_API_TOKEN`; without a token, any
-  client that can reach the port can call the API (CORS is **not** auth).
+- A non-loopback bind without `HFAB_API_TOKEN` fails before filesystem, database,
+  or subprocess startup. `HFAB_ALLOW_INSECURE_LAN=true` is an explicit dangerous
+  opt-in for an isolated trusted network; CORS is **not** authentication.
+- Browser media and WebSocket requests use a short-lived HttpOnly, SameSite
+  session cookie rather than placing the bearer token in URLs.
 - Desktop-reaching actions (e.g. "Show in folder") are **loopback-only regardless
   of token**, so a remote caller can never drive the local desktop.
-- Uploads are size-capped and images are re-encoded through Pillow.
+- Uploads are size/decompression-capped and images are content-validated and
+  re-encoded through Pillow. Custom URL downloads reject local/private network
+  targets; managed release archives reject traversal, symlinks and oversized
+  expansion.
 
 **In scope:** auth/token bypass, the loopback gate on desktop actions, path
 traversal in upload/model handling, SSRF, anything that lets a non-local or

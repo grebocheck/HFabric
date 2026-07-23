@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 export type SelectOption = { value: string; label: string; hint?: string; disabled?: boolean };
 
@@ -10,6 +10,10 @@ export function Select({
   className = "",
   optionsClassName = "max-h-56",
   renderOption,
+  id,
+  ariaLabel,
+  ariaLabelledBy,
+  disabled = false,
 }: {
   value: string;
   options: SelectOption[];
@@ -20,12 +24,21 @@ export function Select({
   // Optional rich renderer for the option body (the row keeps its selection
   // highlight, keyboard nav and click handling). Falls back to label + hint.
   renderOption?: (option: SelectOption) => ReactNode;
+  id?: string;
+  ariaLabel?: string;
+  ariaLabelledBy?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const generatedId = useId();
+  const triggerId = id ?? `select-${generatedId}`;
+  const listboxId = `${triggerId}-listbox`;
+  const optionId = (index: number) => `${triggerId}-option-${index}`;
   const selected = options.find((o) => o.value === value);
   const searchable = options.length > 6;
   const filteredOptions = useMemo(() => {
@@ -36,7 +49,9 @@ export function Select({
 
   useEffect(() => {
     if (!open) return;
-    setActive(filteredOptions.findIndex((o) => o.value === value));
+    const selectedIndex = filteredOptions.findIndex((o) => o.value === value && !o.disabled);
+    const firstEnabled = filteredOptions.findIndex((o) => !o.disabled);
+    setActive(selectedIndex >= 0 ? selectedIndex : firstEnabled);
     const onDoc = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
@@ -57,6 +72,7 @@ export function Select({
     if (!opt || opt.disabled) return;
     onChange(opt.value);
     setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
   const step = (dir: 1 | -1) => {
@@ -70,10 +86,25 @@ export function Select({
     });
   };
 
+  const jump = (edge: "first" | "last") => {
+    const sequence = edge === "first"
+      ? filteredOptions.keys()
+      : Array.from(filteredOptions.keys()).reverse();
+    for (const index of sequence) {
+      if (!filteredOptions[index]?.disabled) {
+        setActive(index);
+        break;
+      }
+    }
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (!open) setOpen(true);
+      if (!open) {
+        setOpen(true);
+        jump("first");
+      }
       else step(1);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -84,6 +115,12 @@ export function Select({
       else setOpen(true);
     } else if (e.key === "Escape") {
       setOpen(false);
+    } else if (e.key === "Home" && open) {
+      e.preventDefault();
+      jump("first");
+    } else if (e.key === "End" && open) {
+      e.preventDefault();
+      jump("last");
     }
   };
 
@@ -100,14 +137,30 @@ export function Select({
     } else if (e.key === "Escape") {
       e.preventDefault();
       setOpen(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      jump("first");
+    } else if (e.key === "End") {
+      e.preventDefault();
+      jump("last");
     }
   };
 
   return (
     <div ref={ref} className={`relative ${className}`}>
       <button
+        ref={triggerRef}
+        id={triggerId}
         type="button"
+        role="combobox"
+        aria-label={ariaLabel ?? (ariaLabelledBy ? undefined : placeholder)}
+        aria-labelledby={ariaLabelledBy}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
         aria-expanded={open}
+        aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
+        disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onKeyDown}
         className="ui-field flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm"
@@ -139,16 +192,28 @@ export function Select({
                 }}
                 onKeyDown={onSearchKeyDown}
                 placeholder="search..."
+                aria-label={`Filter ${ariaLabel ?? placeholder} options`}
+                aria-controls={listboxId}
+                aria-activedescendant={active >= 0 ? optionId(active) : undefined}
                 className="ui-field w-full rounded px-2 py-1 text-xs"
               />
             </div>
           ) : null}
-          <div data-testid="select-options" className={`${optionsClassName} overflow-y-auto py-1`}>
+          <div
+            id={listboxId}
+            role="listbox"
+            aria-label={`${ariaLabel ?? placeholder} options`}
+            data-testid="select-options"
+            className={`${optionsClassName} overflow-y-auto py-1`}
+          >
             {filteredOptions.length === 0 ? <div className="px-2.5 py-1.5 text-sm text-ui-subtle">no options</div> : null}
             {filteredOptions.map((o, i) => (
               <button
+                id={optionId(i)}
                 key={o.value || `opt-${i}`}
                 type="button"
+                role="option"
+                aria-selected={o.value === value}
                 disabled={o.disabled}
                 onClick={() => choose(i)}
                 onMouseEnter={() => setActive(i)}

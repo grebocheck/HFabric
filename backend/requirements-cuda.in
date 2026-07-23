@@ -1,0 +1,16 @@
+# Canonical Windows/Linux x86_64 NVIDIA CUDA 12.8 dependency input.
+#
+# Regenerate both platform locks through the manifest-backed workflow:
+#   python scripts/install_profiles.py --compile-locks \
+#     --lock cuda-windows-x86_64 --lock cuda-linux-x86_64
+#
+# The resolver supplies the trusted PyTorch cu128 backend. Keeping an
+# extra-index directive out of this file prevents dependency-confusion fallback
+# for unrelated packages that also happen to exist on the PyTorch index.
+
+-r requirements.txt
+-r requirements-gpu.txt
+
+torch==2.11.0
+torchvision==0.26.0
+torchaudio==2.11.0

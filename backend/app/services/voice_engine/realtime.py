@@ -1,6 +1,6 @@
-﻿"""Native realtime voice session (P6R.2).
+﻿"""Native realtime voice session.
 
-A live session owns a sounddevice duplex stream: the PortAudio callback only
+Each live session owns a sounddevice duplex stream: the PortAudio callback only
 moves samples in/out of ring buffers; a dedicated worker thread pulls fixed
 chunks and feeds them to ``ChunkProcessor``, which runs a fully streaming
 input chain (stateful resample to 16 kHz -> DTLN -> high-pass -> formant
@@ -209,7 +209,7 @@ class RealtimeSession:
         out_dev = engine.server_output_device_id
         mon_dev = engine.server_monitor_device_id
 
-        def callback(indata, outdata, frames, time_info, status) -> None:  # noqa: ARG001
+        def callback(indata, outdata, frames, _time_info, status) -> None:  # noqa: ARG001
             import numpy as np  # noqa: PLC0415
 
             assert self._input_ring is not None and self._output_ring is not None
@@ -257,7 +257,7 @@ class RealtimeSession:
             self._monitor_stream.start()
         self._worker.start()
 
-    def _monitor_callback(self, outdata, frames, time_info, status) -> None:  # noqa: ARG002
+    def _monitor_callback(self, outdata, frames, _time_info, status) -> None:  # noqa: ARG002
         import numpy as np  # noqa: PLC0415
 
         assert self._monitor_ring is not None

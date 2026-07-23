@@ -1,80 +1,52 @@
-# Known issues & limitations (beta)
+# Known issues and validated limits
 
-HFabric is **pre-release** software. This page is an honest list of what's rough,
-what's by-design, and what to expect — so a tester knows whether something is a bug
-worth reporting or a known limitation. If you hit something that isn't here, please
+HFabric is beta software. This file lists current, reproducible limitations;
+completed engineering work and the remaining validation matrix live in
+[ROADMAP.md](ROADMAP.md). If you find behavior not listed here, please
 [open an issue](https://github.com/grebocheck/HFabric/issues/new/choose).
 
-The deeper engineering rationale for several of these lives in the
-[ROADMAP "hard-won facts"](ROADMAP.md#hard-won-facts-load-bearing-constraints--dont-relearn-the-hard-way).
+## Platform validation
 
-## Platform support
+- NVIDIA CUDA on Windows 11 is the only path previously validated end-to-end
+  (RTX 5070 Ti, 16 GB VRAM, 32 GB RAM). Lifecycle, dependency and security code
+  has changed since that run, so the release candidate still requires a repeat
+  of the recorded [GPU smoke matrix](docs/gpu-smoke.md).
+- AMD ROCm on Linux and Apple Silicon MPS have reproducible, hashed dependency
+  profiles and fake-hardware control-flow tests, but no real-hardware sign-off.
+  They remain experimental until a clean install and full smoke run are recorded.
+- Non-Blackwell NVIDIA tiers are capability-gated but have not been validated on
+  representative 8 GB and 12 GB cards.
 
-- **Only NVIDIA CUDA on Windows 11 is validated end-to-end** (RTX 5070 Ti / 16 GB /
-  Blackwell, 32 GB RAM). Everything else is less travelled.
-- **AMD ROCm (Linux) and Apple Silicon (MPS) are experimental** — implemented and
-  unit-tested with fake hardware probes, but **never run on real hardware**. They
-  run SDXL-only and hide CUDA-only fast paths. If you try one, the
-  [GPU smoke checklist](docs/gpu-smoke.md) has steps and a log to fill in — that's
-  the single most useful thing a non-NVIDIA tester can contribute.
-- Non-Blackwell NVIDIA tiers (8/12 GB) are capability-gated but **not yet validated**
-  on real silicon; fast paths auto-disable below the required compute capability.
+## Model and hardware constraints
 
-## Image generation
+- FLUX.2 [klein] defaults to 768×768 on the 16 GB reference GPU. Full FLUX.2
+  [dev] and image-GGUF are not supported.
+- FLUX.2 Nunchaku on Blackwell should use the fp4 path. `torch.compile` can be
+  rejected by the Nunchaku transformer; HFabric rolls back to the uncompiled
+  pipeline and reports the fallback.
+- Qwen-Image full bf16 is a very large download; the quantized profile is the
+  practical default. Z-Image-Turbo expects guidance `0.0`.
+- LTX-Video, Wan and FramePack fast paths require NVIDIA CUDA. ROCm/MPS expose
+  only their conservative fallback policy until real-hardware validation.
+- Video generation is compute-heavy and produces silent MP4. Large jobs may be
+  refused before load when their RAM/VRAM estimate exceeds the configured guard.
+- Realtime RVC normally needs CUDA. CPU remains suitable for offline conversion
+  and only the smallest realtime configuration may keep pace.
 
-- **FLUX.2 [klein] is pinned to 768²** on a 16 GB GPU; 1024² is not safe by default.
-- **FLUX.2 nunchaku-int4 is broken on Blackwell (sm_120)** — use **fp4** (bnb-nf4 is
-  the practical fallback). **Image-GGUF is unsupported** (this is separate from the
-  LLM GGUF path, which works).
-- **`torch.compile` fails on the nunchaku transformer** (Inductor `aten.addmm`); the
-  backend auto-rolls-back to the original transformer and continues — so you may see
-  a compile warning in the log that is safe to ignore.
-- **Qwen-Image is a large bf16 repo (~54 GB)** — keep the `bnb-nf4` variant unless
-  you're deliberately testing full bf16. **Z-Image-Turbo is distilled** — use
-  guidance 0.0.
-- **FLUX (full, non-nunchaku) and FLUX.2 [dev] are out of scope** by design.
+## Runtime behavior by design
 
-## Memory & model switching
+- Exactly one incompatible heavy GPU resident is allowed. Switching between LLM,
+  image and video models therefore includes a visible unload/load pause.
+- A predicted unsafe model load is rejected rather than spilling into swap or
+  risking an out-of-memory crash.
+- HFabric is a single-user local application. Non-loopback startup without an API
+  token fails closed unless the operator explicitly enables the insecure-LAN
+  escape hatch; that escape hatch is not suitable for an untrusted network.
 
-- **Exactly one heavy model is resident at a time** (the VRAM arbiter). A mixed
-  LLM↔image batch incurs **one model swap** — that swap is a visible pause, not a
-  hang.
-- **Cold-start RSS of ~5.5–8.8 GB is expected, not a leak** — one-time
-  torch/diffusers/nunchaku imports.
-- A load is **refused up front** if the predicted peak wouldn't fit RAM (it won't
-  silently spill to the pagefile) — you'll see a clear "won't fit" message rather
-  than an OOM crash. That's intended.
+## Temporary dependency exceptions
 
-## Video generation
-
-- **LTX-Video and Wan 2.2 currently require NVIDIA CUDA.** Their local Diffusers
-  repositories load in 4-bit with tiled VAE decode; 480p / 49-frame LTX T2V+I2V and
-  Wan T2V are validated on the RTX 5070 Ti reference box. Non-NVIDIA fallback families
-  remain a P27 follow-up.
-- **Wan is measured in minutes, not seconds.** A 720p clip can take several minutes
-  on one consumer GPU. Start at 480p with 49 frames while tuning a prompt.
-- Video output is silent MP4. Longer/high-resolution clips are refused before load
-  when the predicted model + latent + decode peak would exceed safe RAM/VRAM.
-- Switching between LLM, image, and video models unloads the previous heavy resident,
-  so the first clip after another workspace includes a visible model-swap pause.
-
-## LLM / chat
-
-- Reliable native tool-calling depends on the model supporting it; models without
-  tool support fall back to a prompt-based protocol, which is less robust.
-- Multimodal (vision) needs a model with a paired `mmproj` projector; without one,
-  image attachments can't be read.
-
-## Voice changer
-
-- **Realtime conversion needs CUDA** to keep up; on CPU it's only realtime at the
-  smallest chunk size. Validated with a real microphone on the reference machine.
-
-## General / rough edges
-
-- Single-developer beta: expect rough edges in first-run/empty states and error
-  messages outside the happy path (tracked as ROADMAP **P24.7**).
-- Documentation can lag the code in spots; the [audit](docs/audit-2026-06-30.md) is
-  the most candid status snapshot.
-- The app is built for a **single local user**. Don't expose it on a hostile
-  network without `HFAB_API_TOKEN` (see [SECURITY.md](SECURITY.md)).
+The GPU graph currently retains versions needed by the validated
+PyTorch/Nunchaku/Diffusers combination. Any known advisory must appear in
+`backend/audit-allowlist.json` with a reason and expiry; CI rejects new, stale or
+expired entries. These exceptions must be re-evaluated with the next real-GPU
+profile upgrade.

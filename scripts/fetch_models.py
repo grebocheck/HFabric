@@ -174,7 +174,7 @@ ADVANCED_IMAGE_JOBS = [
     ),
 ]
 
-# Optional P27 catalog entries. They are intentionally not part of setup-all:
+# Optional video catalog entries. They are intentionally not part of setup-all:
 # together they are large and should be an explicit Video-workspace choice.
 VIDEO_JOBS = [
     FetchJob(

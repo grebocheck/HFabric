@@ -38,8 +38,12 @@ def test_resolves_blackwell_nvidia_cuda_profile():
 
     assert result["selected_profile"] == "nvidia-cuda"
     assert result["hardware_tier"] == "rich_16gb_plus"
+    assert result["install"]["target"] == "windows-x86_64"
+    assert result["install"]["torch"]["backend"] == "cu128"
     assert result["install"]["torch"]["index_url"].endswith("/cu128")
-    assert result["install"]["requirements"] == ["backend/requirements-gpu.txt"]
+    assert result["install"]["requirements"] == ["backend/requirements-gpu.lock"]
+    assert result["install"]["foundation_lock"] == "backend/requirements-foundation.lock"
+    assert result["install"]["hashes_required"] is True
     assert result["runtime_defaults"]["backend"] == "cuda"
     assert result["runtime_defaults"]["blackwell_fast_paths"] is True
     assert result["runtime_defaults"]["video_fp8_fast_paths"] is True
@@ -60,6 +64,8 @@ def test_resolves_lower_vram_nvidia_with_safe_tier():
 
     assert result["selected_profile"] == "nvidia-cuda"
     assert result["hardware_tier"] == "safe_8gb"
+    assert result["install"]["target"] == "linux-x86_64"
+    assert result["install"]["requirements"] == ["backend/requirements-cuda-linux.lock"]
     assert result["runtime_defaults"]["blackwell_fast_paths"] is False
     assert result["runtime_defaults"]["video_fp8_fast_paths"] is True
     assert result["runtime_defaults"]["prefer_cpu_offload"] is True
@@ -80,8 +86,10 @@ def test_resolves_linux_amd_rocm_profile_when_official_target_visible():
 
     assert result["selected_profile"] == "amd-rocm-linux"
     assert result["hardware_tier"] == "large_24gb_plus"
+    assert result["install"]["target"] == "linux-x86_64"
+    assert result["install"]["torch"]["backend"] == "rocm7.2"
     assert result["install"]["torch"]["index_url"].endswith("/rocm7.2")
-    assert result["install"]["requirements"] == ["backend/requirements-rocm.txt"]
+    assert result["install"]["requirements"] == ["backend/requirements-rocm-linux.lock"]
     assert result["runtime_defaults"]["backend"] == "rocm"
     assert result["runtime_defaults"]["torch_device"] == "cuda"
     assert result["runtime_defaults"]["video_fp8_fast_paths"] is False
@@ -137,8 +145,10 @@ def test_resolves_apple_silicon_mps_profile():
     })
 
     assert result["selected_profile"] == "apple-mps"
+    assert result["install"]["target"] == "macos-arm64"
+    assert result["install"]["torch"]["backend"] == "pypi"
     assert result["install"]["torch"]["index_url"] is None
-    assert result["install"]["requirements"] == ["backend/requirements-mps.txt"]
+    assert result["install"]["requirements"] == ["backend/requirements-mps.lock"]
     assert result["runtime_defaults"]["backend"] == "mps"
     assert result["runtime_defaults"]["torch_device"] == "mps"
     assert result["runtime_defaults"]["video_light_fallback"] is True
@@ -160,6 +170,8 @@ def test_cpu_only_report_uses_cpu_safe_profile():
 
     assert result["selected_profile"] == "cpu-safe"
     assert result["install"]["torch"]["index_url"].endswith("/cpu")
+    assert result["install"]["requirements"] == []
+    assert result["install"]["hashes_required"] is False
     assert result["runtime_defaults"]["stub_mode"] is True
     assert set(result["model_policy"]["video"]["hidden"]) == {
         "ltx-video",
@@ -177,6 +189,22 @@ def test_prefer_rejects_invalid_profile_for_report():
         assert "preferred profile" in str(exc)
     else:
         raise AssertionError("expected invalid preferred profile to fail")
+
+
+def test_explicitly_unsupported_linux_arm_nvidia_falls_back_to_cpu():
+    result = resolve_profile({
+        "os": {"system": "Linux", "machine": "aarch64"},
+        "gpus": [{
+            "vendor": "nvidia",
+            "name": "Synthetic ARM NVIDIA",
+            "vram_mb": 16384,
+            "compute_capability_tuple": [8, 7],
+        }],
+        "rocm": {},
+    })
+
+    assert result["selected_profile"] == "cpu-safe"
+    assert result["install"]["target"] == "windows-linux-cpu"
 
 
 # --- P20.3: NVIDIA beyond Blackwell -----------------------------------------

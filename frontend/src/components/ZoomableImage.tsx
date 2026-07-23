@@ -7,10 +7,18 @@ export function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
-// A pan/zoom image surface (P13.3) shared by the result lightbox and the History
+// A pan/zoom image surface shared by the result lightbox and the History
 // detail modal: wheel (or pinch via ctrl+wheel) zooms toward centre, drag pans
 // once zoomed in, and double-click resets. Pure scale clamping is unit-tested.
-export function ZoomableImage({ src, alt = "", className = "" }: { src: string; alt?: string; className?: string }) {
+export function ZoomableImage({
+  src,
+  alt = "",
+  className = "",
+}: {
+  src: string;
+  alt?: string;
+  className?: string;
+}) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
   const [ty, setTy] = useState(0);
@@ -59,7 +67,6 @@ export function ZoomableImage({ src, alt = "", className = "" }: { src: string; 
       className={`relative flex items-center justify-center overflow-hidden ${className}`}
       onWheel={onWheel}
       onDoubleClick={reset}
-      onClick={(e) => e.stopPropagation()}
     >
       <img
         src={src}
@@ -75,10 +82,26 @@ export function ZoomableImage({ src, alt = "", className = "" }: { src: string; 
         }`}
       />
       <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border border-white/15 bg-black/70 px-1.5 py-1 text-xs text-white/80 backdrop-blur">
-        <button onClick={() => zoomBy(1 / 1.4)} className="rounded px-2 py-0.5 hover:bg-white/15" aria-label="Zoom out">−</button>
-        <span className="w-12 text-center font-mono text-[11px] text-white/55">{Math.round(scale * 100)}%</span>
-        <button onClick={() => zoomBy(1.4)} className="rounded px-2 py-0.5 hover:bg-white/15" aria-label="Zoom in">+</button>
-        <button onClick={reset} className="ml-1 rounded px-2 py-0.5 text-[11px] hover:bg-white/15">Reset</button>
+        <button
+          onClick={() => zoomBy(1 / 1.4)}
+          className="rounded px-2 py-0.5 hover:bg-white/15"
+          aria-label="Zoom out"
+        >
+          −
+        </button>
+        <span className="w-12 text-center font-mono text-[11px] text-white/55">
+          {Math.round(scale * 100)}%
+        </span>
+        <button
+          onClick={() => zoomBy(1.4)}
+          className="rounded px-2 py-0.5 hover:bg-white/15"
+          aria-label="Zoom in"
+        >
+          +
+        </button>
+        <button onClick={reset} className="ml-1 rounded px-2 py-0.5 text-[11px] hover:bg-white/15">
+          Reset
+        </button>
       </div>
     </div>
   );

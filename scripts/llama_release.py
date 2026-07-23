@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from typing import Any, Callable
@@ -25,9 +26,45 @@ import zipfile
 GITHUB_REPO = "ggml-org/llama.cpp"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 KEEP_VERSIONS = 3
+_MAX_ARCHIVE_MEMBERS = 20_000
+_MAX_ARCHIVE_UNCOMPRESSED_BYTES = 8 * 1024**3
 
 # Binaries the app launches. Discovered case-insensitively after extraction.
 KNOWN_BINARIES = ("llama-server", "llama-tts")
+
+
+def safe_extract_zip(archive: zipfile.ZipFile, destination: Path) -> None:
+    """Extract a release archive without traversal, symlinks or zip bombs."""
+
+    members = archive.infolist()
+    if len(members) > _MAX_ARCHIVE_MEMBERS:
+        raise ValueError("release archive contains too many entries")
+    if sum(member.file_size for member in members) > _MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+        raise ValueError("release archive expands beyond the allowed size")
+
+    root = destination.resolve()
+    for member in members:
+        raw = member.filename.replace("\\", "/")
+        parts = [part for part in raw.split("/") if part not in {"", "."}]
+        if (
+            not parts
+            or raw.startswith("/")
+            or any(part == ".." for part in parts)
+            or (len(parts[0]) >= 2 and parts[0][1] == ":")
+        ):
+            raise ValueError(f"unsafe path in release archive: {member.filename!r}")
+        if stat.S_ISLNK(member.external_attr >> 16):
+            raise ValueError(f"symlink in release archive is not allowed: {member.filename!r}")
+        target = root.joinpath(*parts)
+        resolved_parent = target.parent.resolve()
+        if root != resolved_parent and root not in resolved_parent.parents:
+            raise ValueError(f"archive entry escapes the destination: {member.filename!r}")
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(member) as source, target.open("wb") as output:
+            shutil.copyfileobj(source, output, length=1 << 20)
 
 # accelerator -> the token llama.cpp uses in its release asset names.
 VARIANT_TOKENS = {
@@ -405,7 +442,7 @@ def install(
                 progress_cb=(lambda d, t, n=name: progress_cb(n, d, t)) if progress_cb else None,
             )
             with zipfile.ZipFile(archive) as zf:
-                zf.extractall(staging)
+                safe_extract_zip(zf, staging)
         version = register_version(
             root, tag=resolved_tag, variant=variant, extracted_dir=staging,
             system=system, source_url=primary.get("browser_download_url"),

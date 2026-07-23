@@ -111,6 +111,7 @@ class VoiceEngine:
         self._set_default_settings()
         self._load_persisted_settings()
         self._lock = asyncio.Lock()
+        self._settings_lock = asyncio.Lock()
         self._loaded_model_id: str | None = None
         self._loaded_model = None
         self._denoiser = None
@@ -137,7 +138,7 @@ class VoiceEngine:
         self.server_input_gain = 1.0
         self.server_output_gain = 1.0
         self.server_monitor_gain = 1.0
-        # Realtime session knobs (P6R.2); w-okada conventions kept for UI parity.
+        # Realtime session knobs; w-okada conventions are kept for UI parity.
         self.server_audio_sample_rate = 48_000
         self.server_read_chunk_size = 133
         self.cross_fade_overlap_size = 0.05
@@ -218,6 +219,10 @@ class VoiceEngine:
         self._apply_settings(data)
         self._save_persisted_settings()
 
+    async def update_settings_async(self, data: dict) -> None:
+        async with self._settings_lock:
+            await asyncio.to_thread(self.update_settings, data)
+
     def _apply_settings(self, data: dict) -> None:
         if data.get("pitch") is not None:
             self.pitch = _clamp_pitch(data["pitch"])
@@ -294,6 +299,9 @@ class VoiceEngine:
             }]
         return models
 
+    async def models_async(self) -> list[dict]:
+        return await asyncio.to_thread(self.models)
+
     def get_model(self, model_id: str) -> dict | None:
         slot = slots.get_slot(model_id)
         if slot is not None:
@@ -316,6 +324,9 @@ class VoiceEngine:
             }
         return None
 
+    async def get_model_async(self, model_id: str) -> dict | None:
+        return await asyncio.to_thread(self.get_model, model_id)
+
     def assets(self) -> dict:
         found = asset_discovery.discover_assets()
         if not settings.stub_mode:
@@ -333,6 +344,9 @@ class VoiceEngine:
                 for item in found["assets"]
             ],
         }
+
+    async def assets_async(self) -> dict:
+        return await asyncio.to_thread(self.assets)
 
     def _params(
         self,

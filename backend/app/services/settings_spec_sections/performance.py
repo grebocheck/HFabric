@@ -1,0 +1,131 @@
+"""Acceleration and memory-policy setting specifications."""
+
+from .schema import boolean, choice, choices, integer, number, text
+
+_ACCELERATION = "acceleration"
+_MEMORY = "memory"
+
+PERFORMANCE_SPECS = (
+    boolean("torch_compile", "torch.compile", _ACCELERATION),
+    choice(
+        "torch_compile_mode",
+        "Compile mode",
+        _ACCELERATION,
+        choices(("default", "reduce-overhead", "max-autotune")),
+    ),
+    boolean("torch_compile_warmup", "Compile warmup", _ACCELERATION),
+    integer(
+        "torch_compile_warmup_size",
+        "Warmup size",
+        _ACCELERATION,
+        minimum=256,
+        maximum=2048,
+        step=64,
+        multiple_of=64,
+    ),
+    choice("flux_step_cache", "FLUX step cache", _ACCELERATION, choices(("off", "fb", "teacache"))),
+    number(
+        "flux_fb_cache_threshold",
+        "FB cache threshold",
+        _ACCELERATION,
+        minimum=0,
+        maximum=1,
+        step=0.01,
+    ),
+    boolean("flux_fb_cache_double", "Double FB cache", _ACCELERATION),
+    number(
+        "flux_teacache_threshold",
+        "TeaCache threshold",
+        _ACCELERATION,
+        minimum=0,
+        maximum=1,
+        step=0.01,
+    ),
+    integer(
+        "flux_teacache_skip_steps",
+        "TeaCache skip steps",
+        _ACCELERATION,
+        minimum=0,
+        maximum=100,
+        step=1,
+    ),
+    choice(
+        "attention_backend",
+        "Attention backend",
+        _ACCELERATION,
+        choices(("auto", "flash", "efficient", "math", "cudnn")),
+    ),
+    boolean("attention_allow_tf32", "Allow TF32", _ACCELERATION),
+    choice(
+        "attention_matmul_precision",
+        "Matmul precision",
+        _ACCELERATION,
+        choices(("highest", "high", "medium")),
+    ),
+    text(
+        "sdxl_turbo_lora",
+        "SDXL turbo LoRA",
+        _ACCELERATION,
+        "Local path or Hugging Face repo/file id.",
+        nullable=True,
+        restart_required=True,
+    ),
+    number(
+        "sdxl_turbo_lora_weight",
+        "SDXL turbo weight",
+        _ACCELERATION,
+        minimum=0,
+        maximum=2,
+        step=0.05,
+    ),
+    integer("sdxl_turbo_steps", "SDXL turbo steps", _ACCELERATION, minimum=1, maximum=50, step=1),
+    number(
+        "sdxl_turbo_guidance",
+        "SDXL turbo guidance",
+        _ACCELERATION,
+        minimum=0,
+        maximum=30,
+        step=0.1,
+    ),
+    boolean("image_cleanup_after_each_job", "Cleanup after each job", _ACCELERATION),
+    integer("image_lora_cache_max", "LoRA cache max", _ACCELERATION, minimum=0, maximum=32, step=1),
+    number(
+        "image_recycle_cuda_growth_gb",
+        "Recycle CUDA growth GB",
+        _ACCELERATION,
+        minimum=0,
+        maximum=64,
+        step=0.1,
+    ),
+    integer(
+        "image_recycle_min_jobs",
+        "Recycle min jobs",
+        _ACCELERATION,
+        minimum=1,
+        maximum=200,
+        step=1,
+    ),
+    boolean("keep_warm_models", "Keep models warm", _MEMORY),
+    integer("keep_warm_max_models", "Warm model limit", _MEMORY, minimum=0, maximum=8, step=1),
+    number(
+        "keep_warm_min_available_ram_gb",
+        "Warm RAM headroom GB",
+        _MEMORY,
+        minimum=0,
+        maximum=128,
+        step=0.5,
+    ),
+    number("min_free_ram_gb", "Minimum free RAM GB", _MEMORY, minimum=0.5, maximum=128, step=0.5),
+    number("mem_poll_seconds", "Memory poll seconds", _MEMORY, minimum=0.5, maximum=60, step=0.5),
+    boolean("learn_memory_profiles", "Learn memory profiles", _MEMORY),
+    number(
+        "learned_ram_margin_gb",
+        "Learned RAM margin GB",
+        _MEMORY,
+        minimum=0,
+        maximum=64,
+        step=0.1,
+    ),
+)
+
+__all__ = ["PERFORMANCE_SPECS"]

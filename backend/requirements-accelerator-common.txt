@@ -1,0 +1,29 @@
+# Shared image/audio dependencies for CUDA, ROCm, and Apple MPS profiles.
+# Platform-specific packages (PyTorch backend, ONNX provider, bitsandbytes) stay
+# in the profile files that include this one.
+
+diffusers==0.38.0
+transformers>=4.49,<5          # Transformers 5 removed CLIP internals used by
+                               # diffusers 0.38 single-file loaders.
+accelerate>=1.13
+peft>=0.14,<0.18
+safetensors>=0.4.5
+sentencepiece>=0.2.0
+protobuf>=5.0
+
+# Native voice engine / audio stack.
+sounddevice>=0.5
+soundfile>=0.13
+# faiss 1.14 arm64 wheels require macOS 14, while HFabric still supports the
+# macOS 13 deployment target used by uv's Apple Silicon resolver.
+faiss-cpu>=1.14; sys_platform != "darwin"
+faiss-cpu>=1.12,<1.14; sys_platform == "darwin"
+soxr>=1.0
+torchfcpe>=0.0.4
+torchcrepe>=0.0.24
+
+# librosa/resampy only declare a lower bound for numba. Some old numba releases
+# have permissive metadata but cannot build on Python 3.12, so keep the verified
+# Python 3.12 pair explicit instead of allowing a resolver to select them.
+numba==0.65.1
+llvmlite==0.47.0

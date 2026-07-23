@@ -1,4 +1,4 @@
-"""Prompt library: named, taggable, reusable image-prompt snippets (P19.4).
+"""Prompt library: named, taggable, reusable image-prompt snippets.
 
 Insertable from the image composer (and, later, the chat /image bridge);
 exportable/importable as JSON for sharing between machines.
@@ -21,9 +21,14 @@ from ..schemas import (
     PromptSnippetUpdate,
     _clean_tags,
 )
+from .contracts import ERROR_RESPONSES, DeleteOut
 from .deps import get_session
 
-router = APIRouter(prefix="/api/prompts", tags=["prompts"])
+router = APIRouter(
+    prefix="/api/prompts",
+    tags=["prompts"],
+    responses=ERROR_RESPONSES,
+)
 
 
 def _name_from(name: str | None, body: str) -> str:
@@ -111,8 +116,11 @@ async def import_prompts(
     )
 
 
-@router.delete("/{prompt_id}")
-async def delete_prompt(prompt_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+@router.delete("/{prompt_id}", response_model=DeleteOut)
+async def delete_prompt(
+    prompt_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> DeleteOut:
     snippet = await session.get(PromptSnippet, prompt_id)
     if not snippet:
         raise HTTPException(404, "prompt not found")

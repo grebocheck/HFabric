@@ -24,9 +24,15 @@ from .. import __version__
 from ..config import settings
 from ..services import capability_profile, settings_overrides
 from ..util import security, sysmon
+from ..util.async_files import build_temporary_artifact
 from ..util.logging import BACKUP_COUNT, LOG_FILE_NAME
+from .contracts import ERROR_RESPONSES, binary_response
 
-router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
+router = APIRouter(
+    prefix="/api/diagnostics",
+    tags=["diagnostics"],
+    responses=ERROR_RESPONSES,
+)
 
 _SECRET_HINTS = ("token", "secret", "password", "passwd", "apikey", "api_key")
 _REDACTED = "***REDACTED***"
@@ -85,7 +91,24 @@ def _add_logs(zf: zipfile.ZipFile) -> None:
         zf.writestr("logs/NO_LOGS.txt", "No hfabric.log files found in logs_dir.\n")
 
 
-@router.get("/export")
+def _write_diagnostics_archive(
+    zip_path: Path,
+    sections: tuple[tuple[str, Callable[[], Any]], ...],
+) -> None:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, producer in sections:
+            _add_json(zf, name, producer)
+        _add_logs(zf)
+
+
+@router.get(
+    "/export",
+    response_class=FileResponse,
+    responses=binary_response(
+        "application/zip",
+        "Redacted diagnostics archive",
+    ),
+)
 async def export_diagnostics(request: Request) -> FileResponse:
     now = datetime.now(UTC)
 
@@ -127,16 +150,16 @@ async def export_diagnostics(request: Request) -> FileResponse:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
         zip_path = Path(tmp.name)
 
-    try:
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            _add_json(zf, "manifest.json", manifest)
-            _add_json(zf, "health.json", health)
-            _add_json(zf, "capability.json", capability_profile.get_capability_profile)
-            _add_json(zf, "settings.json", settings_view)
-            _add_logs(zf)
-    except Exception:
-        zip_path.unlink(missing_ok=True)
-        raise
+    await build_temporary_artifact(
+        zip_path,
+        _write_diagnostics_archive,
+        (
+            ("manifest.json", manifest),
+            ("health.json", health),
+            ("capability.json", capability_profile.get_capability_profile),
+            ("settings.json", settings_view),
+        ),
+    )
 
     return FileResponse(
         zip_path,

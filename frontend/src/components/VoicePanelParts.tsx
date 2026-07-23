@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Badge } from "./Badge";
 import { Select } from "./Select";
 import { deviceHint, deviceNumericId, formatBytes, formatMs, hostApiTag } from "./voiceHelpers";
@@ -35,23 +34,6 @@ function DeviceSummary({ name, device }: { name: string; device?: VoiceAudioDevi
   );
 }
 
-export function SetupStep({ step, title, aside, children }: { step: string; title: string; aside?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-border bg-panel p-4 shadow-panel">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="grid h-5 w-5 place-items-center rounded-full border border-border-strong bg-control text-[10px] font-semibold text-ui-muted">
-            {step}
-          </span>
-          <div className="text-xs font-medium uppercase tracking-wide text-ui-subtle">{title}</div>
-        </div>
-        {aside}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 export function RoutingApplyHint({ canReach, state }: { canReach: boolean; state: RoutingApplyState }) {
   if (!canReach) return <span className="text-amber-200/70">waiting for native status</span>;
   if (state === "pending") return <span className="text-ui-subtle">pending...</span>;
@@ -82,7 +64,7 @@ export function DeviceSelect({
   const selected = devices.find((d) => deviceNumericId(d) === value);
   const name = selected?.name ?? fallback;
   return (
-    <label className="min-w-0">
+    <div className="min-w-0">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs uppercase tracking-wide text-ui-subtle">{label}</span>
         <span className="flex shrink-0 items-center gap-1.5">
@@ -91,6 +73,7 @@ export function DeviceSelect({
         </span>
       </div>
       <Select
+        ariaLabel={label}
         value={String(value)}
         onChange={(v) => onChange(Number(v))}
         placeholder={fallback}
@@ -103,7 +86,7 @@ export function DeviceSelect({
         renderOption={(o) => <DeviceOptionRow device={byId.get(o.value)} label={o.label} />}
       />
       <DeviceSummary name={name} device={selected} />
-    </label>
+    </div>
   );
 }
 
@@ -124,7 +107,7 @@ export function MonitorSelect({
   const selected = devices.find((d) => deviceNumericId(d) === value);
   const name = selected?.name ?? "Off";
   return (
-    <label className="min-w-0">
+    <div className="min-w-0">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs uppercase tracking-wide text-ui-subtle">Monitor</span>
         <span className="flex shrink-0 items-center gap-1.5">
@@ -133,6 +116,7 @@ export function MonitorSelect({
         </span>
       </div>
       <Select
+        ariaLabel="Monitor device"
         value={String(value)}
         onChange={(v) => onChange(Number(v))}
         className="mt-1"
@@ -147,7 +131,7 @@ export function MonitorSelect({
         renderOption={(o) => <DeviceOptionRow device={byId.get(o.value)} label={o.label} />}
       />
       <DeviceSummary name={name} device={selected} />
-    </label>
+    </div>
   );
 }
 
@@ -199,13 +183,14 @@ export function VoiceSlotList({
   return (
     <ul className="mt-3 flex max-h-56 flex-col gap-1.5 overflow-y-auto pr-1">
       {models.map((m) => (
-        <li
-          key={m.id}
-          onClick={() => onSelect(m.id)}
-          className={`flex cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2 transition ${
-            m.id === modelId ? "border-accent/40 bg-accent/10" : "border-border bg-sunken hover:bg-control-hover"
-          }`}
-        >
+        <li key={m.id}>
+          <button
+            type="button"
+            onClick={() => onSelect(m.id)}
+            className={`flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition ${
+              m.id === modelId ? "border-accent/40 bg-accent/10" : "border-border bg-sunken hover:bg-control-hover"
+            }`}
+          >
           <span className="flex min-w-0 items-center gap-2">
             <span className="text-[10px] text-ui-subtle">#{m.slot}</span>
             <span className="min-w-0 truncate text-sm text-ui" title={m.name}>{m.name}</span>
@@ -217,6 +202,7 @@ export function VoiceSlotList({
             {m.has_index ? <Badge color="bg-emerald-700/55 text-emerald-100">index</Badge> : <Badge>no index</Badge>}
             <span className="font-mono text-xs text-ui-subtle">{formatBytes(m.size_bytes)}</span>
           </span>
+          </button>
         </li>
       ))}
     </ul>

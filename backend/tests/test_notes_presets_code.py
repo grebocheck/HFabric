@@ -72,9 +72,8 @@ async def test_code_workspace_lists_reads_and_rejects_bad_paths(app_client):
 
     roadmap = (await app_client.get("/api/code/file", params={"path": "ROADMAP.md"})).json()
     assert roadmap["path"] == "ROADMAP.md"
-    # A stable, load-bearing heading (the shipped-phase markers like P16 now live
-    # in docs/history.md, so don't assert on those here).
-    assert "Memory invariants" in roadmap["content"]
+    # Assert on the current roadmap identity, not a completed historical phase.
+    assert "план стабілізації" in roadmap["content"]
     assert roadmap["truncated"] is False
 
     escape = await app_client.get("/api/code/file", params={"path": "../.env"})

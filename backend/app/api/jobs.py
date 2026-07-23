@@ -20,9 +20,14 @@ from ..schemas import JobCreate, JobOut, PriorityUpdate
 from ..services import gallery_service, model_compatibility, prompt_service, queue_service
 from ..util import sysmon
 from ..util import uploads as uploads_util
+from .contracts import ERROR_RESPONSES, QueuePlanOut, RemovedOut
 from .deps import get_arbiter, get_bus, get_registry, get_session, get_worker
 
-router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+router = APIRouter(
+    prefix="/api/jobs",
+    tags=["jobs"],
+    responses=ERROR_RESPONSES,
+)
 
 
 def _validate_model(registry: ModelRegistry, payload: JobCreate) -> ModelDescriptor:
@@ -342,15 +347,15 @@ async def list_jobs(
     return [JobOut.model_validate(j) for j in jobs]
 
 
-@router.get("/plan")
+@router.get("/plan", response_model=QueuePlanOut)
 async def queue_plan(
     session: AsyncSession = Depends(get_session),
     registry: ModelRegistry = Depends(get_registry),
     arbiter: GpuArbiter = Depends(get_arbiter),
-) -> dict:
+) -> QueuePlanOut:
     """Predict how the scheduler will drain the current queue: the model-swap
     count and the run sequence. Lets the user trust that a mixed batch swaps once
-    (ROADMAP P7.4). Uses the same selection rule as the live worker."""
+    and uses the same selection rule as the live worker."""
     rows = await queue_service.list_jobs(session, status=JobStatus.QUEUED, limit=1000)
     cur = arbiter.current
     current_model_id = cur.descriptor.id if cur is not None else None
@@ -418,8 +423,10 @@ async def set_priority(
     return JobOut.model_validate(job)
 
 
-@router.post("/clear")
-async def clear_finished(session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+@router.post("/clear", response_model=RemovedOut)
+async def clear_finished(
+    session: AsyncSession = Depends(get_session),
+) -> RemovedOut:
     n = await queue_service.clear_finished(session)
     await session.commit()
     return {"removed": n}

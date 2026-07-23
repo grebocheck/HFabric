@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-import json
 from pathlib import Path
 from typing import Any
 import uuid
 
 from ...config import settings
+from ..atomic_json import AtomicJSONStore
 
 VOICE_PRESETS_FILE = "voice-presets.json"
+_SCHEMA = "hfabric.voice-presets"
 _UNSET = object()
 PRESET_SETTING_KEYS = {
     "pitch",
@@ -41,6 +42,14 @@ def _path() -> Path:
     return settings.data_dir / VOICE_PRESETS_FILE
 
 
+def _store() -> AtomicJSONStore:
+    return AtomicJSONStore(
+        _path(),
+        schema=_SCHEMA,
+        max_bytes=1024 * 1024,
+    )
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -63,16 +72,9 @@ def _clean_model_id(value: Any) -> str | None:
     return cleaned[:160] if cleaned else None
 
 
-def _read() -> list[dict[str, Any]]:
-    path = _path()
-    if not path.exists():
-        return []
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+def _clean_document(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
-        return []
+        raise ValueError("voice presets must be a JSON array")
     presets: list[dict[str, Any]] = []
     for item in payload:
         if not isinstance(item, dict):
@@ -93,14 +95,8 @@ def _read() -> list[dict[str, Any]]:
     return presets
 
 
-def _write(presets: list[dict[str, Any]]) -> None:
-    path = _path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        json.dump(presets, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    tmp.replace(path)
+def _read() -> list[dict[str, Any]]:
+    return _store().read([], validator=_clean_document)
 
 
 def list_presets() -> list[dict[str, Any]]:
@@ -120,9 +116,12 @@ def create_preset(name: str, preset_settings: dict[str, Any], model_id: str | No
         "created_at": now,
         "updated_at": now,
     }
-    presets = _read()
-    presets.append(preset)
-    _write(presets)
+
+    def append(presets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        presets.append(preset)
+        return presets
+
+    _store().update([], append, validator=_clean_document)
     return preset
 
 
@@ -133,29 +132,39 @@ def update_preset(
     preset_settings: Any = _UNSET,
     model_id: Any = _UNSET,
 ) -> dict[str, Any] | None:
-    presets = _read()
-    for preset in presets:
-        if preset.get("id") != preset_id:
-            continue
-        if name is not _UNSET:
-            preset["name"] = _clean_name(str(name))
-        if preset_settings is not _UNSET:
-            cleaned_settings = _clean_settings(dict(preset_settings or {}))
-            if not cleaned_settings:
-                raise ValueError("preset settings are empty")
-            preset["settings"] = cleaned_settings
-        if model_id is not _UNSET:
-            preset["model_id"] = _clean_model_id(model_id)
-        preset["updated_at"] = _now()
-        _write(presets)
-        return preset
-    return None
+    updated: dict[str, Any] | None = None
+
+    def mutate(presets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        nonlocal updated
+        for preset in presets:
+            if preset.get("id") != preset_id:
+                continue
+            if name is not _UNSET:
+                preset["name"] = _clean_name(str(name))
+            if preset_settings is not _UNSET:
+                cleaned_settings = _clean_settings(dict(preset_settings or {}))
+                if not cleaned_settings:
+                    raise ValueError("preset settings are empty")
+                preset["settings"] = cleaned_settings
+            if model_id is not _UNSET:
+                preset["model_id"] = _clean_model_id(model_id)
+            preset["updated_at"] = _now()
+            updated = dict(preset)
+            break
+        return presets
+
+    _store().update([], mutate, validator=_clean_document)
+    return updated
 
 
 def delete_preset(preset_id: str) -> bool:
-    presets = _read()
-    kept = [preset for preset in presets if preset.get("id") != preset_id]
-    if len(kept) == len(presets):
-        return False
-    _write(kept)
-    return True
+    deleted = False
+
+    def remove(presets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        nonlocal deleted
+        kept = [preset for preset in presets if preset.get("id") != preset_id]
+        deleted = len(kept) != len(presets)
+        return kept
+
+    _store().update([], remove, validator=_clean_document)
+    return deleted

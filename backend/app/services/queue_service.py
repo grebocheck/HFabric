@@ -8,13 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.enums import JobStatus, JobType
 from ..db.models import Job
 from ..schemas import JobCreate
+from ..util.request_context import current_request_id
 
 
 async def create_job(session: AsyncSession, payload: JobCreate) -> Job:
+    params = dict(payload.params)
+    request_id = current_request_id()
+    if request_id:
+        params["_request_id"] = request_id
     job = Job(
         type=payload.type,
         model_id=payload.model_id,
-        params=payload.params,
+        params=params,
         priority=payload.priority,
         status=JobStatus.QUEUED,
     )

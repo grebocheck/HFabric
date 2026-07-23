@@ -1,6 +1,6 @@
 """System memory telemetry + a pre-load budget guard.
 
-Goal (ROADMAP objective #1): every single model load must fit comfortably, so
+Every model load must fit comfortably, so
 the app never OOMs, hangs, or spills to the Windows pagefile (which wears the
 SSD). We surface RAM/VRAM continuously and refuse a load *with a clear error*
 rather than letting the OS page out.
@@ -17,7 +17,7 @@ _GB = 1e9
 _proc = psutil.Process()
 
 # Learned per-model memory measurements (model_id -> {"ram_gb", "vram_gb"}),
-# primed from the DB at startup and updated after each real load (P7.2). These
+# primed from the DB at startup and updated after each real load. These
 # override the static size*factor estimates below when present.
 _learned: dict[str, dict[str, float]] = {}
 
@@ -160,14 +160,14 @@ def estimate_ram_need_gb(
         return max(8.0, gb * 1.7)
     if family is ModelFamily.FLUX2 and _is_nunchaku_quant(quant):
         # fp4 transformer + bnb Qwen3 encoder; measured peak RSS ~12.8 GB
-        # (ROADMAP P3.3). size_bytes here sums every .safetensors in the folder
+        # in measurements. size_bytes here sums every .safetensors in the folder
         # (fp4 *and* int4 variants ~10.5 GB), so gb + 3 tracks the real peak.
         return gb + 3.0
     if family is ModelFamily.FLUX2:
         # klein loaded in bnb 4-bit with low_cpu_mem_usage: diffusers streams the
         # bf16 shards and quantizes each to ~4-bit on the fly, so the full bf16
         # repo (size_bytes ~32 GB) never lands in RAM at once. Measured peak RSS
-        # was ~9.8 GB at 768² (ROADMAP P3), so ~0.3x the repo + a working-buffer
+        # was ~9.8 GB at 768², so ~0.3x the repo + a working-buffer
         # margin tracks reality. The old 0.4x + 3 over-predicted ~16 GB and
         # caused false pre-load refusals on a 32 GB box with a warm allocator.
         return gb * 0.3 + 1.5
@@ -278,7 +278,7 @@ def video_job_budget(
 
 def ram_budget(family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None) -> dict:
     """Predicted-vs-available RAM decision for a load. Used both to refuse a load
-    and to *explain* the refusal in the UI (arbiter transparency, ROADMAP P7.1)."""
+    and to explain the refusal in the UI."""
     need = estimate_ram_need_gb(family, size_bytes, quant, model_id)
     available = ram_stats()["available_gb"]
     headroom = settings.min_free_ram_gb

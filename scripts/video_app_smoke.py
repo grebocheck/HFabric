@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live app-path smoke for the P27 video workspace.
+"""Live app-path smoke for the video workspace.
 
 The check talks to a running HFabric backend rather than importing test
 fixtures. It validates the browser-critical video path: queue -> worker ->
@@ -329,7 +329,7 @@ async def run_check(args: argparse.Namespace) -> int:
             client,
             video["id"],
             args,
-            prompt="P27 app smoke range replay",
+            prompt="Video app smoke range replay",
         )
         assert_video_ranges(client, done_video["video_id"])
         assert_events(
@@ -344,7 +344,7 @@ async def run_check(args: argparse.Namespace) -> int:
             video_payload(
                 video["id"],
                 args,
-                prompt="P27 app smoke cancel during denoise",
+                prompt="Video app smoke cancel during denoise",
                 steps=args.cancel_steps,
             ),
         )
@@ -366,7 +366,7 @@ async def run_check(args: argparse.Namespace) -> int:
                 client,
                 video["id"],
                 args,
-                prompt="P27 app smoke swap video first",
+                prompt="Video app smoke swap first",
             )
             gpu = await asyncio.to_thread(client.json, "GET", "/api/gpu")
             if gpu.get("model_id") != video["id"]:
@@ -386,7 +386,7 @@ async def run_check(args: argparse.Namespace) -> int:
                 client,
                 video["id"],
                 args,
-                prompt="P27 app smoke swap video second",
+                prompt="Video app smoke swap second",
             )
             gpu = await asyncio.to_thread(client.json, "GET", "/api/gpu")
             if gpu.get("model_id") != video["id"]:

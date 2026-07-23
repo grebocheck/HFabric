@@ -8,6 +8,8 @@ into the assistant message, so conversations survive a refresh/restart.
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,9 +37,14 @@ from ..schemas import (
 )
 from ..services import chat_attachments, chat_service, queue_service
 from ..util.uploads import resolve_chat_upload, store_chat_upload
+from .contracts import ERROR_RESPONSES, DeleteOut, RemovedOut, binary_response
 from .deps import get_bus, get_registry, get_session, get_worker
 
-router = APIRouter(prefix="/api/chat", tags=["chat"])
+router = APIRouter(
+    prefix="/api/chat",
+    tags=["chat"],
+    responses=ERROR_RESPONSES,
+)
 
 IMAGE_TOOL_SYSTEM = (
     "You can call one local tool when the user wants an image generated. "
@@ -109,9 +116,16 @@ def _chat_tools(body: ChatSend) -> list[dict]:
     return tools
 
 
-def _history_content(message: Message, *, allow_images: bool) -> str | list[dict]:
+async def _history_content(
+    message: Message,
+    *,
+    allow_images: bool,
+) -> str | list[dict]:
     if allow_images:
-        return chat_attachments.history_message_content(message)
+        return await asyncio.to_thread(
+            chat_attachments.history_message_content,
+            message,
+        )
     return message.content
 
 
@@ -145,7 +159,14 @@ async def upload_chat_attachment(file: UploadFile = File(...)) -> ChatAttachment
     return ChatAttachmentOut.model_validate(await store_chat_upload(file, max_bytes=max_bytes))
 
 
-@router.get("/uploads/{token}/file")
+@router.get(
+    "/uploads/{token}/file",
+    response_class=FileResponse,
+    responses=binary_response(
+        "application/octet-stream",
+        "Original chat attachment",
+    ),
+)
 async def get_chat_upload(token: str) -> FileResponse:
     resolved = resolve_chat_upload(token)
     if resolved is None:
@@ -243,8 +264,11 @@ async def update_conversation(
     return ConversationOut.model_validate(conv)
 
 
-@router.delete("/conversations/{conv_id}")
-async def delete_conversation(conv_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+@router.delete("/conversations/{conv_id}", response_model=DeleteOut)
+async def delete_conversation(
+    conv_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> DeleteOut:
     ok = await chat_service.delete_conversation(session, conv_id)
     if not ok:
         raise HTTPException(404, "conversation not found")
@@ -252,10 +276,13 @@ async def delete_conversation(conv_id: str, session: AsyncSession = Depends(get_
     return {"deleted": True}
 
 
-@router.delete("/conversations/{conv_id}/messages/{message_id}")
+@router.delete(
+    "/conversations/{conv_id}/messages/{message_id}",
+    response_model=RemovedOut,
+)
 async def truncate_messages(
     conv_id: str, message_id: str, session: AsyncSession = Depends(get_session)
-) -> dict:
+) -> RemovedOut:
     """Delete a message and everything after it — used for edit & regenerate."""
     removed = await chat_service.truncate_from(session, conv_id, message_id)
     await session.commit()
@@ -274,7 +301,10 @@ async def send_message(
     conv = await chat_service.get_conversation(session, conv_id)
     if not conv:
         raise HTTPException(404, "conversation not found")
-    attachment_meta = chat_attachments.load_attachment_metadata([a.token for a in body.attachments])
+    attachment_meta = await asyncio.to_thread(
+        chat_attachments.load_attachment_metadata,
+        [attachment.token for attachment in body.attachments],
+    )
     if not body.content.strip() and not attachment_meta:
         raise HTTPException(400, "message content is empty")
     desc = _require_job_type(registry, body.model_id, JobType.LLM)
@@ -322,9 +352,13 @@ async def send_message(
     if system:
         msgs.append({"role": "system", "content": system})
     for msg in history:
-        content = current_content if msg.id == user_msg.id else _history_content(
-            msg,
-            allow_images=bool(desc.mmproj_path),
+        content = (
+            current_content
+            if msg.id == user_msg.id
+            else await _history_content(
+                msg,
+                allow_images=bool(desc.mmproj_path),
+            )
         )
         msgs.append({"role": msg.role, "content": content})
 

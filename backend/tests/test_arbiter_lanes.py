@@ -7,9 +7,31 @@ GPU is busy instead of claiming it is idle. A lane never loads a model.
 
 from __future__ import annotations
 
-from app.core.arbiter import GpuArbiter
-from app.core.enums import EventType
+from pathlib import Path
+
+import pytest
+
+from app.backends.base import GpuBackend, ModelDescriptor
+from app.core.arbiter import GpuArbiter, GpuLaneConflict, ResidentPinConflict
+from app.core.enums import EventType, ModelFamily
 from app.core.events import EventBus
+
+
+class _Backend(GpuBackend):
+    def __init__(self, model_id: str = "model") -> None:
+        super().__init__(ModelDescriptor(
+            id=model_id,
+            name=model_id,
+            family=ModelFamily.GGUF,
+            path=Path(f"{model_id}.gguf"),
+            size_bytes=4,
+        ))
+
+    async def load(self) -> None:
+        self._loaded = True
+
+    async def unload(self) -> None:
+        self._loaded = False
 
 
 async def test_lane_shows_in_status_and_publishes_gpu_status():
@@ -59,4 +81,48 @@ async def test_gpu_lane_context_manager_releases_on_error():
     except RuntimeError:
         pass
 
+    assert arbiter.status()["lanes"] == []
+
+
+async def test_exclusive_voice_lane_unloads_resident_and_blocks_new_loads():
+    arbiter = GpuArbiter(EventBus())
+    resident = _Backend("resident")
+    incoming = _Backend("incoming")
+    await arbiter.ensure(resident)
+
+    await arbiter.activate_lane(
+        "voice",
+        "voice session",
+        exclusive=True,
+        unload_resident=True,
+    )
+
+    assert arbiter.current is None
+    assert not resident.loaded
+    assert arbiter.exclusive_lane_active
+    with pytest.raises(GpuLaneConflict, match="voice session"):
+        await arbiter.ensure(incoming)
+    assert not incoming.loaded
+
+    await arbiter.deactivate_lane("voice")
+    await arbiter.ensure(incoming)
+    assert incoming.loaded
+
+
+async def test_exclusive_voice_handoff_cannot_override_resident_pin():
+    arbiter = GpuArbiter(EventBus())
+    resident = _Backend()
+    await arbiter.ensure(resident)
+    await arbiter.pin_current("llm_api", "LLM API server")
+
+    with pytest.raises(ResidentPinConflict, match="LLM API server"):
+        await arbiter.activate_lane(
+            "voice",
+            "voice session",
+            exclusive=True,
+            unload_resident=True,
+        )
+
+    assert arbiter.current is resident
+    assert resident.loaded
     assert arbiter.status()["lanes"] == []

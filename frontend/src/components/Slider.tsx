@@ -1,4 +1,4 @@
-// Shared range slider with a value readout (P5.D3 control kit).
+// Shared range slider with a value readout.
 export function Slider({
   value,
   onChange,
@@ -26,7 +26,9 @@ export function Slider({
         onChange={(e) => onChange(Number(e.target.value))}
         className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-control-active accent-accent disabled:cursor-not-allowed"
       />
-      <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-ui-muted">{value.toFixed(2)}</span>
+      <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-ui-muted">
+        {value.toFixed(2)}
+      </span>
     </div>
   );
 }

@@ -7,19 +7,30 @@ tab can render typed controls and persist values to ``data/settings-overrides.js
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+import threading
 from typing import Any
 
 from ..config import settings
+from .atomic_json import AtomicJSONStore, persistence_warnings_under
 from .settings_specs import GROUPS, SPECS, SettingSpec, SettingValue
 
 SPEC_BY_KEY = {spec.key: spec for spec in SPECS}
 WRITABLE_KEYS = frozenset(SPEC_BY_KEY)
+_SCHEMA = "hfabric.settings-overrides"
+_RUNTIME_LOCK = threading.RLock()
 
 
 def overrides_path() -> Path:
     return settings.data_dir / "settings-overrides.json"
+
+
+def _store() -> AtomicJSONStore:
+    return AtomicJSONStore(
+        overrides_path(),
+        schema=_SCHEMA,
+        max_bytes=512 * 1024,
+    )
 
 
 def current_values() -> dict[str, SettingValue]:
@@ -37,31 +48,34 @@ def payload() -> dict[str, Any]:
         "groups": list(GROUPS),
         "schema": [spec.payload() for spec in SPECS],
         "path": str(overrides_path()),
+        "persistence_warnings": persistence_warnings_under(settings.data_dir),
     }
 
 
 def load() -> set[str]:
     """Apply the persisted override file and return the keys it set (if any)."""
-    path = overrides_path()
-    if not path.exists():
-        return set()
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    with _RUNTIME_LOCK:
+        sanitized = _store().read({}, validator=_validate_persisted)
+        _apply(sanitized)
+        return set(sanitized)
+
+
+def _validate_persisted(raw: Any) -> dict[str, SettingValue]:
     if not isinstance(raw, dict):
         raise ValueError("settings overrides must be a JSON object")
     unknown = sorted(set(raw) - WRITABLE_KEYS)
     if unknown:
         raise ValueError(f"settings overrides contain unsupported keys: {', '.join(unknown)}")
-    sanitized = _sanitize(raw)
-    _apply(sanitized)
-    return set(sanitized)
+    return _sanitize(raw)
 
 
 def save(patch: dict[str, Any]) -> dict[str, Any]:
-    values = {**current_values(), **_sanitize(patch)}
-    _apply(values)
-    path = overrides_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    sanitized_patch = _sanitize(patch)
+    with _RUNTIME_LOCK:
+        values = {**current_values(), **sanitized_patch}
+        # Runtime state must never get ahead of its durable representation.
+        _store().write(values)
+        _apply(values)
     return payload()
 
 

@@ -8,6 +8,7 @@ is *one swap for a mixed batch*.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -17,9 +18,13 @@ from sqlalchemy import delete, select
 from app.core.arbiter import GpuArbiter
 from app.core.enums import JobType
 from app.core.events import EventBus
-from app.core.scheduler import Worker, friendly_job_error, plan_queue, select_in_tier
+from app.core.job_results import friendly_job_error
+from app.core.llm_tools import strip_reasoning
+from app.core.scheduler import Worker
+from app.core.scheduler_planning import plan_queue, select_in_tier
 from app.db.models import Job
 from app.db.session import init_db, session_scope
+from app.main import _event_loop_lag_ms, _mem_monitor, _shutdown_phase
 
 _BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -137,24 +142,24 @@ def test_three_models_interleaved_minimizes_swaps():
     assert swaps == 2
 
 
-# ----------------------------------------------------------- _strip_reasoning
+# ------------------------------------------------------------ strip_reasoning
 
 
 def test_strip_reasoning_removes_think_block():
-    assert Worker._strip_reasoning("before<think>secret</think>after") == "beforeafter"
+    assert strip_reasoning("before<think>secret</think>after") == "beforeafter"
 
 
 def test_strip_reasoning_handles_thinking_alias_and_case():
-    assert Worker._strip_reasoning("<THINKING>x</Thinking>answer") == "answer"
+    assert strip_reasoning("<THINKING>x</Thinking>answer") == "answer"
 
 
 def test_strip_reasoning_is_multiline():
     text = "<think>line1\nline2\nline3</think>\n\nFinal."
-    assert Worker._strip_reasoning(text) == "Final."
+    assert strip_reasoning(text) == "Final."
 
 
 def test_strip_reasoning_leaves_plain_text():
-    assert Worker._strip_reasoning("  just an answer  ") == "just an answer"
+    assert strip_reasoning("  just an answer  ") == "just an answer"
 
 
 # ---------------------------------------------------------- friendly errors
@@ -260,3 +265,68 @@ async def test_requeue_orphans_resets_running_jobs_on_restart(scheduler_db):
     by_model = {model_id: (status, progress) for model_id, status, progress in rows}
     assert by_model["llm"] == ("queued", 0.0)
     assert by_model["image"] == ("queued", 0.25)
+
+
+async def test_worker_stop_is_bounded_when_loop_does_not_exit():
+    worker = Worker(EventBus(), GpuArbiter(EventBus()), registry=object())
+    blocker = asyncio.Event()
+    worker._running = True
+    worker._task = asyncio.create_task(blocker.wait())
+    started = asyncio.get_running_loop().time()
+
+    completed = await worker.stop(
+        timeout=0.01,
+        cancel_timeout=0.05,
+        cleanup_arbiter=False,
+    )
+
+    elapsed = asyncio.get_running_loop().time() - started
+    assert completed is False
+    assert elapsed < 0.5
+    assert worker._task is None
+
+
+async def test_shutdown_phase_keeps_hard_bound_when_cancellation_is_ignored():
+    release = asyncio.Event()
+
+    async def cancellation_resistant() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    started = asyncio.get_running_loop().time()
+    result = await _shutdown_phase(
+        "test-resistant",
+        cancellation_resistant(),
+        timeout=0.01,
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert result is None
+    assert elapsed < 0.5
+    release.set()
+    await asyncio.sleep(0)
+
+
+def test_event_loop_lag_uses_monotonic_schedule_drift():
+    assert _event_loop_lag_ms(10.25, 10.0) == 250.0
+    assert _event_loop_lag_ms(9.5, 10.0) == 0.0
+
+
+async def test_mem_monitor_publishes_event_loop_lag(monkeypatch):
+    from app.config import settings
+    from app.util import sysmon
+
+    monkeypatch.setattr(settings, "mem_poll_seconds", 0.05)
+    monkeypatch.setattr(sysmon, "snapshot", lambda: {"ram": {"available_gb": 1.0}})
+    bus = EventBus()
+
+    async with bus.subscribe() as queue:
+        task = asyncio.create_task(_mem_monitor(bus))
+        event = await asyncio.wait_for(queue.get(), timeout=0.5)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert event["type"] == "mem.status"
+    assert event["event_loop_lag_ms"] >= 0.0

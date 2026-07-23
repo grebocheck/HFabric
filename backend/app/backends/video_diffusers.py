@@ -1,4 +1,4 @@
-"""Local Diffusers video backend (P27).
+"""Local Diffusers video backend.
 
 The STUB path deliberately depends only on the foundation stack. The real path
 loads local LTX/Wan repositories lazily, quantizes their heavy components while

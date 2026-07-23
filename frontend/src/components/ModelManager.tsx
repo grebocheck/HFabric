@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
+import { SNAPSHOT_REFRESH_EVENT } from "../api/sync";
 import { ModelDownloads } from "./ModelDownloads";
 import { Panel, SkeletonRows } from "./WorkspaceChrome";
 import { toast } from "./Toast";
@@ -11,23 +12,31 @@ type Pane = "download" | "all" | string;
 // Stable taxonomy order for the sidebar (kinds not present are skipped).
 const KIND_ORDER = ["image", "llm", "lora", "vision", "embed", "tts", "transcribe", "voice"];
 
-// Unified Model Manager (P25): a sidebar of kinds (count + total size) on the left,
+// Unified Model Manager: a sidebar of kinds (count + total size) on the left,
 // the download surface or a filtered installed list on the right.
 export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void }) {
   const [data, setData] = useState<InstalledModelsState | null>(null);
   const [pane, setPane] = useState<Pane>("all");
   const [deleting, setDeleting] = useState<string>("");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       setData(await api.installedModels());
-    } catch {
-      /* keep last known list if the backend blips */
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not refresh installed models");
     }
   }, []);
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const handleSnapshot = () => void refresh();
+    window.addEventListener(SNAPSHOT_REFRESH_EVENT, handleSnapshot);
+    return () => window.removeEventListener(SNAPSHOT_REFRESH_EVENT, handleSnapshot);
   }, [refresh]);
 
   const onDownloadsChanged = useCallback(() => {
@@ -46,9 +55,11 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
       s.bytes += item.size_bytes;
       map.set(item.kind, s);
     }
-    return KIND_ORDER
-      .filter((k) => map.has(k))
-      .map((k) => ({ kind: k, label: data?.kinds[k] ?? k, ...map.get(k)! }));
+    return KIND_ORDER.filter((k) => map.has(k)).map((k) => ({
+      kind: k,
+      label: data?.kinds[k] ?? k,
+      ...map.get(k)!,
+    }));
   }, [items, data]);
 
   const visibleItems = useMemo(
@@ -58,7 +69,12 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
 
   const del = async (item: InstalledModel) => {
     if (item.in_use) return;
-    if (!window.confirm(`Delete "${item.name}" (${fmtBytes(item.size_bytes)})? This removes the files from disk.`)) return;
+    if (
+      !window.confirm(
+        `Delete "${item.name}" (${fmtBytes(item.size_bytes)})? This removes the files from disk.`,
+      )
+    )
+      return;
     const key = `${item.kind}/${item.path}`;
     setDeleting(key);
     try {
@@ -80,21 +96,29 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
     }`;
 
   return (
-    <div className="flex h-full w-full gap-4 overflow-hidden">
-      <aside className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-border bg-panel p-2.5 shadow-panel">
+    <div className="flex h-full min-w-0 gap-4 overflow-hidden max-[760px]:block max-[760px]:overflow-x-hidden max-[760px]:overflow-y-auto">
+      <aside className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-border bg-panel p-2.5 shadow-panel max-[760px]:mb-3 max-[760px]:max-h-64 max-[760px]:w-full">
         <button onClick={() => setPane("download")} className={`${navItem(pane === "download")} font-medium`}>
-          <span className="flex items-center gap-2"><span className="text-accent">＋</span> Get models</span>
+          <span className="flex items-center gap-2">
+            <span className="text-accent">＋</span> Get models
+          </span>
         </button>
 
-        <div className="mt-1 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-ui-subtle">Installed</div>
+        <div className="mt-1 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-ui-subtle">
+          Installed
+        </div>
         <button onClick={() => setPane("all")} className={navItem(pane === "all")}>
           <span>All</span>
-          <span className="shrink-0 text-[11px] text-ui-subtle">{items.length} · {fmtBytes(data?.total_used_bytes ?? 0)}</span>
+          <span className="shrink-0 text-[11px] text-ui-subtle">
+            {items.length} · {fmtBytes(data?.total_used_bytes ?? 0)}
+          </span>
         </button>
         {kindStats.map((k) => (
           <button key={k.kind} onClick={() => setPane(k.kind)} className={navItem(pane === k.kind)}>
             <span className="min-w-0 truncate">{k.label}</span>
-            <span className="shrink-0 text-[11px] text-ui-subtle">{k.count} · {fmtBytes(k.bytes)}</span>
+            <span className="shrink-0 text-[11px] text-ui-subtle">
+              {k.count} · {fmtBytes(k.bytes)}
+            </span>
           </button>
         ))}
         {data && kindStats.length === 0 ? (
@@ -115,7 +139,7 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
         </div>
       </aside>
 
-      <div className="min-w-0 flex-1 overflow-y-auto">
+      <div className="min-w-0 flex-1 overflow-y-auto max-[760px]:overflow-visible">
         {pane === "download" ? (
           <ModelDownloads onModelsChanged={onDownloadsChanged} />
         ) : (
@@ -123,7 +147,7 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
             <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border px-4 py-3">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-ui-strong">
-                  {pane === "all" ? "All installed models" : data?.kinds[pane] ?? pane}
+                  {pane === "all" ? "All installed models" : (data?.kinds[pane] ?? pane)}
                 </div>
                 <div className="mt-0.5 text-xs text-ui-subtle">
                   {visibleItems.length} item{visibleItems.length === 1 ? "" : "s"} ·{" "}
@@ -135,7 +159,14 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              {!data ? (
+              {!data && loadError ? (
+                <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 text-center">
+                  <p className="max-w-sm text-sm text-error-fg">{loadError}</p>
+                  <button onClick={() => void refresh()} className="ui-button rounded-md px-3 py-1.5 text-xs">
+                    Retry
+                  </button>
+                </div>
+              ) : !data ? (
                 <SkeletonRows rows={5} />
               ) : visibleItems.length === 0 ? (
                 <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 text-center">
@@ -155,14 +186,26 @@ export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void
                       <li key={key} className="ui-card flex items-center gap-2.5 rounded-md px-3 py-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="truncate text-[13px] text-ui-strong" title={item.name}>{item.name}</span>
+                            <span className="truncate text-[13px] text-ui-strong" title={item.name}>
+                              {item.name}
+                            </span>
                             {pane === "all" ? (
-                              <span className="ui-chip rounded px-1.5 py-0.5 text-[10px]">{data.kinds[item.kind] ?? item.kind}</span>
+                              <span className="ui-chip rounded px-1.5 py-0.5 text-[10px]">
+                                {data.kinds[item.kind] ?? item.kind}
+                              </span>
                             ) : null}
-                            {item.is_dir ? <span className="ui-chip rounded px-1.5 py-0.5 text-[10px]">folder</span> : null}
-                            {item.in_use ? <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">on GPU</span> : null}
+                            {item.is_dir ? (
+                              <span className="ui-chip rounded px-1.5 py-0.5 text-[10px]">folder</span>
+                            ) : null}
+                            {item.in_use ? (
+                              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">
+                                on GPU
+                              </span>
+                            ) : null}
                           </div>
-                          <div className="mt-0.5 font-mono text-[11px] text-ui-subtle">{fmtBytes(item.size_bytes)}</div>
+                          <div className="mt-0.5 font-mono text-[11px] text-ui-subtle">
+                            {fmtBytes(item.size_bytes)}
+                          </div>
                         </div>
                         <button
                           onClick={() => void del(item)}

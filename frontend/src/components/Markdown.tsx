@@ -74,19 +74,22 @@ function CopyableInlineCode({ children }: { children?: ReactNode }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        console.warn("Could not copy inline code", error);
+      });
   };
 
   return (
-    <code
+    <button
+      type="button"
       onClick={copy}
       title={copied ? "copied" : "click to copy"}
-      className={`cursor-copy rounded px-1 py-0.5 text-[0.85em] transition ${
+      className={`cursor-copy rounded px-1 py-0.5 font-mono text-[0.85em] transition ${
         copied ? "bg-success-bg text-success-fg" : "bg-control hover:bg-control-hover"
       }`}
     >
       {children}
-    </code>
+    </button>
   );
 }
 
@@ -102,12 +105,15 @@ function PreBlock({ children }: { children?: ReactNode }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        console.warn("Could not copy code block", error);
+      });
   };
 
   return (
     <div className="group relative my-2">
       <button
+        type="button"
         onClick={() => copy(true)}
         className={`absolute right-2 top-2 rounded border border-white/15 bg-black/50 px-1.5 py-0.5 text-[10px] text-white/60 transition hover:bg-white/10 ${
           copied ? "opacity-100" : "opacity-0 group-hover:opacity-100"
@@ -117,9 +123,7 @@ function PreBlock({ children }: { children?: ReactNode }) {
       </button>
       <pre
         ref={ref}
-        onClick={() => copy(false)}
-        title="click to copy"
-        className="cursor-copy overflow-x-auto rounded-md border border-white/10 bg-black/50 p-3 text-xs leading-relaxed"
+        className="overflow-x-auto rounded-md border border-white/10 bg-black/50 p-3 text-xs leading-relaxed"
       >
         {children}
       </pre>

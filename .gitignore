@@ -63,3 +63,7 @@ Thumbs.db
 .env.local
 .coverage
 coverage.txt
+coverage.xml
+coverage.json
+coverage-summary.md
+test-results.xml
