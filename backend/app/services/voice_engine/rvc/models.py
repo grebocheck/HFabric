@@ -290,7 +290,12 @@ class SineGen(nn.Module):
         rad += self._rand_ini.to(dtype=f0.dtype)
         return torch.sin(2 * np.pi * rad)
 
-    def forward(self, f0: torch.Tensor, upp: int):
+    def forward(
+        self,
+        f0: torch.Tensor,
+        upp: int,
+        source_noise: Optional[torch.Tensor] = None,
+    ):
         with torch.no_grad():
             f0 = f0.unsqueeze(-1)
             sine_waves = self._f02sine(f0, upp) * self.sine_amp
@@ -301,7 +306,19 @@ class SineGen(nn.Module):
                 mode="nearest",
             ).transpose(2, 1)
             noise_amp = uv * self.noise_std + (1 - uv) * self.sine_amp / 3
-            noise = noise_amp * torch.randn_like(sine_waves)
+            if source_noise is None:
+                excitation = torch.randn_like(sine_waves)
+            else:
+                excitation = source_noise
+                if excitation.ndim == 2:
+                    excitation = excitation.unsqueeze(-1)
+                if excitation.size(1) < sine_waves.size(1):
+                    excitation = F.pad(excitation, (0, 0, sine_waves.size(1) - excitation.size(1), 0))
+                excitation = excitation[:, -sine_waves.size(1) :, :]
+                if excitation.size(-1) == 1 and sine_waves.size(-1) != 1:
+                    excitation = excitation.expand(-1, -1, sine_waves.size(-1))
+                excitation = excitation.to(device=sine_waves.device, dtype=sine_waves.dtype)
+            noise = noise_amp * excitation
             sine_waves = sine_waves * uv + noise
         return sine_waves, uv, noise
 
@@ -330,8 +347,13 @@ class SourceModuleHnNSF(nn.Module):
         self.l_linear = nn.Linear(harmonic_num + 1, 1)
         self.l_tanh = nn.Tanh()
 
-    def forward(self, x: torch.Tensor, upp: int = 1):
-        sine_wavs, uv, noise = self.l_sin_gen(x, upp)
+    def forward(
+        self,
+        x: torch.Tensor,
+        upp: int = 1,
+        source_noise: Optional[torch.Tensor] = None,
+    ):
+        sine_wavs, uv, noise = self.l_sin_gen(x, upp, source_noise=source_noise)
         sine_wavs = sine_wavs.to(dtype=self.l_linear.weight.dtype)
         sine_merge = self.l_tanh(self.l_linear(sine_wavs))
         return sine_merge, noise, uv
@@ -411,8 +433,9 @@ class GeneratorNSF(nn.Module):
         f0: torch.Tensor,
         g: Optional[torch.Tensor] = None,
         n_res: Optional[int] = None,
+        source_noise: Optional[torch.Tensor] = None,
     ):
-        har_source, _noise, _uv = self.m_source(f0, self.upp)
+        har_source, _noise, _uv = self.m_source(f0, self.upp, source_noise=source_noise)
         har_source = har_source.transpose(1, 2)
         if n_res is not None:
             n = n_res * self.upp
@@ -566,6 +589,7 @@ class SynthesizerTrnMs768NSFsid(_BaseSynthesizer):
         formant_length: Optional[int] = None,
         noise_scale: float = 0.66666,
         latent_noise: Optional[torch.Tensor] = None,
+        source_noise: Optional[torch.Tensor] = None,
     ):
         if return_length is None:
             return_length = int(phone_lengths.reshape(-1)[0].item()) - int(skip_head)
@@ -588,7 +612,7 @@ class SynthesizerTrnMs768NSFsid(_BaseSynthesizer):
         z = z[:, :, dec_head : dec_head + return_length]
         x_mask = x_mask[:, :, dec_head : dec_head + return_length]
         nsff0 = nsff0[:, int(skip_head) : int(skip_head) + return_length]
-        audio = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
+        audio = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length, source_noise=source_noise)
         return audio, x_mask, (z, z_p, m_p, logs_p)
 
 

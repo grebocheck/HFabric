@@ -7,7 +7,7 @@ import {
   RoutingApplyHint,
   type RoutingApplyState,
 } from "./VoicePanelParts";
-import { latencyPresets, sampleRates } from "./voiceHelpers";
+import { deviceNumericId, latencyPresets, sampleRates } from "./voiceHelpers";
 import type { VoiceAudioDevice } from "../types";
 
 type VoiceRoutingPanelProps = {
@@ -81,6 +81,11 @@ export function VoiceRoutingPanel({
   statusStub,
   virtualCableDetected,
 }: VoiceRoutingPanelProps) {
+  const selectedInput = inputDevices.find((device) => deviceNumericId(device) === inputDeviceId);
+  const selectedOutput = outputDevices.find((device) => deviceNumericId(device) === outputDeviceId);
+  const legacyHostApi = [selectedInput, selectedOutput].some((device) =>
+    String(device?.host_api ?? "").toLowerCase().includes("mme"),
+  );
   return (
     <Panel
       title="Routing And Timing"
@@ -134,6 +139,13 @@ export function VoiceRoutingPanel({
           />
         )}
       </div>
+
+      {legacyHostApi ? (
+        <div className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-100/80">
+          MME adds large driver buffers. Select the matching 48 kHz WASAPI microphone and virtual-cable
+          endpoints for lower latency and fewer underruns.
+        </div>
+      ) : null}
 
       {statusLoaded && !statusStub ? (
         <div
@@ -192,10 +204,14 @@ export function VoiceRoutingPanel({
           </div>
           <input
             type="number"
-            min={1}
-            max={1024}
+            min={30}
+            max={1020}
+            step={15}
             value={readChunkSize}
-            onChange={(event) => setReadChunkSize(clamp(Number(event.target.value), 1, 1024))}
+            onChange={(event) => {
+              const raw = clamp(Number(event.target.value), 30, 1020);
+              setReadChunkSize(Math.round(raw / 15) * 15);
+            }}
             className={field}
           />
         </div>
@@ -203,7 +219,7 @@ export function VoiceRoutingPanel({
 
       <div className="mt-4 grid gap-4">
         <LabeledSlider
-          label="Extra buffer"
+          label="Analysis context"
           value={extraConvert}
           min={0}
           max={10}

@@ -7,18 +7,18 @@ import { useVoiceOfflineConversion } from "./useVoiceOfflineConversion";
 import { useVoicePresets } from "./useVoicePresets";
 import { clamp, focusIsTextEntry, parseApiError, routingKey } from "./VoicePanelControls";
 import {
-  clearVoicePreset,
   feminineVoicePreset,
   latencyPresets,
+  lowLatencyVoicePreset,
   nativeRoutingSettingsPatch,
   nativeSettingsToVoiceState,
   nativeTuningSettingsPatch,
   nativeVoicePresetSettingsPatch,
   num,
-  recommendedVoicePreset,
+  qualityVoicePreset,
   resolveMonitorDeviceId,
   selectedNativeModelId,
-  smoothVoicePreset,
+  stableVoicePreset,
   waveformSlots,
 } from "./voiceHelpers";
 import type {
@@ -29,9 +29,9 @@ import type {
 } from "../types";
 
 type Profile =
-  | typeof recommendedVoicePreset
-  | typeof clearVoicePreset
-  | typeof smoothVoicePreset
+  | typeof stableVoicePreset
+  | typeof lowLatencyVoicePreset
+  | typeof qualityVoicePreset
   | typeof feminineVoicePreset;
 
 const virtualCablePattern =
@@ -54,12 +54,12 @@ export function useVoiceSessionController() {
   const [inputHighpassHz, setInputHighpassHz] = useState(80);
   const [inputDenoise, setInputDenoise] = useState<"off" | "dtln">("off");
   const [inputDenoiseMix, setInputDenoiseMix] = useState(0.75);
-  const [silenceThresholdDb, setSilenceThresholdDb] = useState(-72);
-  const [silenceHoldMs, setSilenceHoldMs] = useState(250);
-  const [indexRatio, setIndexRatio] = useState(0.55);
-  const [protect, setProtect] = useState(0.5);
-  const [noiseScale, setNoiseScale] = useState(0.66666);
-  const [f0Smoothing, setF0Smoothing] = useState(0);
+  const [silenceThresholdDb, setSilenceThresholdDb] = useState(-54);
+  const [silenceHoldMs, setSilenceHoldMs] = useState(200);
+  const [indexRatio, setIndexRatio] = useState(0.35);
+  const [protect, setProtect] = useState(0.33);
+  const [noiseScale, setNoiseScale] = useState(0.35);
+  const [f0Smoothing, setF0Smoothing] = useState(0.2);
   const [f0Detector, setF0Detector] = useState("fcpe");
   const [passThrough, setPassThrough] = useState(false);
   const [ptt, setPtt] = useState(false);
@@ -67,9 +67,9 @@ export function useVoiceSessionController() {
   const [outputDeviceId, setOutputDeviceId] = useState(-1);
   const [monitorDeviceId, setMonitorDeviceId] = useState(-1);
   const [sampleRate, setSampleRate] = useState(48000);
-  const [readChunkSize, setReadChunkSize] = useState(133);
-  const [crossFadeOverlap, setCrossFadeOverlap] = useState(0.05);
-  const [extraConvert, setExtraConvert] = useState(2);
+  const [readChunkSize, setReadChunkSize] = useState(90);
+  const [crossFadeOverlap, setCrossFadeOverlap] = useState(0.03);
+  const [extraConvert, setExtraConvert] = useState(1);
   const [inputGain, setInputGain] = useState(1);
   const [outputGain, setOutputGain] = useState(1);
   const [monitorGain, setMonitorGain] = useState(1);
@@ -81,13 +81,11 @@ export function useVoiceSessionController() {
     offlineBusy,
     offlineError,
     offlineFile,
-    offlineFormant,
     offlineModelId,
     offlinePitch,
     offlineResult,
     onOfflineConvert,
     setOfflineFile,
-    setOfflineFormant,
     setOfflineModelId,
     setOfflinePitch,
   } = useVoiceOfflineConversion({
@@ -97,7 +95,6 @@ export function useVoiceSessionController() {
     noiseScale,
     f0Smoothing,
     inputHighpassHz,
-    inputGateDb,
     inputDenoise,
     inputDenoiseMix,
   });
@@ -208,7 +205,6 @@ export function useVoiceSessionController() {
   const protectRisk = protect >= 0.5;
   const plus12Tuning = pitch >= 12;
   const indexRisk = plus12Tuning && indexRatio > 0.45;
-  const noiseRisk = plus12Tuning && (noiseScale < 0.4 || noiseScale > 0.6);
   const outputPeak = status?.metrics.output_peak ?? 0;
   const outputPeakTone: "amber" | "sky" =
     outputPeak >= 0.85 || (status?.metrics.limiter_reduction_db ?? 0) > 0 ? "amber" : "sky";
@@ -274,20 +270,20 @@ export function useVoiceSessionController() {
       (prev) => selectedNativeModelId(status.models, prev || nextModelId, status.loaded_model) || prev,
     );
     const next = nativeSettingsToVoiceState(status.settings);
+    const nextModel = status.models.find((model) => model.id === nextModelId);
 
     if (!tuningDirty) {
       setPitch(next.pitch);
       setOfflinePitch(next.pitch);
       setSpeakerId(next.speakerId);
-      setFormantShift(next.formantShift);
-      setOfflineFormant(next.formantShift);
-      setInputGateDb(next.inputGateDb);
+      setFormantShift(0);
+      setInputGateDb(-90);
       setInputHighpassHz(next.inputHighpassHz);
       setInputDenoise(next.inputDenoise);
       setInputDenoiseMix(next.inputDenoiseMix);
       setSilenceThresholdDb(next.silenceThresholdDb);
       setSilenceHoldMs(next.silenceHoldMs);
-      setIndexRatio(next.indexRatio);
+      setIndexRatio(nextModel?.has_index ? next.indexRatio : 0);
       setProtect(next.protect);
       setNoiseScale(next.noiseScale);
       setF0Smoothing(next.f0Smoothing);
@@ -311,7 +307,6 @@ export function useVoiceSessionController() {
   }, [
     modelId,
     routingApplyState,
-    setOfflineFormant,
     setOfflineModelId,
     setOfflinePitch,
     status,
@@ -369,12 +364,6 @@ export function useVoiceSessionController() {
     const next = clamp(Math.round(value), -24, 24);
     setPitch(next);
     setOfflinePitch(next);
-    markTuning();
-  };
-  const setDraftFormant = (value: number) => {
-    const next = clamp(value, -2, 2);
-    setFormantShift(next);
-    setOfflineFormant(next);
     markTuning();
   };
   const setDraftSpeakerId = (value: number) => {
@@ -515,22 +504,22 @@ export function useVoiceSessionController() {
 
   const applyQualityProfile = (label: string, profile: Profile, pitchOverride?: number) => {
     const nextPitch = pitchOverride ?? pitch;
+    const nextIndexRatio = selected?.has_index ? profile.indexRatio : 0;
     setPitch(nextPitch);
     setOfflinePitch(nextPitch);
-    setFormantShift(profile.formantShift);
-    setOfflineFormant(profile.formantShift);
+    setFormantShift(0);
     setInputDenoise(profile.inputDenoise);
     setInputDenoiseMix(profile.inputDenoiseMix);
     setInputHighpassHz(profile.inputHighpassHz);
     setInputGateDb(profile.inputGateDb);
     setSilenceThresholdDb(profile.silenceThresholdDb);
     setSilenceHoldMs(profile.silenceHoldMs);
-    setIndexRatio(profile.indexRatio);
+    setIndexRatio(nextIndexRatio);
     setProtect(profile.protect);
     setNoiseScale(profile.noiseScale);
     setF0Smoothing(profile.f0Smoothing);
-    const nextF0Detector = "f0Detector" in profile ? profile.f0Detector : f0Detector;
-    if ("f0Detector" in profile) setF0Detector(nextF0Detector);
+    const nextF0Detector = profile.f0Detector;
+    setF0Detector(nextF0Detector);
     setReadChunkSize(profile.readChunkSize);
     setCrossFadeOverlap(profile.crossFadeOverlap);
     setExtraConvert(profile.extraConvert);
@@ -539,18 +528,18 @@ export function useVoiceSessionController() {
       label,
       {
         pitch: nextPitch,
-        input_formant: profile.formantShift,
+        input_formant: 0,
         input_denoise: profile.inputDenoise,
         input_denoise_mix: profile.inputDenoiseMix,
         input_highpass_hz: profile.inputHighpassHz,
         input_gate_db: profile.inputGateDb,
         silence_threshold_db: profile.silenceThresholdDb,
         silence_hold_ms: profile.silenceHoldMs,
-        index_ratio: profile.indexRatio,
+        index_ratio: nextIndexRatio,
         protect: profile.protect,
         noise_scale: profile.noiseScale,
         f0_smoothing: profile.f0Smoothing,
-        ...("f0Detector" in profile ? { f0_detector: nextF0Detector } : {}),
+        f0_detector: nextF0Detector,
         server_read_chunk_size: profile.readChunkSize,
         cross_fade_overlap_size: profile.crossFadeOverlap,
         extra_convert_size: profile.extraConvert,
@@ -560,9 +549,9 @@ export function useVoiceSessionController() {
     );
   };
 
-  const onRecommended = () => applyQualityProfile("recommended", recommendedVoicePreset);
-  const onClear = () => applyQualityProfile("clear-preset", clearVoicePreset);
-  const onSmooth = () => applyQualityProfile("smooth-preset", smoothVoicePreset);
+  const onStable = () => applyQualityProfile("stable-preset", stableVoicePreset);
+  const onLowLatency = () => applyQualityProfile("low-latency-preset", lowLatencyVoicePreset);
+  const onQuality = () => applyQualityProfile("quality-preset", qualityVoicePreset);
   const onFeminine = () =>
     applyQualityProfile("female-preset", feminineVoicePreset, feminineVoicePreset.pitch);
 
@@ -687,31 +676,26 @@ export function useVoiceSessionController() {
       canApply,
       f0Detector,
       f0Smoothing,
-      formantShift,
       indexRatio,
       indexRisk,
       inputDenoise,
       inputDenoiseMix,
-      inputGateDb,
       inputHighpassHz,
       markTuning,
-      noiseRisk,
-      noiseScale,
       onBypass,
-      onClear,
       onFeminine,
+      onLowLatency,
       onPtt,
-      onRecommended,
-      onSmooth,
+      onQuality,
+      onStable,
       passThrough,
       pitch,
-      plus12Tuning,
       protect,
       protectRisk,
       ptt,
+      selectedHasIndex: Boolean(selected?.has_index),
       selectedName: selected?.name ?? "no voice selected",
       selectedSupportsPitch,
-      setDraftFormant,
       setDraftPitch,
       setDraftSpeakerId,
       setF0Detector,
@@ -719,9 +703,7 @@ export function useVoiceSessionController() {
       setIndexRatio,
       setInputDenoise,
       setInputDenoiseMix,
-      setInputGateDb,
       setInputHighpassHz,
-      setNoiseScale,
       setProtect,
       setSilenceHoldMs,
       setSilenceThresholdDb,
@@ -785,14 +767,12 @@ export function useVoiceSessionController() {
       offlineBusy,
       offlineError,
       offlineFile,
-      offlineFormant,
       offlineModelId,
       offlinePitch,
       offlineResult,
       onOfflineConvert,
       ready,
       setOfflineFile,
-      setOfflineFormant,
       setOfflineModelId,
       setOfflinePitch,
       voiceOptions,

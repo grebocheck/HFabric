@@ -128,7 +128,14 @@ export function VoiceLiveConsolePanel({
           tone="sky"
         />
         <Meter label="Output peak" value={meter(outputPeak)} tone={outputPeakTone} />
-        <LatencyMeter value={status?.metrics.total_ms ?? status?.metrics.chunk_ms} />
+        <LatencyMeter
+          value={
+            status?.metrics.measured_latency_p95_ms ??
+            status?.metrics.measured_latency_ms ??
+            status?.metrics.estimated_latency_ms ??
+            status?.metrics.chunk_ms
+          }
+        />
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(250px,0.75fr)]">
@@ -246,6 +253,19 @@ export function VoiceLiveConsolePanel({
         <Badge color={status?.metrics.latency_warning ? "bg-warn-bg text-warn-fg" : "ui-chip"}>
           p95 {formatMs(status?.metrics.total_p95_ms)}
         </Badge>
+        <Badge>input q {formatMs(status?.metrics.input_queue_ms)}</Badge>
+        <Badge>output q {formatMs(status?.metrics.output_queue_ms)}</Badge>
+        {status?.metrics.clock_drift_ppm != null ? (
+          <Badge
+            color={
+              Math.abs(status.metrics.clock_drift_ppm) > 100
+                ? "bg-warn-bg text-warn-fg"
+                : "ui-chip"
+            }
+          >
+            drift {status.metrics.clock_drift_ppm.toFixed(1)} ppm
+          </Badge>
+        ) : null}
         <Badge
           color={
             status?.metrics.squelched

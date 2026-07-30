@@ -67,7 +67,13 @@ def _clamp_sample_rate(value: int) -> int:
 
 
 def _clamp_chunk_size(value: int) -> int:
-    return max(1, min(1_024, int(value)))
+    # Realtime analysis advances on a 640-sample grid at 16 kHz. At the
+    # supported 48 kHz routing rate one UI unit is 128 samples, so multiples of
+    # 15 map exactly to that grid. Quantizing here prevents the worker from
+    # producing 240 ms for a 256 ms capture chunk (the old chunk=96 default),
+    # which periodically starved the PortAudio output callback.
+    bounded = max(30, min(1_020, int(value)))
+    return max(30, min(1_020, int(round(bounded / 15.0)) * 15))
 
 
 def _clamp_seconds(value: float, *, min_value: float, max_value: float) -> float:
@@ -125,8 +131,8 @@ class VoiceEngine:
         self.f0_smoothing = _clamp_ratio(settings.voice_f0_smoothing)
         self.f0_detector = _validate_f0_detector(settings.voice_f0_detector)
         self.input_highpass_hz = dsp.clamp_input_highpass_hz(settings.voice_input_highpass_hz)
-        self.input_gate_db = dsp.clamp_input_gate_db(settings.voice_input_gate_db)
-        self.input_formant = dsp.clamp_input_formant(settings.voice_input_formant)
+        self.input_gate_db = dsp.GATE_OFF_DB
+        self.input_formant = dsp.DEFAULT_INPUT_FORMANT
         self.input_denoise = _validate_input_denoise(settings.voice_input_denoise)
         self.input_denoise_mix = _clamp_ratio(settings.voice_input_denoise_mix)
         self.silence_threshold_db = dsp.clamp_silence_threshold_db(dsp.DEFAULT_SILENCE_THRESHOLD_DB)
@@ -140,9 +146,9 @@ class VoiceEngine:
         self.server_monitor_gain = 1.0
         # Realtime session knobs; w-okada conventions are kept for UI parity.
         self.server_audio_sample_rate = 48_000
-        self.server_read_chunk_size = 133
-        self.cross_fade_overlap_size = 0.05
-        self.extra_convert_size = 2.0
+        self.server_read_chunk_size = 90
+        self.cross_fade_overlap_size = 0.03
+        self.extra_convert_size = 1.0
         self.pass_through = False
 
     @staticmethod
@@ -240,10 +246,13 @@ class VoiceEngine:
             self.f0_detector = _validate_f0_detector(str(data["f0_detector"]))
         if data.get("input_highpass_hz") is not None:
             self.input_highpass_hz = dsp.clamp_input_highpass_hz(data["input_highpass_hz"])
+        # Retain the legacy wire fields, but keep them neutral. The old frame
+        # gate was offline-only and the formant resampler made realtime timing
+        # and overlap synthesis less stable.
         if data.get("input_gate_db") is not None:
-            self.input_gate_db = dsp.clamp_input_gate_db(data["input_gate_db"])
+            self.input_gate_db = dsp.GATE_OFF_DB
         if data.get("input_formant") is not None:
-            self.input_formant = dsp.clamp_input_formant(data["input_formant"])
+            self.input_formant = dsp.DEFAULT_INPUT_FORMANT
         if data.get("input_denoise") is not None:
             self.input_denoise = _validate_input_denoise(data["input_denoise"])
         if data.get("input_denoise_mix") is not None:
@@ -375,10 +384,8 @@ class VoiceEngine:
                 if input_highpass_hz is None
                 else dsp.clamp_input_highpass_hz(input_highpass_hz)
             ),
-            input_gate_db=(
-                self.input_gate_db if input_gate_db is None else dsp.clamp_input_gate_db(input_gate_db)
-            ),
-            input_formant=self.input_formant if input_formant is None else dsp.clamp_input_formant(input_formant),
+            input_gate_db=dsp.GATE_OFF_DB,
+            input_formant=dsp.DEFAULT_INPUT_FORMANT,
             input_denoise=self.input_denoise if input_denoise is None else _validate_input_denoise(input_denoise),
             input_denoise_mix=(
                 self.input_denoise_mix if input_denoise_mix is None else _clamp_ratio(input_denoise_mix)

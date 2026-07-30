@@ -360,7 +360,7 @@ function presetMetric(preset: VoiceEnginePreset, key: keyof VoiceEngineSettingsU
   const value = preset.settings[key];
   if (value === null || value === undefined || value === "") return fallback;
   if (typeof value === "number") {
-    if (key === "input_formant" || key === "index_ratio" || key === "noise_scale" || key === "f0_smoothing") {
+    if (key === "index_ratio" || key === "noise_scale" || key === "f0_smoothing") {
       return value.toFixed(2);
     }
     return String(value);
@@ -410,9 +410,8 @@ export function PresetCard({
           </div>
           {preset.model_id ? <Badge color="bg-sky-700/45 text-sky-100">model</Badge> : <Badge>settings</Badge>}
         </div>
-        <div className="mt-3 grid grid-cols-4 gap-1.5">
+        <div className="mt-3 grid grid-cols-3 gap-1.5">
           <PresetMini label="pitch" value={presetMetric(preset, "pitch", "0")} />
-          <PresetMini label="form" value={presetMetric(preset, "input_formant", "0.00")} />
           <PresetMini label="idx" value={presetMetric(preset, "index_ratio", "0.00")} />
           <PresetMini label="chunk" value={presetMetric(preset, "server_read_chunk_size", "...")} />
         </div>

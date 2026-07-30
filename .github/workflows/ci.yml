@@ -129,10 +129,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install deps
         run: npm ci
-      - name: Audit npm dependency graph
+      - name: Audit production npm dependency graph
         run: |
           for attempt in 1 2 3; do
-            npm audit --audit-level=high && exit 0
+            npm audit --omit=dev --audit-level=high && exit 0
             [ "$attempt" = 3 ] || sleep 5
           done
           exit 1

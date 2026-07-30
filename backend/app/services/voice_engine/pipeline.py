@@ -11,6 +11,8 @@ from . import dsp
 from .f0 import create_f0_extractor
 from .features import ContentVec
 
+SYNTH_WARMUP_FRAMES = 24
+
 
 def _ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000.0, 3)
@@ -54,6 +56,43 @@ def _resize_1d(values, target: int):
     old = np.linspace(0.0, 1.0, num=arr.size, endpoint=True)
     new = np.linspace(0.0, 1.0, num=target, endpoint=True)
     return np.interp(new, old, arr).astype(np.float32)
+
+
+def _resize_f0_preserve_uv(values, target: int):
+    """Resize F0 without interpolating pitch through unvoiced consonants."""
+    import numpy as np  # noqa: PLC0415
+
+    arr = np.asarray(values, dtype=np.float32).reshape(-1)
+    if arr.size == target:
+        return arr.astype(np.float32, copy=True)
+    if arr.size == 0:
+        return np.zeros(target, dtype=np.float32)
+
+    coords = np.linspace(0.0, float(arr.size - 1), num=target, endpoint=True)
+    nearest = np.clip(np.rint(coords).astype(np.int64), 0, arr.size - 1)
+    voiced = arr[nearest] > 0.0
+    out = np.zeros(target, dtype=np.float32)
+    idx = 0
+    while idx < target:
+        if not voiced[idx]:
+            idx += 1
+            continue
+        start = idx
+        while idx < target and voiced[idx]:
+            idx += 1
+        end = idx
+        source_start = int(nearest[start])
+        source_end = int(nearest[end - 1])
+        while source_start > 0 and arr[source_start - 1] > 0.0:
+            source_start -= 1
+        while source_end + 1 < arr.size and arr[source_end + 1] > 0.0:
+            source_end += 1
+        source_pos = np.arange(source_start, source_end + 1, dtype=np.float32)
+        source_log = np.log(np.maximum(arr[source_start : source_end + 1], 1e-6))
+        out[start:end] = np.exp(
+            np.interp(coords[start:end], source_pos, source_log)
+        ).astype(np.float32)
+    return out
 
 
 def _median_filter(values, width: int):
@@ -371,6 +410,10 @@ def convert_audio(
     external_formant_factor: float | None = None,
     compensate_duration: bool = True,
     latent_noise: Any | None = None,
+    source_noise: Any | None = None,
+    normalize_peak: bool = True,
+    f0_audio_16k: Any | None = None,
+    synthesis_tail_frames: int | None = None,
 ):
     """Shared conversion core: 16 kHz mono float32 array -> (audio @ model sr,
     sr, per-stage timings). The offline file path and the realtime chunk
@@ -390,6 +433,11 @@ def convert_audio(
     timings: dict[str, float] = {}
 
     audio = np.asarray(audio_16k, dtype=np.float32).reshape(-1)
+    raw_f0_audio = (
+        np.asarray(f0_audio_16k, dtype=np.float32).reshape(-1)
+        if f0_audio_16k is not None
+        else audio
+    )
     if denoiser is not None:
         stage = time.perf_counter()
         raw_audio = audio
@@ -415,6 +463,23 @@ def convert_audio(
     else:
         analysis_audio = audio
         formant_factor = float(external_formant_factor)
+    if raw_f0_audio.size != analysis_audio.size:
+        aligned = min(raw_f0_audio.size, analysis_audio.size)
+        raw_f0_audio = raw_f0_audio[-aligned:]
+        analysis_audio = analysis_audio[-aligned:]
+    if f0_audio_16k is None:
+        # Content features benefit from the user-selected speech high-pass and
+        # optional denoise. Pitch tracking does not: an 80 Hz cutoff can erase
+        # the fundamental of a low voice, while enhancement can remove quiet
+        # harmonics. Keep only sub-audible rumble out of the independent F0
+        # branch. Realtime supplies an already statefully filtered F0 stream.
+        f0_analysis_audio = dsp.apply_highpass(
+            raw_f0_audio,
+            cutoff_hz=35,
+            sample_rate=16_000,
+        )
+    else:
+        f0_analysis_audio = raw_f0_audio
 
     stage = time.perf_counter()
     base_features = loaded.content_vec.extract(analysis_audio)
@@ -434,8 +499,8 @@ def convert_audio(
     stage = time.perf_counter()
     if loaded.f0:
         extractor = create_f0_extractor(f0_detector, loaded.f0_model_path, device)
-        f0 = extractor.compute(analysis_audio, sr=16000)
-        f0 = _resize_1d(f0, features.shape[0])
+        f0 = extractor.compute(f0_analysis_audio, sr=16000)
+        f0 = _resize_f0_preserve_uv(f0, features.shape[0])
         f0 = dsp.compensate_f0_for_input_formant(f0, formant_factor)
         if pitch:
             f0 = f0 * (2.0 ** (float(pitch) / 12.0))
@@ -454,10 +519,30 @@ def convert_audio(
     phone_lengths = torch.tensor([features.shape[0]], device=device, dtype=torch.long)
     sid_value = loaded.default_speaker_id if speaker_id is None else _clamp_speaker_id(speaker_id, loaded.speaker_count)
     sid = torch.tensor([sid_value], device=device, dtype=torch.long)
+    if synthesis_tail_frames is None:
+        skip_head = 0
+        return_length = features.shape[0]
+        synth_skip_head = skip_head
+        synth_return_length = return_length
+        synth_warmup_frames = 0
+    else:
+        return_length = max(1, min(features.shape[0], int(synthesis_tail_frames)))
+        skip_head = max(0, features.shape[0] - return_length)
+        # NSF phase generation and the convolutional decoder need left
+        # context. Decode a fixed 240 ms warm-up before the requested tail,
+        # then crop it from the waveform. This retains seam stability while
+        # avoiding re-decoding the full 0.8-1.5 s analysis window.
+        synth_warmup_frames = min(SYNTH_WARMUP_FRAMES, skip_head)
+        synth_skip_head = skip_head - synth_warmup_frames
+        synth_return_length = return_length + synth_warmup_frames
     latent_tensor = None
     if latent_noise is not None:
         latent_array = np.ascontiguousarray(np.asarray(latent_noise, dtype=np.float32))
         latent_tensor = torch.from_numpy(latent_array)[None, :, :].to(device=device, dtype=torch.float32)
+    source_noise_tensor = None
+    if source_noise is not None:
+        source_noise_array = np.ascontiguousarray(np.asarray(source_noise, dtype=np.float32).reshape(1, -1, 1))
+        source_noise_tensor = torch.from_numpy(source_noise_array).to(device=device, dtype=torch.float32)
     with torch.no_grad():
         if loaded.f0:
             assert pitch_coarse is not None and f0 is not None
@@ -469,21 +554,32 @@ def convert_audio(
                 pitch_tensor,
                 f0_tensor,
                 sid,
+                skip_head=synth_skip_head,
+                return_length=synth_return_length,
                 noise_scale=float(noise_scale),
                 latent_noise=latent_tensor,
+                source_noise=source_noise_tensor,
             )[0]
         else:
             output = loaded.synthesizer.infer(
                 phone,
                 phone_lengths,
                 sid,
+                skip_head=synth_skip_head,
+                return_length=synth_return_length,
                 noise_scale=float(noise_scale),
                 latent_noise=latent_tensor,
             )[0]
     timings["synth"] = _ms(stage)
+    timings["synth_skip_frames"] = float(skip_head)
+    timings["synth_return_frames"] = float(return_length)
+    timings["synth_warmup_frames"] = float(synth_warmup_frames)
 
     stage = time.perf_counter()
     out = output.detach().cpu().numpy().reshape(-1).astype(np.float32)
+    if synth_warmup_frames:
+        warmup_samples = int(round(synth_warmup_frames * loaded.sample_rate / 100.0))
+        out = out[min(warmup_samples, out.size) :]
     if compensate_duration:
         out = dsp.compensate_output_duration_for_input_formant(
             out,
@@ -491,7 +587,7 @@ def convert_audio(
             sample_rate=loaded.sample_rate,
         )
     peak = float(np.max(np.abs(out))) if out.size else 0.0
-    if peak > 1.0:
+    if normalize_peak and peak > 1.0:
         out = out / peak
     timings["postprocess"] = _ms(stage)
     return out, loaded.sample_rate, timings

@@ -8,31 +8,26 @@ type VoiceTuningPanelProps = {
   canApply: boolean;
   f0Detector: string;
   f0Smoothing: number;
-  formantShift: number;
   indexRatio: number;
   indexRisk: boolean;
   inputDenoise: "off" | "dtln";
   inputDenoiseMix: number;
-  inputGateDb: number;
   inputHighpassHz: number;
-  noiseRisk: boolean;
-  noiseScale: number;
   markTuning: () => void;
   onBypass: (next: boolean) => void;
-  onClear: () => void;
   onFeminine: () => void;
+  onLowLatency: () => void;
   onPtt: (next: boolean) => void;
-  onRecommended: () => void;
-  onSmooth: () => void;
+  onQuality: () => void;
+  onStable: () => void;
   passThrough: boolean;
   pitch: number;
-  plus12Tuning: boolean;
   protect: number;
   protectRisk: boolean;
   ptt: boolean;
+  selectedHasIndex: boolean;
   selectedName: string;
   selectedSupportsPitch: boolean;
-  setDraftFormant: (value: number) => void;
   setDraftPitch: (value: number) => void;
   setDraftSpeakerId: (value: number) => void;
   setF0Detector: (value: string) => void;
@@ -40,9 +35,7 @@ type VoiceTuningPanelProps = {
   setIndexRatio: (value: number) => void;
   setInputDenoise: (value: "off" | "dtln") => void;
   setInputDenoiseMix: (value: number) => void;
-  setInputGateDb: (value: number) => void;
   setInputHighpassHz: (value: number) => void;
-  setNoiseScale: (value: number) => void;
   setProtect: (value: number) => void;
   setSilenceHoldMs: (value: number) => void;
   setSilenceThresholdDb: (value: number) => void;
@@ -57,31 +50,26 @@ export function VoiceTuningPanel({
   canApply,
   f0Detector,
   f0Smoothing,
-  formantShift,
   indexRatio,
   indexRisk,
   inputDenoise,
   inputDenoiseMix,
-  inputGateDb,
   inputHighpassHz,
-  noiseRisk,
-  noiseScale,
   markTuning,
   onBypass,
-  onClear,
   onFeminine,
+  onLowLatency,
   onPtt,
-  onRecommended,
-  onSmooth,
+  onQuality,
+  onStable,
   passThrough,
   pitch,
-  plus12Tuning,
   protect,
   protectRisk,
   ptt,
+  selectedHasIndex,
   selectedName,
   selectedSupportsPitch,
-  setDraftFormant,
   setDraftPitch,
   setDraftSpeakerId,
   setF0Detector,
@@ -89,9 +77,7 @@ export function VoiceTuningPanel({
   setIndexRatio,
   setInputDenoise,
   setInputDenoiseMix,
-  setInputGateDb,
   setInputHighpassHz,
-  setNoiseScale,
   setProtect,
   setSilenceHoldMs,
   setSilenceThresholdDb,
@@ -106,22 +92,22 @@ export function VoiceTuningPanel({
       eyebrow={selectedName}
       aside={
         <div className="flex flex-wrap justify-end gap-1.5">
-          <Button onClick={onRecommended} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
-            {busy === "recommended" ? "Applying..." : "Baseline"}
+          <Button onClick={onStable} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
+            {busy === "stable-preset" ? "Applying..." : "Stable"}
           </Button>
-          <Button onClick={onClear} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
-            {busy === "clear-preset" ? "Applying..." : "Clear"}
+          <Button onClick={onLowLatency} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
+            {busy === "low-latency-preset" ? "Applying..." : "Low latency"}
           </Button>
-          <Button onClick={onSmooth} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
-            {busy === "smooth-preset" ? "Applying..." : "Smooth"}
+          <Button onClick={onQuality} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
+            {busy === "quality-preset" ? "Applying..." : "Quality"}
           </Button>
           <Button onClick={onFeminine} disabled={!canApply} tone="ghost" className="px-2 py-1 text-xs">
-            {busy === "female-preset" ? "Applying..." : "Female +12 RMVPE"}
+            {busy === "female-preset" ? "Applying..." : "Female +10"}
           </Button>
         </div>
       }
     >
-      <div className="grid gap-3 lg:grid-cols-[minmax(260px,0.75fr)_minmax(0,1fr)]">
+      <div className="grid gap-3">
         <SignedControl
           label="Pitch"
           value={pitch}
@@ -132,16 +118,6 @@ export function VoiceTuningPanel({
           unit=" st"
           quick={[-12, -7, 0, 7, 12]}
           note={selectedSupportsPitch ? "f0 model" : "no-f0 model"}
-        />
-        <SignedControl
-          label="Formant"
-          value={formantShift}
-          min={-2}
-          max={2}
-          step={0.05}
-          precision={2}
-          onChange={setDraftFormant}
-          quick={[-0.5, 0, 0.5]}
         />
       </div>
 
@@ -213,21 +189,27 @@ export function VoiceTuningPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <LabeledSlider
-          label="Index ratio"
-          value={indexRatio}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(value) => {
-            setIndexRatio(value);
-            markTuning();
-          }}
-          valueLabel={indexRatio.toFixed(2)}
-          tone={indexRisk ? "warn" : "neutral"}
-          note={plus12Tuning ? "safe zone +12: 0.25-0.35" : "speech safe zone: 0.20-0.45"}
-        />
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {selectedHasIndex ? (
+          <LabeledSlider
+            label="Index blend"
+            value={indexRatio}
+            min={0}
+            max={0.6}
+            step={0.01}
+            onChange={(value) => {
+              setIndexRatio(value);
+              markTuning();
+            }}
+            valueLabel={indexRatio.toFixed(2)}
+            tone={indexRisk ? "warn" : "neutral"}
+            note="model has a retrieval index"
+          />
+        ) : (
+          <div className="ui-card rounded-md px-3 py-2 text-sm text-ui-subtle">
+            Retrieval index is unavailable for this voice; index blending is disabled.
+          </div>
+        )}
         <LabeledSlider
           label="Protect"
           value={protect}
@@ -243,20 +225,6 @@ export function VoiceTuningPanel({
           note={protectRisk ? "risk zone: consonant protection off" : "safe zone: 0.25-0.35"}
         />
         <LabeledSlider
-          label="Noise scale"
-          value={noiseScale}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(value) => {
-            setNoiseScale(value);
-            markTuning();
-          }}
-          valueLabel={noiseScale.toFixed(2)}
-          tone={noiseRisk ? "warn" : "neutral"}
-          note={plus12Tuning ? "safe zone +12: 0.45-0.55" : "speech safe zone: 0.45-0.60"}
-        />
-        <LabeledSlider
           label="F0 smooth"
           value={f0Smoothing}
           min={0}
@@ -270,19 +238,7 @@ export function VoiceTuningPanel({
         />
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <LabeledSlider
-          label="Noise gate"
-          value={inputGateDb}
-          min={-90}
-          max={-20}
-          step={1}
-          onChange={(value) => {
-            setInputGateDb(value);
-            markTuning();
-          }}
-          valueLabel={inputGateDb <= -90 ? "off" : `${inputGateDb.toFixed(0)} dB`}
-        />
+      <div className="mt-4 grid gap-4 md:grid-cols-3">
         <LabeledSlider
           label="Idle squelch"
           value={silenceThresholdDb}

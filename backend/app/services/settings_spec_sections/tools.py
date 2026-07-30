@@ -57,13 +57,12 @@ TOOL_SPECS = (
     integer("voice_speaker_id", "Speaker ID", _VOICE, minimum=0, maximum=255, step=1),
     number("voice_index_ratio", "Index ratio", _VOICE, minimum=0, maximum=1, step=0.01),
     number("voice_protect", "Protect", _VOICE, minimum=0, maximum=1, step=0.01),
-    number("voice_noise_scale", "Noise scale", _VOICE, minimum=0, maximum=1, step=0.01),
     number("voice_f0_smoothing", "F0 smoothing", _VOICE, minimum=0, maximum=1, step=0.01),
     choice(
         "voice_f0_detector",
         "F0 detector",
         _VOICE,
-        choices(("fcpe", "rmvpe", "crepe_tiny", "crepe_full")),
+        choices(("fcpe", "rmvpe")),
     ),
     integer(
         "voice_input_highpass_hz",
@@ -73,8 +72,6 @@ TOOL_SPECS = (
         maximum=300,
         step=5,
     ),
-    number("voice_input_gate_db", "Input gate dB", _VOICE, minimum=-90, maximum=-20, step=1),
-    number("voice_input_formant", "Input formant", _VOICE, minimum=-2, maximum=2, step=0.1),
     choice("voice_input_denoise", "Input denoise", _VOICE, choices(("off", "dtln"))),
     number("voice_input_denoise_mix", "Input denoise mix", _VOICE, minimum=0, maximum=1, step=0.01),
 )

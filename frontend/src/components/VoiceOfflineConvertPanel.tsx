@@ -8,14 +8,12 @@ type VoiceOfflineConvertPanelProps = {
   offlineBusy: boolean;
   offlineError: string;
   offlineFile: File | null;
-  offlineFormant: number;
   offlineModelId: string;
   offlinePitch: number;
   offlineResult: VoiceEngineConvertResult | null;
   onOfflineConvert: () => void;
   ready: boolean;
   setOfflineFile: (file: File | null) => void;
-  setOfflineFormant: (value: number) => void;
   setOfflineModelId: (value: string) => void;
   setOfflinePitch: (value: number) => void;
   voiceOptions: SelectOption[];
@@ -26,14 +24,12 @@ export function VoiceOfflineConvertPanel({
   offlineBusy,
   offlineError,
   offlineFile,
-  offlineFormant,
   offlineModelId,
   offlinePitch,
   offlineResult,
   onOfflineConvert,
   ready,
   setOfflineFile,
-  setOfflineFormant,
   setOfflineModelId,
   setOfflinePitch,
   voiceOptions,
@@ -76,7 +72,7 @@ export function VoiceOfflineConvertPanel({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr_auto]">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
         <CompactSignedControl
           label="Pitch"
           value={offlinePitch}
@@ -85,15 +81,6 @@ export function VoiceOfflineConvertPanel({
           step={1}
           onChange={(value) => setOfflinePitch(Math.round(value))}
           unit=" st"
-        />
-        <CompactSignedControl
-          label="Formant"
-          value={offlineFormant}
-          min={-2}
-          max={2}
-          step={0.05}
-          precision={2}
-          onChange={setOfflineFormant}
         />
         <div className="flex items-end">
           <Button
@@ -122,7 +109,6 @@ export function VoiceOfflineConvertPanel({
             <span className="text-xs text-ui-subtle">
               {offlineResult.sample_rate} Hz / {offlineResult.duration_s.toFixed(2)} s / pitch{" "}
               {offlineResult.params.pitch}
-              {" / "}formant {offlineResult.params.input_formant.toFixed(2)}
               {" / "}denoise {offlineResult.params.input_denoise}
             </span>
           </div>

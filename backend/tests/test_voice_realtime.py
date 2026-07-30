@@ -53,6 +53,71 @@ def _processor_engine(**overrides):
     return SimpleNamespace(**values)
 
 
+def test_fixed_ring_wraps_pads_and_drops_oldest():
+    import numpy as np
+
+    ring = realtime._Ring(8)
+    ring.push(np.arange(6, dtype=np.float32))
+    first, missing = ring.pull(4)
+    assert missing == 0
+    assert np.array_equal(first, np.arange(4, dtype=np.float32))
+
+    ring.push(np.arange(6, 12, dtype=np.float32))
+    # The write wraps around the fixed allocation without changing order.
+    assert ring.available() == 8
+    out, missing = ring.pull(10)
+    assert missing == 2
+    assert np.array_equal(out[:8], np.arange(4, 12, dtype=np.float32))
+    assert np.allclose(out[8:], 0.0)
+
+
+def test_ring_sample_clock_survives_wrap_and_interpolates_timestamps():
+    import numpy as np
+
+    ring = realtime._Ring(8)
+    clock = realtime._SampleClock()
+    first_index = ring.push(np.arange(6, dtype=np.float32))
+    clock.mark(first_index, 10.0)
+    ring.pull(4)
+    second_index = ring.push(np.arange(6, 12, dtype=np.float32))
+    clock.mark(second_index, 10.006)
+
+    _out, missing, start_index = ring.pull_with_index(4)
+
+    assert missing == 0
+    assert start_index == 4
+    assert clock.resolve(start_index, 1000) == pytest.approx(10.004)
+
+
+def test_clock_drift_estimator_reports_relative_ppm_after_warmup():
+    estimator = realtime._ClockDriftEstimator(window_seconds=30.0)
+
+    transport, drift = estimator.update(99.9, 100.1, 100.0)
+    assert transport == pytest.approx(200.0)
+    assert drift is None
+
+    # Capture/render separation grows by 1 ms across ten seconds: 100 ppm.
+    transport, drift = estimator.update(109.9, 110.101, 110.0)
+    assert transport == pytest.approx(201.0)
+    assert drift == pytest.approx(100.0)
+
+
+def test_sola_crossfade_preserves_unity_gain_for_identical_overlap():
+    import numpy as np
+
+    engine = _processor_engine(cross_fade_overlap_size=0.02)
+    processor = realtime.ChunkProcessor(engine, loaded=object(), stream_sr=16000)
+    processor._block_16k = 640
+    fade = int(0.02 * 16000)
+    processor._sola_buf = np.ones(fade, dtype=np.float32)
+    converted = np.ones(640 + fade + 160, dtype=np.float32)
+
+    stitched = processor._stitch(converted, 16000)
+
+    assert len(stitched) == 640
+    assert np.allclose(stitched, 1.0, atol=1e-6)
+
+
 def test_chunk_processor_flushes_tail_after_squelch(monkeypatch):
     import numpy as np
 
@@ -150,6 +215,80 @@ def test_chunk_processor_blends_realtime_denoise_mix(monkeypatch):
     assert np.allclose(out, 0.75, atol=1e-6)
 
 
+def test_chunk_processor_splits_raw_f0_from_denoised_content_and_limits_synth_tail(monkeypatch):
+    import numpy as np
+
+    from app.services.voice_engine import pipeline
+
+    captured: dict[str, np.ndarray | int] = {}
+
+    class ZeroDenoiser:
+        def reset(self):
+            return None
+
+        def process_stream(self, audio):
+            return np.zeros_like(audio, dtype=np.float32)
+
+    def fake_convert_audio(audio_16k, loaded, **kwargs):  # noqa: ARG001
+        captured["content"] = np.asarray(audio_16k, dtype=np.float32)
+        captured["f0"] = np.asarray(kwargs["f0_audio_16k"], dtype=np.float32)
+        captured["tail"] = int(kwargs["synthesis_tail_frames"])
+        return np.zeros(len(audio_16k), dtype=np.float32), 16000, {"fake_convert": 1.0}
+
+    monkeypatch.setattr(pipeline, "convert_audio", fake_convert_audio)
+    engine = _processor_engine(
+        input_denoise="dtln",
+        input_denoise_mix=1.0,
+        input_highpass_hz=0,
+        silence_threshold_db=-90.0,
+        extra_convert_size=1.0,
+        cross_fade_overlap_size=0.03,
+    )
+    processor = realtime.ChunkProcessor(
+        engine,
+        loaded=object(),
+        stream_sr=16000,
+        denoiser=ZeroDenoiser(),
+    )
+    t = np.arange(640, dtype=np.float32) / 16000.0
+    processor.process((0.1 * np.sin(2.0 * np.pi * 120.0 * t)).astype(np.float32))
+
+    assert np.allclose(captured["content"], 0.0)
+    assert np.max(np.abs(captured["f0"])) > 0.01
+    assert 4 <= captured["tail"] < len(captured["content"]) // 160
+
+
+def test_idle_squelch_keeps_streaming_resampler_instance(monkeypatch):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from app.services.voice_engine import pipeline
+
+    def fake_convert_audio(audio_16k, loaded, **kwargs):  # noqa: ARG001
+        return np.ones(len(audio_16k), dtype=np.float32) * 0.2, 16000, {"fake_convert": 1.0}
+
+    monkeypatch.setattr(pipeline, "convert_audio", fake_convert_audio)
+    engine = _processor_engine(silence_threshold_db=-40.0, silence_hold_ms=0.0)
+    processor = realtime.ChunkProcessor(
+        engine,
+        loaded=SimpleNamespace(sample_rate=16000),
+        stream_sr=48000,
+    )
+    rng = np.random.default_rng(8)
+    for _ in range(2):
+        processor.process((0.1 * rng.standard_normal(1920)).astype(np.float32))
+    resampler = processor._out_rs
+    assert resampler is not None
+
+    for _ in range(8):
+        processor.process(np.zeros(1920, dtype=np.float32))
+
+    assert processor.last_timings["squelched"] is True
+    assert processor.last_timings["idle_fade"] is True
+    assert processor._out_rs is resampler
+
+
 async def test_session_lifecycle_and_metrics(client):
     before = (await client.get("/api/voice/engine/status")).json()
     assert before["live"] is False
@@ -168,6 +307,7 @@ async def test_session_lifecycle_and_metrics(client):
     assert metrics["total_ms"] == 5.0
     assert metrics["total_p95_ms"] == 5.0
     assert metrics["chunk_ms"] > 0
+    assert metrics["estimated_latency_ms"] >= metrics["chunk_ms"]
     assert metrics["latency_headroom_ms"] == pytest.approx(metrics["chunk_ms"] - 5.0)
     assert metrics["output_peak"] > 0.0
     assert metrics["provider_health"]["content_vec"]["actual"] == "stub"
