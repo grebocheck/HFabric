@@ -10,10 +10,10 @@ INPUT_SAMPLE_RATE = 16_000
 DEFAULT_INPUT_HIGHPASS_HZ = 80
 DEFAULT_INPUT_GATE_DB = GATE_OFF_DB = -90.0
 DEFAULT_INPUT_FORMANT = 0.0
-DEFAULT_SILENCE_THRESHOLD_DB = -72.0
-DEFAULT_SILENCE_HOLD_MS = 250.0
+DEFAULT_SILENCE_THRESHOLD_DB = -54.0
+DEFAULT_SILENCE_HOLD_MS = 200.0
 SQUELCH_OFF_DB = -90.0
-SQUELCH_CLOSE_HYSTERESIS_DB = 6.0
+SQUELCH_CLOSE_HYSTERESIS_DB = 3.0
 OUTPUT_LIMITER_CEILING_DBFS = -1.0
 
 
@@ -61,6 +61,58 @@ def limit_output(audio, *, ceiling_dbfs: float = OUTPUT_LIMITER_CEILING_DBFS):
         "peak_dbfs": peak_dbfs(out),
         "limiter_reduction_db": round(reduction, 3),
     }
+
+
+class StreamingLimiter:
+    """Stateful block limiter with instant attack and smooth gain recovery."""
+
+    def __init__(
+        self,
+        *,
+        sample_rate: int,
+        ceiling_dbfs: float = OUTPUT_LIMITER_CEILING_DBFS,
+        release_ms: float = 250.0,
+    ) -> None:
+        self.sample_rate = max(1, int(sample_rate))
+        self.ceiling = dbfs_to_linear(ceiling_dbfs)
+        self.release_ms = max(1.0, float(release_ms))
+        self.gain = 1.0
+
+    def reset(self) -> None:
+        self.gain = 1.0
+
+    def process(self, audio):
+        import numpy as np  # noqa: PLC0415
+
+        arr = _as_float32(audio)
+        if arr.size == 0:
+            return arr.astype(np.float32, copy=True), {
+                "peak": 0.0,
+                "peak_dbfs": -240.0,
+                "limiter_reduction_db": round(float(-20.0 * np.log10(max(self.gain, 1e-12))), 3),
+            }
+        peak_in = float(np.max(np.abs(arr)))
+        target = min(1.0, self.ceiling / max(peak_in, 1e-12))
+        start_gain = min(self.gain, target)
+        if target < self.gain:
+            end_gain = target
+        else:
+            duration_ms = arr.size / self.sample_rate * 1000.0
+            release = 1.0 - np.exp(-duration_ms / self.release_ms)
+            end_gain = min(target, self.gain + (target - self.gain) * float(release))
+        if abs(end_gain - start_gain) < 1e-9:
+            out = arr * np.float32(end_gain)
+        else:
+            gains = np.linspace(start_gain, end_gain, arr.size, dtype=np.float32)
+            out = arr * gains
+        self.gain = float(end_gain)
+        out = np.clip(out, -self.ceiling, self.ceiling).astype(np.float32, copy=False)
+        peak_out = float(np.max(np.abs(out))) if out.size else 0.0
+        return out, {
+            "peak": min(1.0, peak_out),
+            "peak_dbfs": peak_dbfs(out),
+            "limiter_reduction_db": round(float(-20.0 * np.log10(max(self.gain, 1e-12))), 3),
+        }
 
 
 def clamp_input_highpass_hz(value: object) -> int:
@@ -124,7 +176,7 @@ class SquelchGate:
 
     ``update`` returns True while the gate is closed and the caller should emit
     silence. It opens immediately above threshold and closes only after
-    continuous time below threshold - 6 dB reaches the configured hold time.
+    continuous time below threshold - 3 dB reaches the configured hold time.
     """
 
     def __init__(

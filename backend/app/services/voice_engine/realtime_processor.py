@@ -31,7 +31,7 @@ BLOCK_QUANTUM = 640
 FEATURE_HOP_16K = 160
 # Keep converting a little after VAD closes. RVC/DTLN can still have a short
 # audible tail even after the raw mic chunk drops below the silence threshold.
-POST_SPEECH_FLUSH_MS = 450.0
+POST_SPEECH_FLUSH_MS = 240.0
 
 
 class ChunkProcessor:
@@ -39,8 +39,9 @@ class ChunkProcessor:
     the live session run the *same* code.
 
     Everything that touches the audio stream is stateful and processes each
-    sample exactly once, in order: stream resample to 16 kHz, DTLN, high-pass,
-    formant resample. The cleaned analysis stream is cut into blocks that are a
+    sample exactly once. After resampling, a lightly high-passed raw branch
+    feeds F0 while the independently denoised/high-passed branch feeds
+    ContentVec. The aligned analysis streams are cut into blocks that are a
     multiple of ``BLOCK_QUANTUM`` so the feature/f0 frame grid stays aligned
     with the audio between conversions; each block slides a fixed-length
     context window (so every conversion has identical cost and geometry), the
@@ -64,17 +65,19 @@ class ChunkProcessor:
         self._rng = np.random.default_rng(0xC0FFEE)
         self._in_rs: Any | None = None
         self._hpf = dsp.StreamingHighpass(engine.input_highpass_hz)
-        self._formant_rs: Any | None = None
-        self._formant_factor = 1.0
+        self._f0_hpf = dsp.StreamingHighpass(35)
         self._out_rs: Any | None = None
-        self._out_rs_key: tuple[int, float] | None = None
+        self._out_rs_key: int | None = None
         self._denoise_raw_pending = np.zeros(0, dtype=np.float32)
+        self._denoise_f0_pending = np.zeros(0, dtype=np.float32)
         self._fifo_16k = np.zeros(0, dtype=np.float32)
+        self._f0_fifo_16k = np.zeros(0, dtype=np.float32)
         self._block_16k = 0
         self._context_16k = np.zeros(0, dtype=np.float32)
+        self._f0_context_16k = np.zeros(0, dtype=np.float32)
         self._noise_ring: Any | None = None
+        self._source_noise_ring: Any | None = None
         self._sola_buf: Any | None = None  # @ model sr
-        self._silence_acc = 0.0
         self._tail_flush_remaining = 0
         self._squelch = dsp.SquelchGate(
             threshold_db=engine.silence_threshold_db,
@@ -107,6 +110,12 @@ class ChunkProcessor:
                 self._context_16k = np.concatenate([pad, self._context_16k])
             else:
                 self._context_16k = self._context_16k[-target:]
+        if len(self._f0_context_16k) != target:
+            if len(self._f0_context_16k) < target:
+                pad = np.zeros(target - len(self._f0_context_16k), dtype=np.float32)
+                self._f0_context_16k = np.concatenate([pad, self._f0_context_16k])
+            else:
+                self._f0_context_16k = self._f0_context_16k[-target:]
         frames = target // FEATURE_HOP_16K
         if self._noise_ring is None or self._noise_ring.shape[1] != frames:
             ring = self._rng.standard_normal((self._noise_channels(), frames)).astype(np.float32)
@@ -116,6 +125,14 @@ class ChunkProcessor:
                 # re-synthesize the overlap identically after a resize.
                 ring[:, -keep:] = self._noise_ring[:, -keep:]
             self._noise_ring = ring
+        model_sr = int(getattr(self._loaded, "sample_rate", 40_000) or 40_000)
+        source_samples = max(1, int(round(frames * model_sr / 100.0)))
+        if self._source_noise_ring is None or self._source_noise_ring.size != source_samples:
+            source_ring = self._rng.standard_normal(source_samples).astype(np.float32)
+            if self._source_noise_ring is not None:
+                keep = min(self._source_noise_ring.size, source_samples)
+                source_ring[-keep:] = self._source_noise_ring[-keep:]
+            self._source_noise_ring = source_ring
 
     # ------------------------------------------------------- input chain
     def _active_denoiser(self):
@@ -140,36 +157,14 @@ class ChunkProcessor:
             self._in_rs = soxr.ResampleStream(float(self.stream_sr), float(ANALYSIS_SR), 1, dtype="float32")
         return np.asarray(self._in_rs.resample_chunk(chunk)).reshape(-1).astype(np.float32, copy=False)
 
-    def _apply_formant(self, piece):
-        np = self._np
-        factor = dsp.input_formant_factor(self._engine.input_formant)
-        if abs(factor - 1.0) < 1e-6:
-            self._formant_rs = None
-            self._formant_factor = 1.0
-            return piece
-        if piece.size == 0:
-            return piece
-        if self._formant_rs is None or abs(factor - self._formant_factor) > 1e-9:
-            import soxr  # noqa: PLC0415
-
-            self._formant_rs = soxr.ResampleStream(
-                float(ANALYSIS_SR), float(ANALYSIS_SR) / factor, 1, dtype="float32"
-            )
-            self._formant_factor = factor
-        return np.asarray(self._formant_rs.resample_chunk(piece)).reshape(-1).astype(np.float32, copy=False)
-
     # ------------------------------------------------------------ output
-    def _resample_out(self, out_model, model_sr: int, factor: float):
+    def _resample_out(self, out_model, model_sr: int):
         np = self._np
-        # out_rate folds in the formant duration compensation: the converted
-        # audio is in analysis time (shorter/longer by 1/factor), playing it at
-        # stream_sr * factor restores real-time duration without a second pass.
-        out_rate = float(self.stream_sr) * float(factor)
-        key = (int(model_sr), round(out_rate, 6))
+        key = int(model_sr)
         if self._out_rs is None or self._out_rs_key != key:
             import soxr  # noqa: PLC0415
 
-            self._out_rs = soxr.ResampleStream(float(model_sr), out_rate, 1, dtype="float32")
+            self._out_rs = soxr.ResampleStream(float(model_sr), float(self.stream_sr), 1, dtype="float32")
             self._out_rs_key = key
         return np.asarray(self._out_rs.resample_chunk(out_model)).reshape(-1).astype(np.float32, copy=False)
 
@@ -206,8 +201,13 @@ class ChunkProcessor:
             self._sola_buf = np.zeros(fade, dtype=np.float32)
         offset = self._sola_offset(tail, fade, search)
         aligned = tail[offset:]
-        ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
-        blended = self._sola_buf * np.sqrt(1.0 - ramp) + aligned[:fade] * np.sqrt(ramp)
+        # SOLA deliberately aligns highly correlated speech. Equal-power
+        # sqrt-crossfades are for uncorrelated signals and boost an identical
+        # overlap by +3 dB at its midpoint. Complementary raised-cosine weights
+        # keep unity gain while retaining a smooth first derivative.
+        phase = np.linspace(0.0, np.pi, fade, dtype=np.float32)
+        fade_in = np.float32(0.5) - np.float32(0.5) * np.cos(phase)
+        blended = self._sola_buf * (np.float32(1.0) - fade_in) + aligned[:fade] * fade_in
         emitted = np.concatenate([blended, aligned[fade:emit]])
         # The seam reference for the next block continues exactly where the
         # emitted audio stopped — storing the unaligned tail here is what used
@@ -215,11 +215,33 @@ class ChunkProcessor:
         self._sola_buf = aligned[emit : emit + fade].astype(np.float32, copy=True)
         return emitted.astype(np.float32, copy=False)
 
+    def _synthesis_tail_frames(self, model_sr: int) -> int:
+        """Minimum 100 Hz decoder frame count needed by the SOLA emitter."""
+        np = self._np
+        emit = max(1, int(round(self._block_16k * model_sr / ANALYSIS_SR)))
+        fade = max(0, int(float(self._engine.cross_fade_overlap_size) * model_sr))
+        fade = min(fade, emit // 2)
+        search = max(0, int(model_sr * SOLA_SEARCH_MS / 1000.0))
+        # One guard frame absorbs model-rate rounding without bringing the full
+        # analysis context back into the expensive flow/decoder path.
+        return max(1, int(np.ceil((emit + fade + search) * 100.0 / model_sr)) + 1)
+
+    def _idle_output(self, model_sr: int):
+        """Advance seam and resampler state through silence without inference."""
+        np = self._np
+        frames = self._synthesis_tail_frames(model_sr)
+        silence = np.zeros(max(1, int(np.ceil(frames * model_sr / 100.0))), dtype=np.float32)
+        out_model = self._stitch(silence, model_sr)
+        return self._resample_out(out_model, model_sr)
+
     # ------------------------------------------------------------ blocks
-    def _process_block(self, block, timings: dict[str, float | bool]):
+    def _process_block(self, block, f0_block, timings: dict[str, float | bool]):
         np = self._np
         self._resize_state()
         self._context_16k = np.concatenate([self._context_16k[self._block_16k :], block])
+        self._f0_context_16k = np.concatenate(
+            [self._f0_context_16k[self._block_16k :], f0_block]
+        )
         shift = self._block_16k // FEATURE_HOP_16K
         ring = self._noise_ring
         if ring is not None and shift > 0:
@@ -228,9 +250,18 @@ class ChunkProcessor:
             else:
                 ring[:, :-shift] = ring[:, shift:]
                 ring[:, -shift:] = self._rng.standard_normal((ring.shape[0], shift)).astype(np.float32)
+        source_ring = self._source_noise_ring
+        if source_ring is not None and shift > 0:
+            model_sr = int(getattr(self._loaded, "sample_rate", 40_000) or 40_000)
+            source_shift = max(1, int(round(shift * model_sr / 100.0)))
+            if source_shift >= source_ring.size:
+                source_ring[:] = self._rng.standard_normal(source_ring.size).astype(np.float32)
+            else:
+                source_ring[:-source_shift] = source_ring[source_shift:]
+                source_ring[-source_shift:] = self._rng.standard_normal(source_shift).astype(np.float32)
 
         block_ms = self._block_16k / ANALYSIS_SR * 1000.0
-        rms_db = dsp.rms_dbfs(block)
+        rms_db = dsp.rms_dbfs(f0_block)
         squelched = self._squelch.update(
             rms_db,
             block_ms,
@@ -246,18 +277,14 @@ class ChunkProcessor:
             timings["tail_flush"] = True
         timings["squelched"] = squelched
 
-        factor = self._formant_factor if self._formant_rs is not None else 1.0
         if squelched:
-            # Hard silence: drop the seam/resampler state so the next voiced
-            # block fades in from zero, and keep the long-run output rate exact
-            # with a fractional sample accumulator.
-            self._sola_buf = None
-            self._out_rs = None
-            self._out_rs_key = None
-            self._silence_acc += self._block_16k * factor * self.stream_sr / ANALYSIS_SR
-            count = int(self._silence_acc)
-            self._silence_acc -= count
-            return np.zeros(count, dtype=np.float32)
+            # Skip neural inference, but advance SOLA and the streaming
+            # resampler through a model-rate silent block. Resetting both here
+            # made the first quiet phoneme after every pause start from a new
+            # phase/filter state.
+            timings["idle_fade"] = True
+            model_sr = int(getattr(self._loaded, "sample_rate", 40_000) or 40_000)
+            return self._idle_output(model_sr)
 
         from . import pipeline  # noqa: PLC0415
 
@@ -274,9 +301,15 @@ class ChunkProcessor:
             input_highpass_hz=0,
             input_gate_db=dsp.GATE_OFF_DB,
             input_formant=0.0,
-            external_formant_factor=factor,
+            external_formant_factor=1.0,
             compensate_duration=False,
             latent_noise=self._noise_ring,
+            source_noise=self._source_noise_ring,
+            normalize_peak=False,
+            f0_audio_16k=self._f0_context_16k,
+            synthesis_tail_frames=self._synthesis_tail_frames(
+                int(getattr(self._loaded, "sample_rate", 40_000) or 40_000)
+            ),
             denoiser=None,
             device=self._engine.device,
         )
@@ -284,7 +317,7 @@ class ChunkProcessor:
 
         stage = time.perf_counter()
         out_model = self._stitch(np.asarray(converted, dtype=np.float32).reshape(-1), int(model_sr))
-        out = self._resample_out(out_model, int(model_sr), factor)
+        out = self._resample_out(out_model, int(model_sr))
         timings["stitch"] = round((time.perf_counter() - stage) * 1000, 3)
         return out
 
@@ -300,37 +333,47 @@ class ChunkProcessor:
         stage = time.perf_counter()
         piece = self._resample_in(chunk)
         timings["resample_16k"] = round((time.perf_counter() - stage) * 1000, 3)
+        f0_piece = self._f0_hpf.process(piece, cutoff_hz=35)
 
         denoiser = self._active_denoiser()
         if denoiser is not None and piece.size:
             stage = time.perf_counter()
             raw_piece = piece
             self._denoise_raw_pending = np.concatenate([self._denoise_raw_pending, raw_piece])
+            self._denoise_f0_pending = np.concatenate([self._denoise_f0_pending, f0_piece])
             denoised = np.asarray(denoiser.process_stream(piece), dtype=np.float32).reshape(-1)
             mix = max(0.0, min(1.0, float(self._engine.input_denoise_mix)))
             if denoised.size > self._denoise_raw_pending.size:
                 denoised = denoised[: self._denoise_raw_pending.size]
             raw_for_mix = self._denoise_raw_pending[: denoised.size]
+            f0_piece = self._denoise_f0_pending[: denoised.size]
             self._denoise_raw_pending = self._denoise_raw_pending[denoised.size :]
+            self._denoise_f0_pending = self._denoise_f0_pending[denoised.size :]
             piece = denoised * np.float32(mix) + raw_for_mix * np.float32(1.0 - mix)
             timings["input_denoise"] = round((time.perf_counter() - stage) * 1000, 3)
             timings["input_denoise_mix"] = round(mix, 3)
         elif denoiser is None:
             self._denoise_raw_pending = np.zeros(0, dtype=np.float32)
+            self._denoise_f0_pending = np.zeros(0, dtype=np.float32)
 
         stage = time.perf_counter()
         piece = self._hpf.process(piece, cutoff_hz=self._engine.input_highpass_hz)
-        piece = self._apply_formant(piece)
         timings["input_dsp"] = round((time.perf_counter() - stage) * 1000, 3)
 
         if piece.size:
             self._fifo_16k = np.concatenate([self._fifo_16k, piece])
+            self._f0_fifo_16k = np.concatenate([self._f0_fifo_16k, f0_piece])
 
         outputs = []
-        while len(self._fifo_16k) >= self._block_16k:
+        while (
+            len(self._fifo_16k) >= self._block_16k
+            and len(self._f0_fifo_16k) >= self._block_16k
+        ):
             block = self._fifo_16k[: self._block_16k]
+            f0_block = self._f0_fifo_16k[: self._block_16k]
             self._fifo_16k = self._fifo_16k[self._block_16k :]
-            outputs.append(self._process_block(block, timings))
+            self._f0_fifo_16k = self._f0_fifo_16k[self._block_16k :]
+            outputs.append(self._process_block(block, f0_block, timings))
 
         if "squelched" not in timings:
             timings["squelched"] = self._squelch.is_closed

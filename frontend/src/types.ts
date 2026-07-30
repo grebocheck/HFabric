@@ -398,6 +398,15 @@ interface VoiceEngineMetrics {
   chunk_ms: number | null;
   latency_headroom_ms: number | null;
   latency_warning: string | null;
+  estimated_latency_ms: number | null;
+  measured_latency_ms: number | null;
+  measured_latency_p95_ms: number | null;
+  callback_transport_ms: number | null;
+  clock_drift_ppm: number | null;
+  input_stream_latency_ms: number | null;
+  output_stream_latency_ms: number | null;
+  input_queue_ms: number;
+  output_queue_ms: number;
   provider_health: {
     content_vec?: VoiceProviderHealth | null;
     f0?: VoiceProviderHealth | null;

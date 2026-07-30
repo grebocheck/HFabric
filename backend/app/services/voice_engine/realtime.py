@@ -3,19 +3,19 @@
 Each live session owns a sounddevice duplex stream: the PortAudio callback only
 moves samples in/out of ring buffers; a dedicated worker thread pulls fixed
 chunks and feeds them to ``ChunkProcessor``, which runs a fully streaming
-input chain (stateful resample to 16 kHz -> DTLN -> high-pass -> formant
-resample), advances a fixed-length conversion context in blocks aligned to the
-feature frame grid, re-converts through the shared ``pipeline.convert_audio``
-core with latent noise pinned per absolute frame, and stitches seams with SOLA
-+ equal-power crossfade in the model domain before a streaming output
-resampler. Every stage that touches audio keeps state across calls so no
-per-chunk filter edges are baked into the stream.
+input chain (stateful resample to 16 kHz -> split F0/content DSP), advances a
+fixed-length conversion context in blocks aligned to the feature frame grid,
+re-converts through the shared ``pipeline.convert_audio`` core with latent
+noise pinned per absolute frame, and stitches seams with SOLA plus a
+complementary raised-cosine crossfade in the model domain before a streaming
+output resampler. Every stage that touches audio keeps state across calls so
+no per-chunk filter edges are baked into the stream.
 
 Threading model: the audio callback and the worker communicate through
-``_InputRing`` / ``_OutputRing`` (lock-guarded deques of float32 samples);
-settings are read from the ``VoiceEngine`` once per chunk (plain attribute
-reads — atomic enough in CPython for floats/ints), so pitch/index/protect/
-gain/pass-through changes apply on the next chunk without a restart.
+fixed-capacity circular float32 rings; settings are read from the
+``VoiceEngine`` once per chunk (plain attribute reads — atomic enough in
+CPython for floats/ints), so pitch/index/protect/gain/pass-through changes
+apply on the next chunk without a restart.
 
 STUB mode never imports sounddevice/torch: ``StubRealtimeSession`` just flips
 ``live`` and synthesizes deterministic VU/timing values so the API, the UI,
@@ -65,43 +65,161 @@ def _write_wav(path, samples, sample_rate: int) -> None:
 
 
 class _Ring:
-    """A minimal lock-guarded float32 sample FIFO (numpy-backed)."""
+    """Fixed-capacity, lock-guarded float32 circular FIFO.
 
-    def __init__(self) -> None:
+    PortAudio callbacks must not repeatedly concatenate growing numpy arrays:
+    those allocations and copies can pause the callback and create an audible
+    underrun. This buffer allocates once and only copies into/out of its ring.
+    """
+
+    def __init__(self, capacity: int) -> None:
         import numpy as np  # noqa: PLC0415
 
         self._np = np
-        self._buf = np.zeros(0, dtype=np.float32)
+        self._capacity = max(1, int(capacity))
+        self._buf = np.zeros(self._capacity, dtype=np.float32)
+        self._read = 0
+        self._write = 0
+        self._size = 0
+        self._read_total = 0
+        self._write_total = 0
         self._lock = threading.Lock()
 
-    def push(self, samples) -> None:
+    def push(self, samples) -> int:
+        data = self._np.asarray(samples, dtype=self._np.float32).reshape(-1)
+        if data.size == 0:
+            with self._lock:
+                return self._write_total
         with self._lock:
-            self._buf = self._np.concatenate([self._buf, samples.astype(self._np.float32, copy=False)])
+            start_index = self._write_total
+            original_size = int(data.size)
+            self._write_total += original_size
+            if data.size >= self._capacity:
+                data = data[-self._capacity :]
+                self._read = 0
+                self._write = 0
+                self._size = 0
+                self._read_total = self._write_total - int(data.size)
+            overflow = max(0, self._size + int(data.size) - self._capacity)
+            if overflow:
+                self._read = (self._read + overflow) % self._capacity
+                self._size -= overflow
+                self._read_total += overflow
+            first = min(int(data.size), self._capacity - self._write)
+            self._buf[self._write : self._write + first] = data[:first]
+            remaining = int(data.size) - first
+            if remaining:
+                self._buf[:remaining] = data[first:]
+            self._write = (self._write + int(data.size)) % self._capacity
+            self._size += int(data.size)
+            return start_index
 
     def pull(self, count: int):
         """Take exactly ``count`` samples; missing samples are zero-padded.
         Returns (samples, missing_count)."""
+        out, missing, _start_index = self.pull_with_index(count)
+        return out, missing
+
+    def pull_with_index(self, count: int):
+        """Like :meth:`pull`, plus the absolute index of the first sample."""
         with self._lock:
-            have = len(self._buf)
-            if have >= count:
-                out, self._buf = self._buf[:count], self._buf[count:]
-                return out, 0
-            out = self._np.concatenate([self._buf, self._np.zeros(count - have, dtype=self._np.float32)])
-            self._buf = self._buf[:0]
-            return out, count - have
+            wanted = max(0, int(count))
+            take = min(wanted, self._size)
+            start_index = self._read_total
+            out = self._np.zeros(wanted, dtype=self._np.float32)
+            first = min(take, self._capacity - self._read)
+            out[:first] = self._buf[self._read : self._read + first]
+            remaining = take - first
+            if remaining:
+                out[first : first + remaining] = self._buf[:remaining]
+            self._read = (self._read + take) % self._capacity
+            self._size -= take
+            self._read_total += take
+            return out, wanted - take, start_index
 
     def available(self) -> int:
         with self._lock:
-            return len(self._buf)
+            return self._size
 
     def drop_to(self, max_samples: int) -> int:
         """Bound the queue (drop oldest); returns how many were dropped."""
         with self._lock:
-            extra = len(self._buf) - max_samples
+            extra = self._size - max(0, int(max_samples))
             if extra > 0:
-                self._buf = self._buf[extra:]
+                self._read = (self._read + extra) % self._capacity
+                self._size -= extra
+                self._read_total += extra
                 return extra
             return 0
+
+
+class _SampleClock:
+    """Sparse mapping from absolute ring sample positions to stream time."""
+
+    def __init__(self, max_marks: int = 512) -> None:
+        self._marks: deque[tuple[int, float]] = deque(maxlen=max(2, int(max_marks)))
+
+    def mark(self, sample_index: int, sample_time: float | None) -> None:
+        if sample_time is None or not math.isfinite(float(sample_time)) or float(sample_time) <= 0.0:
+            return
+        self._marks.append((int(sample_index), float(sample_time)))
+
+    def resolve(self, sample_index: int, sample_rate: int) -> float | None:
+        if not self._marks or sample_rate <= 0:
+            return None
+        target = int(sample_index)
+        while len(self._marks) > 1 and self._marks[1][0] <= target:
+            self._marks.popleft()
+        index, timestamp = self._marks[0]
+        if index > target:
+            return None
+        return timestamp + (target - index) / float(sample_rate)
+
+
+class _ClockDriftEstimator:
+    """Estimate relative capture/render clock drift from PortAudio timestamps."""
+
+    def __init__(self, window_seconds: float = 30.0) -> None:
+        self._window_seconds = max(5.0, float(window_seconds))
+        self._points: deque[tuple[float, float]] = deque()
+
+    def update(
+        self,
+        input_adc_time: float | None,
+        output_dac_time: float | None,
+        current_time: float | None,
+    ) -> tuple[float | None, float | None]:
+        values = (input_adc_time, output_dac_time, current_time)
+        if any(value is None or not math.isfinite(float(value)) for value in values):
+            return None, None
+        input_time = float(input_adc_time)
+        output_time = float(output_dac_time)
+        now = float(current_time)
+        if input_time <= 0.0 or output_time <= 0.0 or now <= 0.0:
+            return None, None
+        delta = output_time - input_time
+        self._points.append((now, delta))
+        cutoff = now - self._window_seconds
+        while len(self._points) > 2 and self._points[1][0] < cutoff:
+            self._points.popleft()
+        drift_ppm = None
+        if len(self._points) >= 2:
+            elapsed = self._points[-1][0] - self._points[0][0]
+            if elapsed >= 5.0:
+                drift_ppm = (
+                    (self._points[-1][1] - self._points[0][1]) / elapsed * 1_000_000.0
+                )
+        return round(delta * 1000.0, 3), (
+            round(drift_ppm, 3) if drift_ppm is not None else None
+        )
+
+
+def _time_info_value(time_info: Any, name: str) -> float | None:
+    try:
+        value = float(getattr(time_info, name))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 
@@ -137,6 +255,8 @@ class RealtimeSession:
 
     def __init__(self, engine: VoiceEngine) -> None:
         self._engine = engine
+        self.stream_sr = 48_000
+        self.chunk_samples = 0
         self._stream = None
         self._monitor_stream = None
         self._worker: threading.Thread | None = None
@@ -154,6 +274,15 @@ class RealtimeSession:
             "chunk_ms": None,
             "latency_headroom_ms": None,
             "latency_warning": None,
+            "estimated_latency_ms": None,
+            "measured_latency_ms": None,
+            "measured_latency_p95_ms": None,
+            "callback_transport_ms": None,
+            "clock_drift_ppm": None,
+            "input_stream_latency_ms": None,
+            "output_stream_latency_ms": None,
+            "input_queue_ms": 0.0,
+            "output_queue_ms": 0.0,
             "provider_health": engine.provider_health(),
             "overruns": 0,
             "underruns": 0,
@@ -163,14 +292,21 @@ class RealtimeSession:
         self._input_ring: _Ring | None = None
         self._output_ring: _Ring | None = None
         self._monitor_ring: _Ring | None = None
+        self._input_clock = _SampleClock()
+        self._output_clock = _SampleClock()
+        self._clock_drift = _ClockDriftEstimator()
+        self._measured_latencies_ms: deque[float] = deque(maxlen=LATENCY_HISTORY)
+        self._latest_measured_latency_ms: float | None = None
+        self._callback_transport_ms: float | None = None
+        self._clock_drift_ppm: float | None = None
         self._processor: ChunkProcessor | None = None
+        self._output_limiter = dsp.StreamingLimiter(sample_rate=self.stream_sr)
+        self._monitor_limiter = dsp.StreamingLimiter(sample_rate=self.stream_sr)
         self._recording_lock = threading.Lock()
         self._recording_frames: list[Any] = []
         self._recording_raw_frames: list[Any] = []
         self._recording_started: float | None = None
         self._recording_sample_rate = 48_000
-        self.stream_sr = 48000
-        self.chunk_samples = 0
         self.error: str | None = None
         self._session_config: dict[str, int | None] | None = None
 
@@ -184,6 +320,8 @@ class RealtimeSession:
         if denoiser is not None:
             denoiser.reset()
         self.stream_sr = int(engine.server_audio_sample_rate)
+        self._output_limiter = dsp.StreamingLimiter(sample_rate=self.stream_sr)
+        self._monitor_limiter = dsp.StreamingLimiter(sample_rate=self.stream_sr)
         self.chunk_samples = max(1, int(engine.server_read_chunk_size)) * CHUNK_UNIT_SAMPLES
         self._session_config = {
             "server_input_device_id": engine.server_input_device_id,
@@ -192,15 +330,23 @@ class RealtimeSession:
             "server_audio_sample_rate": self.stream_sr,
             "server_read_chunk_size": int(engine.server_read_chunk_size),
         }
-        self._input_ring = _Ring()
-        self._output_ring = _Ring()
+        self._input_ring = _Ring(self.stream_sr * 3)
+        self._output_ring = _Ring(self.stream_sr * 4)
+        self._input_clock = _SampleClock()
+        self._output_clock = _SampleClock()
+        self._clock_drift = _ClockDriftEstimator()
+        self._measured_latencies_ms.clear()
+        self._latest_measured_latency_ms = None
+        self._callback_transport_ms = None
+        self._clock_drift_ppm = None
         self._processor = ChunkProcessor(engine, loaded, self.stream_sr, denoiser=denoiser)
-        # The processor emits audio in conversion-block bursts that are close
-        # to but not exactly one chunk; one chunk of zero prefill absorbs that
-        # jitter so the playback callback never starves between bursts.
+        # Capture has to fill one chunk before inference can begin. Two chunks
+        # of pre-roll cover both that capture interval and normal inference
+        # jitter; one chunk left a guaranteed startup gap equal to inference
+        # time and was the main source of initial underruns.
         import numpy as np  # noqa: PLC0415
 
-        self._output_ring.push(np.zeros(self.chunk_samples, dtype=np.float32))
+        self._output_ring.push(np.zeros(self.chunk_samples * 2, dtype=np.float32))
         with self._metrics_lock:
             self._metrics["chunk_ms"] = round(self.chunk_samples / self.stream_sr * 1000, 1)
             self._metrics["provider_health"] = engine.provider_health()
@@ -209,30 +355,44 @@ class RealtimeSession:
         out_dev = engine.server_output_device_id
         mon_dev = engine.server_monitor_device_id
 
-        def callback(indata, outdata, frames, _time_info, status) -> None:  # noqa: ARG001
-            import numpy as np  # noqa: PLC0415
-
+        def callback(indata, outdata, frames, time_info, status) -> None:  # noqa: ARG001
             assert self._input_ring is not None and self._output_ring is not None
-            self._input_ring.push(indata[:, 0])
+            input_adc_time = _time_info_value(time_info, "inputBufferAdcTime")
+            output_dac_time = _time_info_value(time_info, "outputBufferDacTime")
+            current_time = _time_info_value(time_info, "currentTime")
+            input_index = self._input_ring.push(indata[:, 0])
+            self._input_clock.mark(input_index, input_adc_time)
             # Bound the input queue to ~2s so a stalled worker degrades
             # (drops old audio) instead of growing without limit.
             dropped = self._input_ring.drop_to(self.stream_sr * 2)
-            samples, missing = self._output_ring.pull(frames)
-            rendered, limiter = dsp.limit_output(samples * float(self._engine.server_output_gain))
+            samples, missing, output_index = self._output_ring.pull_with_index(frames)
+            if missing < frames and output_dac_time is not None:
+                capture_time = self._output_clock.resolve(output_index, self.stream_sr)
+                if capture_time is not None:
+                    latency_ms = (output_dac_time - capture_time) * 1000.0
+                    if 0.0 <= latency_ms <= 10_000.0:
+                        self._latest_measured_latency_ms = round(latency_ms, 3)
+                        self._measured_latencies_ms.append(latency_ms)
+            transport_ms, drift_ppm = self._clock_drift.update(
+                input_adc_time,
+                output_dac_time,
+                current_time,
+            )
+            if transport_ms is not None:
+                self._callback_transport_ms = transport_ms
+            if drift_ppm is not None:
+                self._clock_drift_ppm = drift_ppm
             if missing or dropped:
                 with self._metrics_lock:
                     self._metrics["underruns"] += 1 if missing else 0
                     self._metrics["overruns"] += 1 if dropped else 0
-            with self._metrics_lock:
-                self._metrics["output_peak"] = limiter["peak"]
-                self._metrics["output_peak_dbfs"] = limiter["peak_dbfs"]
-                self._metrics["limiter_reduction_db"] = limiter["limiter_reduction_db"]
-            outdata[:] = rendered.reshape(-1, 1).astype(np.float32)
+            outdata[:] = samples.reshape(-1, 1)
 
         self._stop.clear()
         self._stream = sd.Stream(
             samplerate=self.stream_sr,
             blocksize=0,
+            latency="low",
             channels=1,
             dtype="float32",
             device=(
@@ -241,11 +401,20 @@ class RealtimeSession:
             ),
             callback=callback,
         )
+        stream_latency = self._stream.latency
+        if isinstance(stream_latency, (tuple, list)):
+            input_latency_s, output_latency_s = float(stream_latency[0]), float(stream_latency[1])
+        else:
+            input_latency_s = output_latency_s = float(stream_latency)
+        with self._metrics_lock:
+            self._metrics["input_stream_latency_ms"] = round(input_latency_s * 1000.0, 3)
+            self._metrics["output_stream_latency_ms"] = round(output_latency_s * 1000.0, 3)
         if mon_dev is not None and mon_dev >= 0 and mon_dev != out_dev:
-            self._monitor_ring = _Ring()
+            self._monitor_ring = _Ring(self.stream_sr * 4)
             self._monitor_stream = sd.OutputStream(
                 samplerate=self.stream_sr,
                 blocksize=0,
+                latency="low",
                 channels=1,
                 dtype="float32",
                 device=mon_dev,
@@ -262,7 +431,9 @@ class RealtimeSession:
 
         assert self._monitor_ring is not None
         samples, _missing = self._monitor_ring.pull(frames)
-        rendered, _limiter = dsp.limit_output(samples * float(self._engine.server_monitor_gain))
+        rendered, _limiter = self._monitor_limiter.process(
+            samples * float(self._engine.server_monitor_gain)
+        )
         outdata[:] = rendered.reshape(-1, 1).astype(np.float32)
 
     def stop(self) -> None:
@@ -300,7 +471,8 @@ class RealtimeSession:
             if self._input_ring.available() < self.chunk_samples:
                 time.sleep(wait_s)
                 continue
-            chunk, _ = self._input_ring.pull(self.chunk_samples)
+            chunk, _, input_index = self._input_ring.pull_with_index(self.chunk_samples)
+            capture_time = self._input_clock.resolve(input_index, self.stream_sr)
             chunk = chunk * float(self._engine.server_input_gain)
             in_vu = _rms(chunk)
             try:
@@ -314,10 +486,14 @@ class RealtimeSession:
                 self.error = repr(exc)
                 out = np.zeros_like(chunk)
                 timings = {"error": 0.0, "squelched": False}
-            self._output_ring.push(out)
+            routed, limiter = self._output_limiter.process(
+                out * float(self._engine.server_output_gain)
+            )
+            output_index = self._output_ring.push(routed)
+            self._output_clock.mark(output_index, capture_time)
             if self._monitor_ring is not None:
                 self._monitor_ring.push(out)
-            self._record_chunk(chunk, out)
+            self._record_chunk(chunk, routed)
             squelched = bool(timings.pop("squelched", False))
             total_raw = timings.get("total")
             total = float(total_raw) if isinstance(total_raw, (int, float)) and not isinstance(total_raw, bool) else None
@@ -331,15 +507,37 @@ class RealtimeSession:
                 else None
             )
             headroom = round(chunk_ms - total_p95, 3) if chunk_ms is not None and total_p95 is not None else None
+            input_queue_ms = round(self._input_ring.available() / self.stream_sr * 1000.0, 3)
+            output_queue_ms = round(self._output_ring.available() / self.stream_sr * 1000.0, 3)
+            measured_p95 = _rolling_p95(self._measured_latencies_ms)
             with self._metrics_lock:
+                input_stream_ms = float(self._metrics.get("input_stream_latency_ms") or 0.0)
+                output_stream_ms = float(self._metrics.get("output_stream_latency_ms") or 0.0)
+                estimated_latency = (
+                    input_stream_ms
+                    + output_stream_ms
+                    + (chunk_ms or 0.0)
+                    + (total or 0.0)
+                    + max(0.0, output_queue_ms - (len(out) / self.stream_sr * 1000.0))
+                )
                 self._metrics["input_vu"] = in_vu
-                if len(out) or squelched:
-                    self._metrics["output_vu"] = _rms(out)
+                if len(routed) or squelched:
+                    self._metrics["output_vu"] = _rms(routed)
+                self._metrics["output_peak"] = limiter["peak"]
+                self._metrics["output_peak_dbfs"] = limiter["peak_dbfs"]
+                self._metrics["limiter_reduction_db"] = limiter["limiter_reduction_db"]
                 self._metrics["timings_ms"] = timings
                 self._metrics["total_ms"] = total
                 self._metrics["total_p95_ms"] = total_p95
                 self._metrics["latency_headroom_ms"] = headroom
                 self._metrics["latency_warning"] = _latency_warning(total_p95, chunk_ms)
+                self._metrics["estimated_latency_ms"] = round(estimated_latency, 3)
+                self._metrics["measured_latency_ms"] = self._latest_measured_latency_ms
+                self._metrics["measured_latency_p95_ms"] = measured_p95
+                self._metrics["callback_transport_ms"] = self._callback_transport_ms
+                self._metrics["clock_drift_ppm"] = self._clock_drift_ppm
+                self._metrics["input_queue_ms"] = input_queue_ms
+                self._metrics["output_queue_ms"] = output_queue_ms
                 self._metrics["provider_health"] = self._engine.provider_health()
                 self._metrics["squelched"] = squelched
 
@@ -502,6 +700,15 @@ class StubRealtimeSession:
             "chunk_ms": chunk_ms,
             "latency_headroom_ms": round(chunk_ms - 5.0, 3),
             "latency_warning": _latency_warning(5.0, chunk_ms),
+            "estimated_latency_ms": round(chunk_ms * 2 + 5.0, 3),
+            "measured_latency_ms": round(chunk_ms * 2 + 5.0, 3),
+            "measured_latency_p95_ms": round(chunk_ms * 2 + 5.0, 3),
+            "callback_transport_ms": 0.0,
+            "clock_drift_ppm": 0.0,
+            "input_stream_latency_ms": 0.0,
+            "output_stream_latency_ms": 0.0,
+            "input_queue_ms": 0.0,
+            "output_queue_ms": chunk_ms,
             "provider_health": self._engine.provider_health(),
             "overruns": 0,
             "underruns": 0,

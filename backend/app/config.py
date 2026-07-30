@@ -213,14 +213,17 @@ class Settings(BaseSettings):
     voice_max_upload_mb: int = 64
     voice_pitch: int = 0
     voice_speaker_id: int = 0
-    voice_index_ratio: float = 0.55
+    voice_index_ratio: float = 0.35
     # 0.5 disables consonant protection entirely; 0.33 (upstream RVC default)
     # keeps unvoiced frames close to the source so sibilants stay crisp.
     voice_protect: float = 0.33
-    voice_noise_scale: float = 0.66666
-    voice_f0_smoothing: float = 0.0
+    voice_noise_scale: float = 0.35
+    voice_f0_smoothing: float = 0.2
     voice_f0_detector: str = "fcpe"
     voice_input_highpass_hz: int = 80
+    # Legacy compatibility fields. The native pipeline keeps both neutral:
+    # realtime already had no streaming implementation for the frame gate, and
+    # analysis-side formant resampling destabilized ContentVec timing.
     voice_input_gate_db: float = -90.0
     voice_input_formant: float = 0.0
     voice_input_denoise: str = "off"

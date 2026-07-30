@@ -124,6 +124,7 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
             "silence_hold_ms": 9999,
             "server_input_gain": 9,
             "server_output_gain": -2,
+            "server_read_chunk_size": 96,
         },
     )
     assert response.status_code == 200
@@ -136,13 +137,14 @@ async def test_settings_clamps_and_rejects_bad_f0(client):
     assert current["f0_smoothing"] == 0.0
     assert current["input_highpass_hz"] == 300
     assert current["input_gate_db"] == -90.0
-    assert current["input_formant"] == 2.0
+    assert current["input_formant"] == 0.0
     assert current["input_denoise"] == "dtln"
     assert current["input_denoise_mix"] == 1.0
     assert current["silence_threshold_db"] == -90.0
     assert current["silence_hold_ms"] == 2000.0
     assert current["server_input_gain"] == 4.0
     assert current["server_output_gain"] == 0.0
+    assert current["server_read_chunk_size"] == 90
 
     off = await client.post("/api/voice/engine/settings", json={"input_gate_db": 0, "input_highpass_hz": "off"})
     assert off.status_code == 200
@@ -268,8 +270,8 @@ async def test_corrupt_settings_file_falls_back_to_defaults(client):
     assert current["noise_scale"] == settings.voice_noise_scale
     assert current["f0_smoothing"] == settings.voice_f0_smoothing
     assert current["input_denoise_mix"] == settings.voice_input_denoise_mix
-    assert current["silence_threshold_db"] == -72.0
-    assert current["silence_hold_ms"] == 250.0
+    assert current["silence_threshold_db"] == -54.0
+    assert current["silence_hold_ms"] == 200.0
 
 
 async def test_settings_load_clamps_and_flags_missing_devices(client):
@@ -342,8 +344,8 @@ async def test_convert_round_trip_is_deterministic(client):
     assert first_body["params"]["noise_scale"] == 0.05
     assert first_body["params"]["f0_smoothing"] == 0.4
     assert first_body["params"]["input_highpass_hz"] == 120
-    assert first_body["params"]["input_gate_db"] == -50.0
-    assert first_body["params"]["input_formant"] == 1.5
+    assert first_body["params"]["input_gate_db"] == -90.0
+    assert first_body["params"]["input_formant"] == 0.0
     assert first_body["params"]["input_denoise"] == "off"
     assert first_body["params"]["input_denoise_mix"] == 0.25
     assert "stub_convert" in first_body["timings_ms"]

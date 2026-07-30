@@ -36,7 +36,7 @@ def test_settings_inventory_is_unique_and_group_complete():
     keys = [spec.key for spec in SPECS]
     group_ids = {group["id"] for group in GROUPS}
 
-    assert len(keys) == len(set(keys)) == 143
+    assert len(keys) == len(set(keys)) == 140
     assert {spec.group for spec in SPECS} == group_ids
     assert Counter(spec.group for spec in SPECS) == {
         "runtime": 1,
@@ -47,7 +47,7 @@ def test_settings_inventory_is_unique_and_group_complete():
         "acceleration": 20,
         "memory": 7,
         "tools": 11,
-        "voice": 15,
+        "voice": 12,
         "sources": 18,
     }
 

@@ -8,15 +8,17 @@ import {
   formatMs,
   hostApiTag,
   latencyPresets,
+  lowLatencyVoicePreset,
   meter,
   nativeRoutingSettingsPatch,
   nativeSettingsToVoiceState,
   nativeTuningSettingsPatch,
   nativeVoicePresetSettingsPatch,
   num,
-  recommendedVoicePreset,
+  qualityVoicePreset,
   resolveMonitorDeviceId,
   selectedNativeModelId,
+  stableVoicePreset,
 } from "./voiceHelpers";
 import type { VoiceAudioDevice, VoiceModel } from "../types";
 
@@ -77,8 +79,8 @@ describe("settings coercion", () => {
       server_monitor_gain: 0.6,
     })).toMatchObject({
       pitch: 2,
-      formantShift: 1.25,
-      inputGateDb: -55,
+      formantShift: 0,
+      inputGateDb: -90,
       inputHighpassHz: 120,
       inputDenoise: "dtln",
       inputDenoiseMix: 0.65,
@@ -140,8 +142,8 @@ describe("settings coercion", () => {
       passThrough: false,
     })).toEqual({
       pitch: -3,
-      input_formant: 0.5,
-      input_gate_db: -70,
+      input_formant: 0,
+      input_gate_db: -90,
       input_highpass_hz: 80,
       input_denoise: "dtln",
       input_denoise_mix: 0.75,
@@ -263,43 +265,46 @@ describe("formatters and constants", () => {
     expect(meter(-1)).toBe(0);
   });
 
-  it("exports the existing latency presets", () => {
-    expect(latencyPresets.map((preset) => preset.id)).toEqual(["fast", "balanced", "quality"]);
+  it("exports analysis-grid-aligned latency presets", () => {
+    expect(latencyPresets.map((preset) => preset.id)).toEqual(["low", "stable", "quality"]);
+    expect(latencyPresets.every((preset) => preset.chunk % 15 === 0)).toBe(true);
   });
 
-  it("exports the recommended voice preset without pitch", () => {
-    expect(recommendedVoicePreset).toMatchObject({
-      inputDenoise: "dtln",
-      inputDenoiseMix: 0.75,
+  it("exports stable, low-latency, and quality presets", () => {
+    expect(stableVoicePreset).toMatchObject({
+      inputDenoise: "off",
+      inputDenoiseMix: 0,
       inputGateDb: -90,
-      silenceThresholdDb: -72,
-      silenceHoldMs: 250,
-      indexRatio: 0.5,
+      silenceThresholdDb: -54,
+      silenceHoldMs: 200,
+      indexRatio: 0.35,
       protect: 0.33,
-      noiseScale: 0.66666,
-      f0Smoothing: 0,
-      readChunkSize: 133,
-      crossFadeOverlap: 0.06,
-      extraConvert: 2,
+      noiseScale: 0.35,
+      f0Smoothing: 0.2,
+      f0Detector: "fcpe",
+      readChunkSize: 90,
+      crossFadeOverlap: 0.03,
+      extraConvert: 1,
       sampleRate: 48000,
     });
-    expect("pitch" in recommendedVoicePreset).toBe(false);
-    // protect 0.5 would disable RVC consonant protection; quality presets must
-    // keep it strictly below 0.5 so sibilants stay crisp.
-    expect(recommendedVoicePreset.protect).toBeLessThan(0.5);
+    expect(lowLatencyVoicePreset.readChunkSize).toBe(60);
+    expect(lowLatencyVoicePreset.f0Detector).toBe("fcpe");
+    expect(qualityVoicePreset.readChunkSize).toBe(120);
+    expect(qualityVoicePreset.f0Detector).toBe("rmvpe");
+    expect("pitch" in stableVoicePreset).toBe(false);
+    expect(stableVoicePreset.protect).toBeLessThan(0.5);
   });
 
-  it("keeps the +12 feminine preset in the validated clarity range", () => {
+  it("keeps the feminine preset deterministic and grid-aligned", () => {
     expect(feminineVoicePreset).toMatchObject({
-      pitch: 12,
-      indexRatio: 0.3,
-      noiseScale: 0.5,
+      pitch: 10,
+      formantShift: 0,
+      indexRatio: 0.25,
+      noiseScale: 0.3,
       protect: 0.33,
-      f0Detector: "rmvpe",
+      f0Detector: "fcpe",
+      readChunkSize: 90,
     });
-    expect(feminineVoicePreset.indexRatio).toBeGreaterThanOrEqual(0.25);
-    expect(feminineVoicePreset.indexRatio).toBeLessThanOrEqual(0.35);
-    expect(feminineVoicePreset.noiseScale).toBeGreaterThanOrEqual(0.45);
-    expect(feminineVoicePreset.noiseScale).toBeLessThanOrEqual(0.55);
+    expect(feminineVoicePreset.readChunkSize % 15).toBe(0);
   });
 });

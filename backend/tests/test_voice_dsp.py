@@ -114,6 +114,21 @@ def test_output_limiter_leaves_safe_audio_and_caps_peak():
     assert hot_meta["limiter_reduction_db"] > 0.0
 
 
+def test_streaming_limiter_recovers_gain_gradually():
+    import numpy as np
+
+    limiter = dsp.StreamingLimiter(sample_rate=1000, release_ms=250)
+    hot, hot_meta = limiter.process(np.ones(100, dtype=np.float32) * 2.0)
+    first_gain = limiter.gain
+    safe, safe_meta = limiter.process(np.ones(100, dtype=np.float32) * 0.2)
+
+    assert float(np.max(np.abs(hot))) <= dsp.dbfs_to_linear(dsp.OUTPUT_LIMITER_CEILING_DBFS) + 1e-6
+    assert hot_meta["limiter_reduction_db"] > 0.0
+    assert first_gain < limiter.gain < 1.0
+    assert safe_meta["limiter_reduction_db"] > 0.0
+    assert np.all(np.diff(safe) >= -1e-7)
+
+
 def test_formant_shift_moves_centroid_and_compensates_f0():
     import numpy as np
 

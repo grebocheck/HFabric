@@ -11,7 +11,6 @@ type OfflineConversionSettings = {
   noiseScale: number;
   f0Smoothing: number;
   inputHighpassHz: number;
-  inputGateDb: number;
   inputDenoise: "off" | "dtln";
   inputDenoiseMix: number;
 };
@@ -20,7 +19,6 @@ export function useVoiceOfflineConversion(settings: OfflineConversionSettings) {
   const [offlineFile, setOfflineFile] = useState<File | null>(null);
   const [offlineModelId, setOfflineModelId] = useState("");
   const [offlinePitch, setOfflinePitch] = useState(0);
-  const [offlineFormant, setOfflineFormant] = useState(0);
   const [offlineBusy, setOfflineBusy] = useState(false);
   const [offlineError, setOfflineError] = useState("");
   const [offlineResult, setOfflineResult] = useState<VoiceEngineConvertResult | null>(null);
@@ -45,8 +43,8 @@ export function useVoiceOfflineConversion(settings: OfflineConversionSettings) {
     form.append("noise_scale", String(settings.noiseScale));
     form.append("f0_smoothing", String(settings.f0Smoothing));
     form.append("input_highpass_hz", String(settings.inputHighpassHz));
-    form.append("input_gate_db", String(settings.inputGateDb));
-    form.append("input_formant", String(offlineFormant));
+    form.append("input_gate_db", "-90");
+    form.append("input_formant", "0");
     form.append("input_denoise", settings.inputDenoise);
     form.append("input_denoise_mix", String(settings.inputDenoiseMix));
 
@@ -66,13 +64,11 @@ export function useVoiceOfflineConversion(settings: OfflineConversionSettings) {
     offlineBusy,
     offlineError,
     offlineFile,
-    offlineFormant,
     offlineModelId,
     offlinePitch,
     offlineResult,
     onOfflineConvert,
     setOfflineFile,
-    setOfflineFormant,
     setOfflineModelId,
     setOfflinePitch,
   };
