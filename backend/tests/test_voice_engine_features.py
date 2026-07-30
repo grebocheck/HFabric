@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from app.services.voice_engine.features import ContentVec
 
@@ -46,7 +47,7 @@ def test_contentvec_keeps_rank2_payload_for_legacy_onnx():
 
 
 def test_nsf_source_noise_can_be_pinned_across_overlap_renders():
-    import torch
+    torch = pytest.importorskip("torch")
 
     from app.services.voice_engine.rvc.models import SineGen
 
@@ -79,7 +80,7 @@ def test_f0_resize_does_not_voice_unvoiced_gap():
 def test_convert_audio_uses_existing_synth_tail_window():
     from types import SimpleNamespace
 
-    import torch
+    torch = pytest.importorskip("torch")
 
     from app.services.voice_engine.pipeline import convert_audio
 
