@@ -386,6 +386,12 @@ class DiffusersPipelineMixin:
         if key in self._controlnet_pipes:
             return self._controlnet_pipes[key]
 
+        # Individual SDXL ControlNets are large enough that retaining canny,
+        # depth, pose, and scribble together can exhaust a 16 GB card. Keep all
+        # mode views for the current model, but evict them when switching model.
+        if self._controlnet_models and model_key not in self._controlnet_models:
+            self._evict_controlnet_cache(torch)
+
         repo = self._controlnet_repo(control_type)
         if not repo:
             raise RuntimeError(f"SDXL ControlNet {control_type} repo is not configured.")
@@ -446,3 +452,16 @@ class DiffusersPipelineMixin:
             self._load_report.setdefault("acceleration", {})["sdxl_controlnet"] = feature
             self._load_report.setdefault("memory", {})["end"] = after
         return pipe
+
+    def _evict_controlnet_cache(self, torch) -> None:
+        import gc  # noqa: PLC0415
+
+        for pipe in self._controlnet_pipes.values():
+            if hasattr(pipe, "maybe_free_model_hooks"):
+                pipe.maybe_free_model_hooks()
+        self._controlnet_pipes = {}
+        self._controlnet_models = {}
+        self._controlnet_pipe = None
+        self._controlnet_model = None
+        gc.collect()
+        self._runtime().empty_cache(torch)

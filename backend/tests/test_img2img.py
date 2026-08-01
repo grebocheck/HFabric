@@ -38,6 +38,31 @@ def test_strength_is_clamped_defaulted_and_gets_a_distilled_floor():
     ) == pytest.approx(4 / 9)
 
 
+def test_controlnet_cache_eviction_releases_views_and_models():
+    backend = DiffusersImageBackend(
+        ModelDescriptor(id="sdxl", name="SDXL", family=ModelFamily.SDXL, path=Path("x"), size_bytes=0)
+    )
+    hooks: list[str] = []
+    cache_clears: list[object] = []
+    view = SimpleNamespace(maybe_free_model_hooks=lambda: hooks.append("freed"))
+    runtime = SimpleNamespace(empty_cache=lambda torch: cache_clears.append(torch))
+    backend._controlnet_pipes = {("canny", "text2img"): view}
+    backend._controlnet_models = {"canny": object()}
+    backend._controlnet_pipe = view
+    backend._controlnet_model = object()
+    backend._runtime = lambda: runtime
+    torch = object()
+
+    backend._evict_controlnet_cache(torch)
+
+    assert hooks == ["freed"]
+    assert cache_clears == [torch]
+    assert backend._controlnet_pipes == {}
+    assert backend._controlnet_models == {}
+    assert backend._controlnet_pipe is None
+    assert backend._controlnet_model is None
+
+
 async def test_img2img_allowed_for_flux_families():
     desc = ModelDescriptor(
         id="f", name="F", family=ModelFamily.FLUX, path=Path("x"), size_bytes=0, quant="nunchaku-fp4"
