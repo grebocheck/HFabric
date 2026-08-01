@@ -23,10 +23,14 @@ export class QueryCache {
     if (!force && existing?.value !== undefined && now - existing.updatedAt < staleTime) {
       return Promise.resolve(existing.value);
     }
-    if (existing?.promise) return existing.promise;
+    if (existing?.promise && !force) return existing.promise;
+    if (existing?.promise && force) {
+      existing.controller?.abort();
+      this.entries.delete(key);
+    }
 
     const controller = new AbortController();
-    const entry: CacheEntry<T> = existing ?? { updatedAt: 0 };
+    const entry: CacheEntry<T> = force ? { updatedAt: 0 } : existing ?? { updatedAt: 0 };
     const promise = loader(controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) {

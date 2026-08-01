@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { appQueryCache } from "../api/queryCache";
 import { storage } from "../lib/storage";
 import type {
   ChatAttachment,
@@ -480,7 +481,7 @@ export function useChatPanelController({
     URL.revokeObjectURL(url);
   };
 
-  const exportJson = () => {
+  const exportJson = async () => {
     const activeConv = convs.find((c) => c.id === activeId);
     const conversations = activeConv
       ? [
@@ -501,7 +502,14 @@ export function useChatPanelController({
           },
         ]
       : [];
-    const presets = personas.map((p) => ({ name: p.name, type: p.type, params: p.params }));
+    let allPresets: Preset[];
+    try {
+      allPresets = await api.listPresets();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load presets for export");
+      return;
+    }
+    const presets = allPresets.map((p) => ({ name: p.name, type: p.type, params: p.params }));
     const title = activeConv?.title ?? "chat";
     const slug = title.slice(0, 40).replace(/[^a-z0-9]+/gi, "-") || "hfabric";
     downloadJson(`${slug}.hfabric.json`, {
@@ -529,6 +537,7 @@ export function useChatPanelController({
 
         if (bundle.presets.length) {
           const res = await api.importPresets(bundle.presets, "rename");
+          appQueryCache.invalidate("presets");
           parts.push(`${res.imported} preset${res.imported === 1 ? "" : "s"}`);
         }
 

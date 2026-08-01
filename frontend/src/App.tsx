@@ -177,7 +177,9 @@ export default function App() {
               models={models}
               modelsLoading={modelsLoading}
               loras={loras}
+              lorasLoading={lorasLoading}
               presets={presets}
+              presetsLoading={presetsLoading}
               jobs={imageJobs}
               images={images}
               apply={editApply}

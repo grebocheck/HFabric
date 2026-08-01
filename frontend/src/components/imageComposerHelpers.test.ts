@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  boundedNumberParam,
+  DEFAULT_IMAGE_SETTINGS,
   formatSize,
   formatVram,
   imageFamilyDefaults,
@@ -13,7 +15,9 @@ import {
   isModelAvailable,
   isNunchaku,
   isZImageTurbo,
+  mergeImageDefaultSettings,
   numberParam,
+  parseLoraSelections,
   pickDefaultImageModel,
   readSaved,
   STORE_KEY,
@@ -44,6 +48,14 @@ describe("formatters", () => {
     expect(numberParam("3", 0)).toBe(3);
     expect(numberParam("nope", 7)).toBe(7);
     expect(numberParam(undefined, 1)).toBe(1);
+    expect(numberParam(null, 2)).toBe(2);
+    expect(numberParam("", 3)).toBe(3);
+  });
+
+  it("boundedNumberParam normalizes values to the API contract", () => {
+    expect(boundedNumberParam(129, 1024, 256, 2048, { integer: true, multipleOf: 64 })).toBe(256);
+    expect(boundedNumberParam(1080, 1024, 256, 2048, { integer: true, multipleOf: 64 })).toBe(1088);
+    expect(boundedNumberParam("bad", 28, 1, 150, { integer: true })).toBe(28);
   });
 });
 
@@ -109,6 +121,40 @@ describe("model ranking & selection", () => {
     expect(isKnownGuidanceDefault(0)).toBe(true);
     expect(isKnownSizeDefault(1328)).toBe(true);
   });
+
+  it("uses validated server overrides for family defaults", () => {
+    const settings = mergeImageDefaultSettings({
+      flux2_default_steps: 11,
+      flux2_default_width: 896,
+      flux2_default_height: Number.NaN,
+      qwen_image_default_guidance: "invalid",
+    });
+    expect(settings).toMatchObject({
+      flux2_default_steps: 11,
+      flux2_default_width: 896,
+      flux2_default_height: DEFAULT_IMAGE_SETTINGS.flux2_default_height,
+      qwen_image_default_guidance: DEFAULT_IMAGE_SETTINGS.qwen_image_default_guidance,
+    });
+    expect(imageFamilyDefaults("flux2", undefined, settings)).toEqual({
+      steps: 11,
+      guidance: 4,
+      width: 896,
+      height: 768,
+    });
+  });
+
+  it("filters missing, duplicate, and incompatible LoRA selections", () => {
+    const loras = [
+      { id: "sdxl", name: "SDXL", family: "sdxl" },
+      { id: "flux", name: "Flux", family: "flux" },
+    ] as Lora[];
+    expect(parseLoraSelections([
+      { id: "sdxl", weight: 9 },
+      { id: "sdxl", weight: 0.5 },
+      { id: "flux", weight: 1 },
+      "missing",
+    ], loras, model({ family: "sdxl" }))).toEqual([{ id: "sdxl", weight: 2 }]);
+  });
 });
 
 describe("inferTouched", () => {
@@ -151,6 +197,20 @@ describe("readSaved", () => {
     expect(readSaved()).toEqual({});
     localStorage.setItem(STORE_KEY, "{bad");
     expect(readSaved()).toEqual({});
+  });
+
+  it("sanitizes malformed persisted fields instead of trusting storage", () => {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      imgModel: 7,
+      steps: "28",
+      count: Number.POSITIVE_INFINITY,
+      selectedLoras: [null, "bad", { id: "ok", weight: 9 }],
+      touched: { steps: "yes", width: true },
+    }));
+    expect(readSaved()).toEqual({
+      selectedLoras: [{ id: "ok", weight: 2 }],
+      touched: { width: true },
+    });
   });
 
   it("round-trips a saved composer snapshot", () => {

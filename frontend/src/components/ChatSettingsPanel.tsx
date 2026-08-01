@@ -12,7 +12,6 @@ const label = "text-xs uppercase tracking-wide text-ui-subtle";
 export function ChatSettingsPanel({ controller }: { controller: ChatPanelController }) {
   const {
     activeBackend,
-    activeId,
     applyBackend,
     applyContextType,
     applyCtx,
@@ -87,8 +86,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
             MD
           </button>
           <button
-            onClick={exportJson}
-            disabled={!activeId && personas.length === 0}
+            onClick={() => void exportJson()}
             className="ui-button rounded px-2 py-1 text-xs disabled:opacity-30"
             title="Export importable JSON bundle"
           >

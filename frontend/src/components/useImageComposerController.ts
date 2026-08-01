@@ -7,13 +7,14 @@ import {
   DEFAULT_GUIDANCE,
   DEFAULT_SIZE,
   DEFAULT_STEPS,
+  boundedNumberParam,
   imageFamilyDefaults,
   imageModelRank,
   inferTouched,
   isLoraCompatible,
   isModelAvailable,
   loadPromptHistory,
-  numberParam,
+  parseLoraSelections,
   pickDefaultImageModel,
   PROMPT_HISTORY_KEY,
   promptHistoryLimit,
@@ -23,6 +24,8 @@ import {
   type SavedComposer,
   type TouchedFields,
 } from "./imageComposerHelpers";
+import { toast } from "./Toast";
+import { useImageDefaultSettings } from "./useImageDefaultSettings";
 
 const RATIOS = [
   { label: "1:1", w: 1, h: 1 },
@@ -39,7 +42,7 @@ export type ImageComposerProps = {
   lorasLoading?: boolean;
   presets: Preset[];
   presetsLoading?: boolean;
-  onPresetsChanged: () => void;
+  onPresetsChanged: () => void | Promise<void>;
   promptDraft: string;
   setPromptDraft: (value: string) => void;
   apply?: ComposerApply | null;
@@ -75,6 +78,8 @@ export function useImageComposerController({
   const [presetId, setPresetId] = useState(saved.presetId ?? "");
   const [presetName, setPresetName] = useState("");
   const [presetError, setPresetError] = useState("");
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [queueing, setQueueing] = useState(false);
   const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
   const [promptHistoryOpen, setPromptHistoryOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -82,12 +87,7 @@ export function useImageComposerController({
   // Which numeric fields the user has explicitly edited. Untouched fields track
   // family/server defaults; touched ones survive tab switches and family changes.
   const [touched, setTouched] = useState<TouchedFields>(() => inferTouched(saved));
-  const [serverDefaults, setServerDefaults] = useState({
-    default_steps: DEFAULT_STEPS,
-    default_guidance: DEFAULT_GUIDANCE,
-    default_width: DEFAULT_SIZE,
-    default_height: DEFAULT_SIZE,
-  });
+  const serverDefaults = useImageDefaultSettings();
 
   const selectedImgModel = imgModels.find((m) => m.id === imgModel);
   const selectedFamily = selectedImgModel?.family;
@@ -95,36 +95,6 @@ export function useImageComposerController({
   const compatibleLoras = loras
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
     .sort((a, b) => a.name.localeCompare(b.name));
-
-  const fetchServerDefaults = useCallback(() => {
-    api
-      .settingsOverrides()
-      .then(({ values }) => {
-        if (!values || typeof values !== "object") return;
-        setServerDefaults((current) => ({
-          default_steps:
-            typeof values.default_steps === "number" ? values.default_steps : current.default_steps,
-          default_guidance:
-            typeof values.default_guidance === "number"
-              ? values.default_guidance
-              : current.default_guidance,
-          default_width:
-            typeof values.default_width === "number" ? values.default_width : current.default_width,
-          default_height:
-            typeof values.default_height === "number" ? values.default_height : current.default_height,
-        }));
-      })
-      .catch((error: unknown) => {
-        console.warn("Could not load server image defaults", error);
-      });
-  }, []);
-
-  useEffect(() => {
-    fetchServerDefaults();
-    const onDefaultsChanged = () => fetchServerDefaults();
-    window.addEventListener("hfabric:settings-overrides", onDefaultsChanged);
-    return () => window.removeEventListener("hfabric:settings-overrides", onDefaultsChanged);
-  }, [fetchServerDefaults]);
 
   useEffect(() => {
     if (!imgModel || !isModelAvailable(selectedImgModel)) {
@@ -169,20 +139,27 @@ export function useImageComposerController({
   ]);
 
   useEffect(() => {
+    if (lorasLoading || modelsLoading) return;
     setSelectedLoras((current) =>
       current.filter((selected) => {
         const lora = loras.find((item) => item.id === selected.id);
         return lora ? isLoraCompatible(lora, selectedImgModel) : false;
       }),
     );
-  }, [loras, selectedImgModel]);
+  }, [loras, lorasLoading, modelsLoading, selectedImgModel]);
+
+  useEffect(() => {
+    if (!presetsLoading && presetId && !imagePresets.some((preset) => preset.id === presetId)) {
+      setPresetId("");
+    }
+  }, [imagePresets, presetId, presetsLoading]);
 
   // Untouched numeric fields follow the best default for the current selection:
   // the family-specific default (flux2/qwen/z-image) when there is one, else the
   // server-configured writable default. Touched fields are left alone so a user's
   // choice survives remounts (tab switches), family switches, and default changes.
   useEffect(() => {
-    const fam = imageFamilyDefaults(selectedFamily, selectedImgModel);
+    const fam = imageFamilyDefaults(selectedFamily, selectedImgModel, serverDefaults);
     const effective = fam ?? {
       steps: serverDefaults.default_steps,
       guidance: serverDefaults.default_guidance,
@@ -197,22 +174,48 @@ export function useImageComposerController({
 
   // Field editors that record the user's intent. Editing a field marks it
   // touched so it stops tracking defaults and survives the next remount.
+  const clearActivePreset = useCallback(() => setPresetId(""), []);
   const editSteps = useCallback((v: number) => {
     setSteps(v);
     setTouched((t) => ({ ...t, steps: true }));
-  }, []);
+    clearActivePreset();
+  }, [clearActivePreset]);
   const editGuidance = useCallback((v: number) => {
     setGuidance(v);
     setTouched((t) => ({ ...t, guidance: true }));
-  }, []);
+    clearActivePreset();
+  }, [clearActivePreset]);
   const editWidth = useCallback((v: number) => {
     setWidth(v);
     setTouched((t) => ({ ...t, width: true }));
-  }, []);
+    clearActivePreset();
+  }, [clearActivePreset]);
   const editHeight = useCallback((v: number) => {
     setHeight(v);
     setTouched((t) => ({ ...t, height: true }));
-  }, []);
+    clearActivePreset();
+  }, [clearActivePreset]);
+
+  const editImgModel = useCallback((value: string) => {
+    setImgModel(value);
+    clearActivePreset();
+  }, [clearActivePreset]);
+  const editNegative = useCallback((value: string) => {
+    setNegative(value);
+    clearActivePreset();
+  }, [clearActivePreset]);
+  const editPromptDraft = useCallback((value: string) => {
+    setPromptDraft(value);
+    clearActivePreset();
+  }, [clearActivePreset, setPromptDraft]);
+  const editSeed = useCallback((value: number) => {
+    setSeed(value);
+    clearActivePreset();
+  }, [clearActivePreset]);
+  const editBatch = useCallback((value: number) => {
+    setBatch(value);
+    clearActivePreset();
+  }, [clearActivePreset]);
 
   const imageParams = () => ({
     prompt: promptDraft.trim(),
@@ -233,16 +236,31 @@ export function useImageComposerController({
   }, []);
 
   const generate = async () => {
-    if (!imgModel || !promptDraft.trim()) return;
+    if (!imgModel || !promptDraft.trim() || queueing) return;
     const params = imageParams();
     rememberPrompt(params.prompt);
-    await api.createJobs(
-      Array.from({ length: count }, () => ({ type: "image" as const, model_id: imgModel, params })),
-    );
+    setQueueing(true);
+    try {
+      await api.createJobs(
+        Array.from({ length: count }, (_, index) => ({
+          type: "image" as const,
+          model_id: imgModel,
+          params: {
+            ...params,
+            seed: seed >= 0 ? (seed + index * batch) % 2 ** 31 : -1,
+          },
+        })),
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not queue image generation");
+    } finally {
+      setQueueing(false);
+    }
   };
 
   const applyRatio = (rw: number, rh: number) => {
-    const base = imageFamilyDefaults(selectedFamily, selectedImgModel)?.width ?? serverDefaults.default_width;
+    const base =
+      imageFamilyDefaults(selectedFamily, selectedImgModel, serverDefaults)?.width ?? serverDefaults.default_width;
     const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
     if (rw >= rh) {
       editWidth(round64(base));
@@ -254,10 +272,12 @@ export function useImageComposerController({
   };
 
   const updateLoraWeight = (id: string, weight: number) => {
+    clearActivePreset();
     setSelectedLoras((current) => current.map((lora) => (lora.id === id ? { ...lora, weight } : lora)));
   };
 
   const toggleLora = (lora: Lora, enabled: boolean) => {
+    clearActivePreset();
     setSelectedLoras((current) => {
       const exists = current.some((selected) => selected.id === lora.id);
       if (enabled && !exists) return [...current, { id: lora.id, weight: 1 }];
@@ -268,39 +288,56 @@ export function useImageComposerController({
 
   const savePreset = async () => {
     const name = presetName.trim();
-    if (!name) return;
+    if (!name || !imgModel || presetBusy) return;
     setPresetError("");
+    setPresetBusy(true);
     try {
-      await api.createPreset(name, "image", { ...imageParams(), model_id: imgModel });
+      const created = await api.createPreset(name, "image", { ...imageParams(), model_id: imgModel });
       setPresetName("");
-      onPresetsChanged();
+      await onPresetsChanged();
+      setPresetId(created.id);
     } catch (err) {
       setPresetError(err instanceof Error ? err.message : "Could not save preset");
+    } finally {
+      setPresetBusy(false);
     }
   };
 
   // Load a full param snapshot into the composer. Shared by presets (model
   // identified by id) and History reproduce (model id resolved by the caller).
-  const applyParams = (params: Record<string, unknown>, modelId?: string) => {
-    if (typeof params.prompt === "string") setPromptDraft(params.prompt);
-    setNegative(typeof params.negative === "string" ? params.negative : "");
+  const applyParams = (params: Record<string, unknown>, modelId?: string, activePresetId = "") => {
     const targetId = modelId ?? (typeof params.model_id === "string" ? params.model_id : undefined);
     const model = targetId ? imgModels.find((m) => m.id === targetId) : undefined;
+    if (activePresetId && targetId && (!model || !isModelAvailable(model))) {
+      setPresetError("The model saved in this preset is unavailable. Rescan models or update the preset.");
+      return false;
+    }
+    if (typeof params.prompt === "string") setPromptDraft(params.prompt);
+    setNegative(typeof params.negative === "string" ? params.negative : "");
     if (model && isModelAvailable(model)) setImgModel(model.id);
     // A loaded snapshot is an explicit choice: mark the fields touched so the
     // defaults effect doesn't snap them back on the next family resolve/remount.
-    editSteps(numberParam(params.steps, steps));
-    editGuidance(numberParam(params.guidance, guidance));
-    editWidth(numberParam(params.width, width));
-    editHeight(numberParam(params.height, height));
-    setSeed(numberParam(params.seed, seed));
-    setBatch(numberParam(params.batch_size, batch));
-    setSelectedLoras(parseLoraSelections(params.loras, loras, model ?? selectedImgModel));
+    editSteps(boundedNumberParam(params.steps, steps, 1, 150, { integer: true }));
+    editGuidance(boundedNumberParam(params.guidance, guidance, 0, 30));
+    editWidth(boundedNumberParam(params.width, width, 256, 2048, { integer: true, multipleOf: 64 }));
+    editHeight(boundedNumberParam(params.height, height, 256, 2048, { integer: true, multipleOf: 64 }));
+    setSeed(boundedNumberParam(params.seed, seed, -1, 2 ** 31 - 1, { integer: true }));
+    setBatch(boundedNumberParam(params.batch_size, batch, 1, 16, { integer: true }));
+    const parsedLoras = parseLoraSelections(params.loras, loras, model ?? selectedImgModel);
+    setSelectedLoras(parsedLoras);
+    const requestedLoras = Array.isArray(params.loras) ? params.loras.length : 0;
+    if (activePresetId && parsedLoras.length < requestedLoras) {
+      setPresetError("Some LoRAs saved in this preset are missing or incompatible and were skipped.");
+    }
+    setPresetId(activePresetId);
+    return true;
   };
 
   const applyPreset = () => {
+    if (modelsLoading || lorasLoading || presetBusy) return;
+    setPresetError("");
     const preset = imagePresets.find((p) => p.id === presetId);
-    if (preset) applyParams(preset.params);
+    if (preset) applyParams(preset.params, undefined, preset.id);
   };
 
   // External "reproduce from History" request: apply once per nonce.
@@ -332,14 +369,17 @@ export function useImageComposerController({
   }, [promptHistoryOpen]);
 
   const deletePreset = async () => {
-    if (!presetId) return;
+    if (!presetId || presetBusy) return;
     setPresetError("");
+    setPresetBusy(true);
     try {
       await api.deletePreset(presetId);
       setPresetId("");
-      onPresetsChanged();
+      await onPresetsChanged();
     } catch (err) {
       setPresetError(err instanceof Error ? err.message : "Could not delete preset");
+    } finally {
+      setPresetBusy(false);
     }
   };
 
@@ -349,7 +389,12 @@ export function useImageComposerController({
   ];
 
   const selectedUnavailableReason = selectedImgModel?.unavailable_reason ?? "";
-  const canQueue = Boolean(imgModel) && isModelAvailable(selectedImgModel) && Boolean(promptDraft.trim());
+  const canQueue =
+    Boolean(imgModel) && isModelAvailable(selectedImgModel) && Boolean(promptDraft.trim()) && !queueing;
+  const canApplyPreset = Boolean(presetId) && !modelsLoading && !lorasLoading && !presetBusy;
+  const canSavePreset =
+    Boolean(presetName.trim()) && Boolean(imgModel) && isModelAvailable(selectedImgModel) && !presetBusy;
+  const familyDefaults = imageFamilyDefaults(selectedFamily, selectedImgModel, serverDefaults);
   const activeRatio = RATIOS.find((r) => isRatio(width, height, r.w, r.h))?.label ?? "custom";
   const promptChars = promptDraft.trim().length;
   const queueLabel = count > 1 ? `Queue ${count} jobs` : "Queue generation";
@@ -360,7 +405,9 @@ export function useImageComposerController({
     applyPreset,
     applyRatio,
     batch,
+    canApplyPreset,
     canQueue,
+    canSavePreset,
     compatibleLoras,
     count,
     deletePreset,
@@ -379,6 +426,7 @@ export function useImageComposerController({
     modelsLoading,
     negative,
     presetError,
+    presetBusy,
     presetId,
     presetName,
     presetOptions,
@@ -388,6 +436,7 @@ export function useImageComposerController({
     promptHistoryOpen,
     promptHistoryRef,
     queueLabel,
+    queueing,
     ratios: RATIOS,
     savePreset,
     seed,
@@ -395,46 +444,26 @@ export function useImageComposerController({
     selectedImgModel,
     selectedLoras,
     selectedUnavailableReason,
-    setBatch,
+    setBatch: editBatch,
     setCount,
-    setImgModel,
+    setImgModel: editImgModel,
     setLibraryOpen,
-    setNegative,
+    setNegative: editNegative,
     setPresetId,
     setPresetName,
-    setPromptDraft,
+    setPromptDraft: editPromptDraft,
     setPromptHistoryOpen,
-    setSeed,
+    setSeed: editSeed,
     steps,
     toggleLora,
     updateLoraWeight,
     visiblePromptHistory,
     width,
+    familyDefaults,
   };
 }
 
 function isRatio(w: number, h: number, rw: number, rh: number): boolean {
   if (!w || !h) return false;
   return Math.abs(w / h - rw / rh) < 0.02;
-}
-
-function parseLoraSelections(value: unknown, loras: Lora[], model: Model | undefined): LoraSelection[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const selections: LoraSelection[] = [];
-  for (const item of value) {
-    const id =
-      typeof item === "string"
-        ? item
-        : item && typeof item === "object" && "id" in item && typeof item.id === "string"
-          ? item.id
-          : "";
-    if (!id || seen.has(id)) continue;
-    const lora = loras.find((candidate) => candidate.id === id);
-    if (!lora || !isLoraCompatible(lora, model)) continue;
-    const weight = item && typeof item === "object" && "weight" in item ? numberParam(item.weight, 1) : 1;
-    selections.push({ id, weight });
-    seen.add(id);
-  }
-  return selections;
 }

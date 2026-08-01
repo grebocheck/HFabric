@@ -12,12 +12,15 @@ import { toast } from "./Toast";
 import { Toggle } from "./Toggle";
 import { ZoomableImage } from "./ZoomableImage";
 import {
+  boundedNumberParam,
   imageFamilyDefaults,
   isLoraCompatible,
   isModelAvailable,
   numberParam,
+  parseLoraSelections,
   type LoraSelection,
 } from "./imageComposerHelpers";
+import { useImageDefaultSettings } from "./useImageDefaultSettings";
 
 type EditMode = "img2img" | "inpaint" | "outpaint" | "instruction" | "controlnet";
 type Source = { token: string; url: string; width: number; height: number };
@@ -61,7 +64,9 @@ export function EditWorkspace({
   models,
   modelsLoading = false,
   loras,
+  lorasLoading = false,
   presets,
+  presetsLoading = false,
   jobs,
   images,
   apply,
@@ -71,7 +76,9 @@ export function EditWorkspace({
   models: Model[];
   modelsLoading?: boolean;
   loras: Lora[];
+  lorasLoading?: boolean;
   presets: Preset[];
+  presetsLoading?: boolean;
   jobs: Job[];
   images: ImageItem[];
   apply?: EditApply | null;
@@ -109,6 +116,7 @@ export function EditWorkspace({
   const [libraryOpen, setLibraryOpen] = useState(false);
   const appliedNonce = useRef<number | null>(null);
   const skipModelDefaults = useRef(false);
+  const imageDefaults = useImageDefaultSettings();
 
   const eligibleModels = useMemo(
     () => models.filter((model) => supportsEditMode(model, mode)).sort((a, b) => a.name.localeCompare(b.name)),
@@ -133,7 +141,7 @@ export function EditWorkspace({
       skipModelDefaults.current = false;
       return;
     }
-    const defaults = imageFamilyDefaults(family, selectedModel);
+    const defaults = imageFamilyDefaults(family, selectedModel, imageDefaults);
     if (defaults) {
       setSteps(defaults.steps);
       setGuidance(defaults.guidance);
@@ -145,7 +153,13 @@ export function EditWorkspace({
     if (family === "qwen-image") setStrength(0.6);
     if (family === "z-image") setStrength(0.45);
     if (family === "anima") setStrength(0.55);
-  }, [family, selectedModel, source]);
+  }, [family, imageDefaults, selectedModel, source]);
+
+  useEffect(() => {
+    if (!presetsLoading && presetId && !imagePresets.some((preset) => preset.id === presetId)) {
+      setPresetId("");
+    }
+  }, [imagePresets, presetId, presetsLoading]);
 
   useEffect(() => {
     if (mode !== "outpaint" || !source) return;
@@ -272,15 +286,36 @@ export function EditWorkspace({
   };
 
   const applyPreset = () => {
+    if (modelsLoading || lorasLoading || presetsLoading) return;
     const preset = imagePresets.find((item) => item.id === presetId);
     if (!preset) return;
-    setPrompt(typeof preset.params.prompt === "string" ? preset.params.prompt : prompt);
-    setNegative(typeof preset.params.negative === "string" ? preset.params.negative : negative);
-    setSteps(numberParam(preset.params.steps, steps));
-    setGuidance(numberParam(preset.params.guidance, guidance));
+    const targetId = typeof preset.params.model_id === "string" ? preset.params.model_id : "";
+    const target = targetId ? models.find((model) => model.id === targetId) : undefined;
+    if (targetId && (!target || !supportsEditMode(target, mode))) {
+      toast.error("The model saved in this preset is unavailable for the current edit mode");
+      return;
+    }
+    if (typeof preset.params.prompt === "string") setPrompt(preset.params.prompt);
+    setNegative(typeof preset.params.negative === "string" ? preset.params.negative : "");
+    setSteps(boundedNumberParam(preset.params.steps, steps, 1, 150, { integer: true }));
+    setGuidance(boundedNumberParam(preset.params.guidance, guidance, 0, 30));
+    setWidth(boundedNumberParam(preset.params.width, width, 256, 2048, { integer: true, multipleOf: 64 }));
+    setHeight(boundedNumberParam(preset.params.height, height, 256, 2048, { integer: true, multipleOf: 64 }));
+    setSeed(boundedNumberParam(preset.params.seed, seed, -1, 2 ** 31 - 1, { integer: true }));
+    setBatch(boundedNumberParam(preset.params.batch_size, batch, 1, 16, { integer: true }));
+    if (target) {
+      skipModelDefaults.current = true;
+      setModelId(target.id);
+    }
+    const parsedLoras = parseLoraSelections(preset.params.loras, loras, target ?? selectedModel);
+    setSelectedLoras(parsedLoras);
+    if (Array.isArray(preset.params.loras) && parsedLoras.length < preset.params.loras.length) {
+      toast.error("Some LoRAs in this preset are missing or incompatible and were skipped");
+    }
   };
 
   const applyRatio = (rw: number, rh: number) => {
+    setPresetId("");
     const base = Math.max(width, height, 512);
     if (rw >= rh) {
       setWidth(round64(base));
@@ -292,6 +327,7 @@ export function EditWorkspace({
   };
 
   const toggleLora = (lora: Lora, enabled: boolean) => {
+    setPresetId("");
     setSelectedLoras((current) => enabled
       ? [...current.filter((item) => item.id !== lora.id), { id: lora.id, weight: 1 }]
       : current.filter((item) => item.id !== lora.id));
@@ -311,7 +347,7 @@ export function EditWorkspace({
               {(Object.keys(modeLabels) as EditMode[]).map((item) => (
                 <button
                   key={item}
-                  onClick={() => setMode(item)}
+                  onClick={() => { setMode(item); setPresetId(""); }}
                   className={`h-8 rounded-md border text-xs transition ${mode === item ? "border-accent bg-accent/15 text-accent-fg" : "border-border-strong text-ui-muted hover:bg-control-hover"}`}
                 >
                   {modeLabels[item]}
@@ -324,7 +360,7 @@ export function EditWorkspace({
             <div className={label}>Model</div>
             <div className="mt-1.5">
               {eligibleModels.length ? (
-                <ModelPicker models={eligibleModels} value={modelId} onChange={setModelId} />
+                <ModelPicker models={eligibleModels} value={modelId} onChange={(value) => { setModelId(value); setPresetId(""); }} />
               ) : (
                 <div className="rounded-md border border-warn-border bg-warn-bg p-2 text-xs text-warn-fg">
                   {modelsLoading ? "Loading models..." : "No installed model supports this mode."}
@@ -360,11 +396,12 @@ export function EditWorkspace({
               <div className={label}>Instruction / prompt</div>
               <button onClick={() => setLibraryOpen(true)} className="ui-button ui-button-compact rounded-md">Library</button>
             </div>
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} className={`${field} mt-1.5 resize-y`} placeholder="Describe what should change..." />
-            <input value={negative} onChange={(event) => setNegative(event.target.value)} className={`${field} mt-2`} placeholder="Negative prompt (optional)" />
+            <textarea value={prompt} onChange={(event) => { setPrompt(event.target.value); setPresetId(""); }} rows={5} className={`${field} mt-1.5 resize-y`} placeholder="Describe what should change..." />
+            <input value={negative} onChange={(event) => { setNegative(event.target.value); setPresetId(""); }} className={`${field} mt-2`} placeholder="Negative prompt (optional)" />
             <PromptLibrary open={libraryOpen} onClose={() => setLibraryOpen(false)} currentPrompt={prompt} currentNegative={negative} onApply={(body, neg) => {
               setPrompt(prompt.trim() ? `${prompt.trim()}, ${body}` : body);
               if (neg) setNegative(negative.trim() ? `${negative.trim()}, ${neg}` : neg);
+              setPresetId("");
             }} />
           </section>
 
@@ -407,21 +444,21 @@ export function EditWorkspace({
             </section>
           ) : null}
 
-          <ImageParamForm activeRatio={activeRatio} batch={batch} guidance={guidance} height={height} labelClass={label} onApplyRatio={applyRatio} ratios={ratios} sectionClass={section} seed={seed} setBatch={setBatch} setGuidance={setGuidance} setHeight={setHeight} setSeed={setSeed} setSteps={setSteps} setWidth={setWidth} steps={steps} width={width} />
+          <ImageParamForm activeRatio={activeRatio} batch={batch} guidance={guidance} height={height} labelClass={label} onApplyRatio={applyRatio} ratios={ratios} sectionClass={section} seed={seed} setBatch={(value) => { setBatch(value); setPresetId(""); }} setGuidance={(value) => { setGuidance(value); setPresetId(""); }} setHeight={(value) => { setHeight(value); setPresetId(""); }} setSeed={(value) => { setSeed(value); setPresetId(""); }} setSteps={(value) => { setSteps(value); setPresetId(""); }} setWidth={(value) => { setWidth(value); setPresetId(""); }} steps={steps} width={width} />
 
           {compatibleLoras.length ? (
             <section className={section}>
               <div className={label}>LoRA</div>
               <div className="mt-1.5 space-y-2">{compatibleLoras.map((lora) => {
                 const selected = selectedLoras.find((item) => item.id === lora.id);
-                return <LoraCard key={lora.id} lora={lora} selected={selected} onToggle={(enabled) => toggleLora(lora, enabled)} onWeight={(weight) => setSelectedLoras((current) => current.map((item) => item.id === lora.id ? { ...item, weight } : item))} />;
+                return <LoraCard key={lora.id} lora={lora} selected={selected} onToggle={(enabled) => toggleLora(lora, enabled)} onWeight={(weight) => { setSelectedLoras((current) => current.map((item) => item.id === lora.id ? { ...item, weight } : item)); setPresetId(""); }} />;
               })}</div>
             </section>
           ) : null}
 
           <section className={section}>
             <div className={label}>Preset</div>
-            <div className="mt-1.5 flex gap-2"><div className="min-w-0 flex-1"><Select ariaLabel="Edit preset" value={presetId} onChange={setPresetId} options={[{ value: "", label: "unsaved" }, ...imagePresets.map((preset) => ({ value: preset.id, label: preset.name }))]} /></div><button onClick={applyPreset} disabled={!presetId} className="ui-button rounded-md px-3 text-xs">Apply</button></div>
+            <div className="mt-1.5 flex gap-2"><div className="min-w-0 flex-1"><Select ariaLabel="Edit preset" value={presetId} onChange={setPresetId} options={[{ value: "", label: "unsaved" }, ...imagePresets.map((preset) => ({ value: preset.id, label: preset.name }))]} /></div><button onClick={applyPreset} disabled={!presetId || modelsLoading || lorasLoading || presetsLoading} className="ui-button rounded-md px-3 text-xs">Apply</button></div>
           </section>
         </div>
         <div className="border-t border-border bg-raised p-3">
