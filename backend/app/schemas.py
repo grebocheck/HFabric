@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .core.enums import JobStatus, JobType, ModelFamily
 
@@ -70,11 +70,85 @@ class LoraOut(BaseModel):
 
 
 # ----------------------------------------------------------------------- jobs
+class ImageLoraIn(BaseModel):
+    id: str = Field(min_length=1, max_length=512)
+    weight: float = Field(default=1.0, ge=-2.0, le=2.0)
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+
+class ImageParamsIn(BaseModel):
+    """Validated public image-generation parameters.
+
+    Extra fields are preserved for forward compatibility and for internal chat
+    correlation metadata, while every value that can materially affect image
+    resource use is bounded here before the worker acquires a model.
+    """
+
+    prompt: str = Field(default="", max_length=20_000)
+    negative: str | None = Field(default=None, max_length=20_000)
+    steps: int | None = Field(default=None, ge=1, le=150)
+    guidance: float | None = Field(default=None, ge=0.0, le=30.0)
+    width: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
+    height: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
+    seed: int | None = Field(default=None, ge=-1, le=2**31 - 1)
+    batch_size: int | None = Field(default=None, ge=1, le=16)
+    loras: list[ImageLoraIn | str] | None = Field(default=None, max_length=8)
+    init_image: str | None = Field(default=None, min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
+    mask_image: str | None = Field(default=None, min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
+    control_image: str | None = Field(default=None, min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
+    edit_mode: Literal["img2img", "inpaint", "outpaint", "instruction", "controlnet"] | None = None
+    resize_mode: Literal["crop", "pad", "stretch"] | None = None
+    strength: float | None = Field(default=None, ge=0.0, le=1.0)
+    mask_blur: float | None = Field(default=None, ge=0.0, le=128.0)
+    mask_grow: int | None = Field(default=None, ge=-128, le=128)
+    mask_invert: bool | None = None
+    padding_mask_crop: int | None = Field(default=None, ge=0, le=512)
+    outpaint_left: int | None = Field(default=None, ge=0, le=1024)
+    outpaint_right: int | None = Field(default=None, ge=0, le=1024)
+    outpaint_top: int | None = Field(default=None, ge=0, le=1024)
+    outpaint_bottom: int | None = Field(default=None, ge=0, le=1024)
+    control_type: (
+        Literal[
+            "canny",
+            "depth",
+            "pose",
+            "scribble",
+            "union-canny",
+            "union-depth",
+            "union-openpose",
+            "union-softedge",
+        ]
+        | None
+    ) = None
+    control_scale: float | None = Field(default=None, ge=0.0, le=2.0)
+    turbo: bool | None = None
+    assistant_message_id: str | None = Field(default=None, max_length=64)
+    conversation_id: str | None = Field(default=None, max_length=64)
+
+    model_config = ConfigDict(extra="allow", allow_inf_nan=False)
+
+
+def validate_image_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Validate known image fields and retain compatible extension metadata."""
+
+    parsed = ImageParamsIn.model_validate(params)
+    return parsed.model_dump(exclude_none=True, exclude_unset=True)
+
+
 class JobCreate(BaseModel):
     type: JobType
-    model_id: str
+    model_id: str = Field(min_length=1, max_length=512)
     params: dict[str, Any] = Field(default_factory=dict)
-    priority: int = 0
+    priority: int = Field(default=0, ge=-100, le=100)
+
+    @model_validator(mode="after")
+    def validate_typed_params(self) -> JobCreate:
+        if self.type is JobType.IMAGE:
+            self.params = validate_image_params(self.params)
+            if not str(self.params.get("prompt") or "").strip():
+                raise ValueError("params.prompt must not be empty for image jobs")
+        return self
 
 
 class JobOut(BaseModel):
@@ -267,20 +341,34 @@ class ChatSendOut(BaseModel):
 
 
 class ImageChatSend(BaseModel):
-    prompt: str
-    model_id: str
-    negative: str | None = None
-    steps: int | None = None
-    width: int | None = None
-    height: int | None = None
-    seed: int | None = None
+    prompt: str = Field(min_length=1, max_length=20_000)
+    model_id: str = Field(min_length=1, max_length=512)
+    negative: str | None = Field(default=None, max_length=20_000)
+    steps: int | None = Field(default=None, ge=1, le=150)
+    width: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
+    height: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
+    seed: int | None = Field(default=None, ge=-1, le=2**31 - 1)
 
 
 # -------------------------------------------------------------------- presets
 class PresetCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=120)
     type: JobType
     params: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("preset name must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_typed_params(self) -> PresetCreate:
+        if self.type is JobType.IMAGE:
+            self.params = validate_image_params(self.params)
+        return self
 
 
 class PresetOut(BaseModel):
@@ -294,13 +382,27 @@ class PresetOut(BaseModel):
 
 
 class PresetImportItem(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=120)
     type: JobType
     params: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("preset name must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_typed_params(self) -> PresetImportItem:
+        if self.type is JobType.IMAGE:
+            self.params = validate_image_params(self.params)
+        return self
+
 
 class PresetImportIn(BaseModel):
-    presets: list[PresetImportItem] = Field(default_factory=list)
+    presets: list[PresetImportItem] = Field(default_factory=list, max_length=500)
     on_conflict: Literal["rename", "skip"] = "rename"
 
 

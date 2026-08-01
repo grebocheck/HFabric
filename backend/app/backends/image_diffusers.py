@@ -178,6 +178,8 @@ class DiffusersImageBackend(
         width, height = self._normalize_dims(width, height)
         steps = self._steps(params)
         batch = int(params.get("batch_size", 1))
+        if not 1 <= batch <= 16:
+            raise ValueError("batch_size must be between 1 and 16")
         base_seed = params.get("seed")
         if base_seed in (None, -1):
             base_seed = random.randint(0, 2**31 - 1)
@@ -348,11 +350,18 @@ class DiffusersImageBackend(
                 return settings.z_image_default_width if key == "width" else settings.z_image_default_height
             if self.descriptor.family is ModelFamily.FLUX_KONTEXT:
                 return default
-        return int(params.get(key, default))
+        value = int(params.get(key, default))
+        if not 256 <= value <= 2048:
+            raise ValueError(f"{key} must be between 256 and 2048")
+        if value % 64:
+            raise ValueError(f"{key} must be a multiple of 64")
+        return value
 
     def _steps(self, params: dict[str, Any]) -> int:
         steps = int(params.get("steps", settings.default_steps))
-        untouched = "steps" not in params or steps == settings.default_steps
+        if not 1 <= steps <= 150:
+            raise ValueError("steps must be between 1 and 150")
+        untouched = "steps" not in params
         if self._is_sdxl_lightning_checkpoint() and untouched:
             return 4
         if self.descriptor.family is ModelFamily.ANIMA and untouched:
@@ -374,7 +383,9 @@ class DiffusersImageBackend(
 
     def _guidance(self, params: dict[str, Any]) -> float:
         guidance = float(params.get("guidance", settings.default_guidance))
-        untouched = "guidance" not in params or guidance == settings.default_guidance
+        if not 0.0 <= guidance <= 30.0:
+            raise ValueError("guidance must be between 0 and 30")
+        untouched = "guidance" not in params
         if self._is_sdxl_lightning_checkpoint() and untouched:
             return 1.0
         if self.descriptor.family is ModelFamily.ANIMA and untouched:
