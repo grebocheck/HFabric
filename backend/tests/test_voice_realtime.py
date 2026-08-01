@@ -102,6 +102,54 @@ def test_clock_drift_estimator_reports_relative_ppm_after_warmup():
     assert drift == pytest.approx(100.0)
 
 
+async def test_audio_io_operations_keep_one_owner_thread():
+    import threading
+
+    thread_ids = await asyncio.gather(
+        realtime.run_audio_io(threading.get_ident),
+        realtime.run_audio_io(threading.get_ident),
+        realtime.run_audio_io(threading.get_ident),
+    )
+
+    assert len(set(thread_ids)) == 1
+
+
+def test_realtime_stop_accepts_a_worker_that_never_started(monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, "stub_mode", True)
+    engine = SimpleNamespace(provider_health=lambda: {})
+    session = realtime.RealtimeSession(engine)
+    session._worker = threading.Thread(target=lambda: None)
+
+    session.stop()
+
+    assert session._worker is None
+
+
+def test_start_session_preserves_startup_error_when_cleanup_fails(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, "stub_mode", False)
+    monkeypatch.setattr(realtime, "_SESSION", None)
+
+    def fail_start(self, model_id):  # noqa: ARG001
+        raise OSError("audio device unavailable")
+
+    def fail_cleanup(self):  # noqa: ARG001
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(realtime.RealtimeSession, "start", fail_start)
+    monkeypatch.setattr(realtime.RealtimeSession, "stop", fail_cleanup)
+    engine = SimpleNamespace(provider_health=lambda: {})
+
+    with pytest.raises(OSError, match="audio device unavailable"):
+        realtime.start_session(engine, "voice")
+
+    assert realtime.current_session() is None
+
+
 def test_sola_crossfade_preserves_unity_gain_for_identical_overlap():
     import numpy as np
 
@@ -344,10 +392,12 @@ async def test_session_start_rejects_pinned_llm_without_partial_handoff(client):
     assert gpu["pin"]["id"] == "llm_api"
     assert gpu["lanes"] == []
 
-    assert (await client.post(
-        "/api/llm/server",
-        json={"enabled": False},
-    )).status_code == 200
+    assert (
+        await client.post(
+            "/api/llm/server",
+            json={"enabled": False},
+        )
+    ).status_code == 200
 
 
 async def test_session_start_failure_rolls_back_voice_lane(client, monkeypatch):
@@ -392,9 +442,7 @@ async def test_session_stop_releases_lane_when_audio_teardown_fails(client, monk
     original_stop()
 
 
-async def test_app_shutdown_stops_realtime_and_clears_voice_lane(
-    monkeypatch, tmp_path
-):
+async def test_app_shutdown_stops_realtime_and_clears_voice_lane(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "shutdown-data")
     monkeypatch.setattr(settings, "voice_models_dir", tmp_path / "shutdown-voice")
     monkeypatch.setattr(settings, "voice_pretrain_dir", tmp_path / "shutdown-pretrain")
@@ -409,9 +457,7 @@ async def test_app_shutdown_stops_realtime_and_clears_voice_lane(
             )
             assert started.status_code == 200
             arbiter = app.state.arbiter
-            assert arbiter.status()["lanes"] == [
-                {"id": "voice", "label": "voice session"}
-            ]
+            assert arbiter.status()["lanes"] == [{"id": "voice", "label": "voice session"}]
 
     assert not realtime.session_active()
     assert arbiter.status()["lanes"] == []
@@ -458,13 +504,13 @@ async def test_session_records_live_phrase(client):
     assert stopped.status_code == 200
 
 
-async def test_recording_stop_device_failure_keeps_session_state_consistent(
-    client, monkeypatch
-):
-    assert (await client.post(
-        "/api/voice/engine/session/start",
-        json={"model_id": "stub-voice"},
-    )).status_code == 200
+async def test_recording_stop_device_failure_keeps_session_state_consistent(client, monkeypatch):
+    assert (
+        await client.post(
+            "/api/voice/engine/session/start",
+            json={"model_id": "stub-voice"},
+        )
+    ).status_code == 200
     assert (await client.post("/api/voice/engine/recording/start")).status_code == 200
     session = realtime.current_session()
     assert session is not None
@@ -477,9 +523,7 @@ async def test_recording_stop_device_failure_keeps_session_state_consistent(
 
     assert response.status_code == 409
     assert realtime.session_active()
-    assert (await client.get("/api/gpu")).json()["lanes"] == [
-        {"id": "voice", "label": "voice session"}
-    ]
+    assert (await client.get("/api/gpu")).json()["lanes"] == [{"id": "voice", "label": "voice session"}]
     assert (await client.post("/api/voice/engine/session/stop")).status_code == 200
 
 
@@ -497,11 +541,18 @@ async def test_voice_lane_parks_queued_jobs(client):
 
     models = (await client.get("/api/models")).json()
     image_model = next(m for m in models if m["job_type"] == "image")
-    job = (await client.post("/api/jobs", json=[{
-        "type": "image",
-        "model_id": image_model["id"],
-        "params": {"prompt": "voice lane parking test", "steps": 1},
-    }])).json()[0]
+    job = (
+        await client.post(
+            "/api/jobs",
+            json=[
+                {
+                    "type": "image",
+                    "model_id": image_model["id"],
+                    "params": {"prompt": "voice lane parking test", "steps": 1},
+                }
+            ],
+        )
+    ).json()[0]
 
     # Give the worker a few scheduler ticks: the job must NOT start.
     for _ in range(6):

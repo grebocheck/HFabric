@@ -75,7 +75,7 @@ async def shutdown_voice_session(
         was_active = realtime.session_active()
         stopped = False
         try:
-            stopped = await asyncio.to_thread(realtime.stop_session)
+            stopped = await realtime.run_audio_io(realtime.stop_session)
             return stopped
         finally:
             # realtime.stop_session clears its singleton in its own finally. The
@@ -149,7 +149,9 @@ def _asset_error(input_denoise: str | None = None) -> str | None:
     if settings.stub_mode:
         return None
     discovered = asset_discovery.discover_assets()
-    missing = [item["name"] for item in discovered["assets"] if not item["found"] and not item.get("optional")]
+    missing = [
+        item["name"] for item in discovered["assets"] if not item["found"] and not item.get("optional")
+    ]
     if not missing:
         mode = str(input_denoise or get_engine().input_denoise).strip().lower()
         if mode == "dtln" and asset_discovery.dtln_model_paths() is None:
@@ -171,7 +173,9 @@ def _device_id_set(items: list[dict[str, Any]]) -> set[int]:
     return ids
 
 
-def _device_missing(settings_payload: dict[str, Any], audio_devices: dict[str, list[dict[str, Any]]]) -> dict[str, bool]:
+def _device_missing(
+    settings_payload: dict[str, Any], audio_devices: dict[str, list[dict[str, Any]]]
+) -> dict[str, bool]:
     input_ids = _device_id_set(audio_devices["inputs"])
     output_ids = _device_id_set(audio_devices["outputs"])
 
@@ -198,7 +202,7 @@ async def _status_payload() -> VoiceEngineStatusOut:
     asset_info, models, audio_devices = await asyncio.gather(
         engine.assets_async(),
         engine.models_async(),
-        asyncio.to_thread(devices.audio_devices),
+        realtime.run_audio_io(devices.audio_devices),
     )
     ready = True if settings.stub_mode else asset_info["ready"] and bool(models)
     session = realtime.current_session()
@@ -219,7 +223,9 @@ async def _status_payload() -> VoiceEngineStatusOut:
         "session_config": session.session_config() if session is not None else None,
         "session_error": session.error if session is not None else None,
         "recording": realtime.recording_status(),
-        "metrics": session.metrics() if session is not None else {
+        "metrics": session.metrics()
+        if session is not None
+        else {
             "input_vu": 0.0,
             "output_vu": 0.0,
             "output_peak": 0.0,
@@ -326,9 +332,7 @@ async def voice_engine_fetch_assets(
     names = body.names if body is not None else None
     specs = await asyncio.to_thread(asset_discovery.fetch_specs, names)
     if body is not None and body.include_optional:
-        specs.extend(
-            await asyncio.to_thread(asset_discovery.fetch_optional_specs, names)
-        )
+        specs.extend(await asyncio.to_thread(asset_discovery.fetch_optional_specs, names))
     if not specs:
         return await _status_payload()  # nothing missing (or no known source)
     try:
@@ -387,7 +391,9 @@ async def voice_engine_preset_update(
     if "name" in fields:
         kwargs["name"] = body.name
     if "settings" in fields:
-        kwargs["preset_settings"] = body.settings.model_dump(exclude_unset=True) if body.settings is not None else {}
+        kwargs["preset_settings"] = (
+            body.settings.model_dump(exclude_unset=True) if body.settings is not None else {}
+        )
     if "model_id" in fields:
         kwargs["model_id"] = body.model_id
     try:
@@ -507,7 +513,7 @@ async def voice_engine_session_start(
             idle_guard=_voice_idle_guard(worker),
         )
         try:
-            await asyncio.to_thread(realtime.start_session, engine, body.model_id)
+            await realtime.run_audio_io(realtime.start_session, engine, body.model_id)
         except asyncio.CancelledError:
             await _rollback_voice_handoff(arbiter, previous)
             worker.notify()

@@ -1,4 +1,4 @@
-﻿"""Native realtime voice session.
+"""Native realtime voice session.
 
 Each live session owns a sounddevice duplex stream: the PortAudio callback only
 moves samples in/out of ring buffers; a dedicated worker thread pulls fixed
@@ -24,10 +24,15 @@ and the voice-lane parking are all testable in CI.
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import json
 import logging
 import math
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -46,6 +51,46 @@ MAX_RECORD_SECONDS = 180.0
 RECORD_STOP_GRACE_MS = 650.0
 LATENCY_HISTORY = 96
 LATENCY_WARN_RATIO = 0.80
+
+
+def _initialize_audio_io_thread() -> None:
+    """Give the process-lifetime PortAudio owner a Windows COM apartment."""
+    if sys.platform != "win32":
+        return
+
+    import ctypes  # noqa: PLC0415
+
+    ole32 = ctypes.OleDLL("ole32")
+    ole32.CoInitialize.argtypes = [ctypes.c_void_p]
+    ole32.CoInitialize.restype = ctypes.c_long
+    hresult = int(ole32.CoInitialize(None))
+    # RPC_E_CHANGED_MODE means another library already initialized this thread
+    # with a different apartment model; COM is nevertheless available. Keep a
+    # successful initialization for the lifetime of this dedicated thread so
+    # live PortAudio COM interfaces never outlive their apartment.
+    rpc_e_changed_mode = -2147417850
+    if hresult < 0 and hresult != rpc_e_changed_mode:
+        raise OSError(f"could not initialize COM for Windows audio (HRESULT 0x{hresult & 0xFFFFFFFF:08X})")
+
+
+# PortAudio's Windows WASAPI backend creates COM objects on the thread that
+# first imports/initializes sounddevice, then marshals stream interfaces from
+# the thread that starts them. A general asyncio worker pool can use different
+# threads for device enumeration, start, and stop, causing intermittent
+# CO_E_NOTINITIALIZED/WdmSyncIoctl failures. Keep every PortAudio operation on
+# one process-lifetime owner thread; it also serializes enumeration with stream
+# lifecycle changes.
+_AUDIO_IO_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="hfabric-audio-io",
+    initializer=_initialize_audio_io_thread,
+)
+
+
+async def run_audio_io[T](func: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
+    """Run a PortAudio operation on its thread-affine owner thread."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_AUDIO_IO_EXECUTOR, partial(func, *args, **kwargs))
 
 
 def _write_wav(path, samples, sample_rate: int) -> None:
@@ -206,12 +251,8 @@ class _ClockDriftEstimator:
         if len(self._points) >= 2:
             elapsed = self._points[-1][0] - self._points[0][0]
             if elapsed >= 5.0:
-                drift_ppm = (
-                    (self._points[-1][1] - self._points[0][1]) / elapsed * 1_000_000.0
-                )
-        return round(delta * 1000.0, 3), (
-            round(drift_ppm, 3) if drift_ppm is not None else None
-        )
+                drift_ppm = (self._points[-1][1] - self._points[0][1]) / elapsed * 1_000_000.0
+        return round(delta * 1000.0, 3), (round(drift_ppm, 3) if drift_ppm is not None else None)
 
 
 def _time_info_value(time_info: Any, name: str) -> float | None:
@@ -220,7 +261,6 @@ def _time_info_value(time_info: Any, name: str) -> float | None:
     except (AttributeError, TypeError, ValueError):
         return None
     return value if math.isfinite(value) else None
-
 
 
 def _rms(samples) -> float:
@@ -421,33 +461,41 @@ class RealtimeSession:
                 callback=self._monitor_callback,
             )
         self._worker = threading.Thread(target=self._run, name="hfabric-voice-rt", daemon=True)
+        # Start the consumer before PortAudio begins invoking callbacks. Apart
+        # from avoiding a guaranteed startup backlog, this ensures cleanup can
+        # always join the worker if a device stream fails to start.
+        self._worker.start()
         self._stream.start()
         if self._monitor_stream is not None:
             self._monitor_stream.start()
-        self._worker.start()
 
     def _monitor_callback(self, outdata, frames, _time_info, status) -> None:  # noqa: ARG002
         import numpy as np  # noqa: PLC0415
 
         assert self._monitor_ring is not None
         samples, _missing = self._monitor_ring.pull(frames)
-        rendered, _limiter = self._monitor_limiter.process(
-            samples * float(self._engine.server_monitor_gain)
-        )
+        rendered, _limiter = self._monitor_limiter.process(samples * float(self._engine.server_monitor_gain))
         outdata[:] = rendered.reshape(-1, 1).astype(np.float32)
 
     def stop(self) -> None:
         self._stop.set()
         if self._worker is not None:
-            self._worker.join(timeout=5.0)
+            # ``start`` can fail after constructing the Thread but before
+            # starting it. ``Thread.join`` raises in that state and used to
+            # hide the actual PortAudio/device error from the API.
+            if self._worker.is_alive():
+                self._worker.join(timeout=5.0)
             self._worker = None
         for stream in (self._stream, self._monitor_stream):
             if stream is not None:
                 try:
                     stream.stop()
+                except Exception:  # noqa: BLE001 - device teardown must not raise
+                    logger.debug("event=voice.realtime.stream_stop_failed", exc_info=True)
+                try:
                     stream.close()
                 except Exception:  # noqa: BLE001 - device teardown must not raise
-                    logger.debug("event=voice.realtime.stream_teardown_failed", exc_info=True)
+                    logger.debug("event=voice.realtime.stream_close_failed", exc_info=True)
         self._stream = None
         self._monitor_stream = None
         self._processor = None
@@ -486,9 +534,7 @@ class RealtimeSession:
                 self.error = repr(exc)
                 out = np.zeros_like(chunk)
                 timings = {"error": 0.0, "squelched": False}
-            routed, limiter = self._output_limiter.process(
-                out * float(self._engine.server_output_gain)
-            )
+            routed, limiter = self._output_limiter.process(out * float(self._engine.server_output_gain))
             output_index = self._output_ring.push(routed)
             self._output_clock.mark(output_index, capture_time)
             if self._monitor_ring is not None:
@@ -496,7 +542,11 @@ class RealtimeSession:
             self._record_chunk(chunk, routed)
             squelched = bool(timings.pop("squelched", False))
             total_raw = timings.get("total")
-            total = float(total_raw) if isinstance(total_raw, (int, float)) and not isinstance(total_raw, bool) else None
+            total = (
+                float(total_raw)
+                if isinstance(total_raw, (int, float)) and not isinstance(total_raw, bool)
+                else None
+            )
             if total is not None:
                 self._latency_totals_ms.append(total)
             total_p95 = _rolling_p95(self._latency_totals_ms)
@@ -506,7 +556,9 @@ class RealtimeSession:
                 if isinstance(chunk_ms_raw, (int, float)) and not isinstance(chunk_ms_raw, bool)
                 else None
             )
-            headroom = round(chunk_ms - total_p95, 3) if chunk_ms is not None and total_p95 is not None else None
+            headroom = (
+                round(chunk_ms - total_p95, 3) if chunk_ms is not None and total_p95 is not None else None
+            )
             input_queue_ms = round(self._input_ring.available() / self.stream_sr * 1000.0, 3)
             output_queue_ms = round(self._output_ring.available() / self.stream_sr * 1000.0, 3)
             measured_p95 = _rolling_p95(self._measured_latencies_ms)
@@ -586,7 +638,9 @@ class RealtimeSession:
             self._recording_frames = []
             self._recording_raw_frames = []
             self._recording_started = None
-        audio = np.concatenate(frames).astype(np.float32, copy=False) if frames else np.zeros(0, dtype=np.float32)
+        audio = (
+            np.concatenate(frames).astype(np.float32, copy=False) if frames else np.zeros(0, dtype=np.float32)
+        )
         raw_audio = (
             np.concatenate(raw_frames).astype(np.float32, copy=False)
             if raw_frames
@@ -686,8 +740,13 @@ class StubRealtimeSession:
 
     def metrics(self) -> dict[str, Any]:
         tick = int((time.monotonic() - self._started) * 4)
-        chunk_ms = round(int(self._engine.server_read_chunk_size) * CHUNK_UNIT_SAMPLES
-                         / int(self._engine.server_audio_sample_rate) * 1000, 1)
+        chunk_ms = round(
+            int(self._engine.server_read_chunk_size)
+            * CHUNK_UNIT_SAMPLES
+            / int(self._engine.server_audio_sample_rate)
+            * 1000,
+            1,
+        )
         return {
             "input_vu": ((tick % 10) + 1) / 10.0,
             "output_vu": ((tick % 7) + 1) / 10.0,
@@ -827,7 +886,13 @@ def start_session(engine: VoiceEngine, model_id: str) -> None:
         try:
             session.start(model_id)
         except Exception:
-            session.stop()
+            try:
+                session.stop()
+            except Exception:  # noqa: BLE001 - preserve the startup exception
+                logger.warning(
+                    "event=voice.realtime.start_cleanup_failed",
+                    exc_info=True,
+                )
             raise
         _SESSION = session
 
