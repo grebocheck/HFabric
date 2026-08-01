@@ -116,8 +116,8 @@ class ImageParamsIn(BaseModel):
             "scribble",
             "union-canny",
             "union-depth",
-            "union-openpose",
-            "union-softedge",
+            "union-pose",
+            "union-scribble",
         ]
         | None
     ) = None

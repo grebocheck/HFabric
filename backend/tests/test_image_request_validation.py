@@ -56,6 +56,19 @@ def test_image_params_preserve_explicit_defaults_and_safe_extensions():
     }
 
 
+@pytest.mark.parametrize(
+    "control_type",
+    ["canny", "depth", "pose", "scribble", "union-canny", "union-depth", "union-pose", "union-scribble"],
+)
+def test_image_params_accept_runtime_controlnet_values(control_type):
+    job = JobCreate(
+        type=JobType.IMAGE,
+        model_id="sdxl",
+        params={"prompt": "controlled", "control_type": control_type},
+    )
+    assert job.params["control_type"] == control_type
+
+
 def test_preset_import_bounds_payload_and_validates_image_items():
     with pytest.raises(ValidationError):
         PresetImportIn(
