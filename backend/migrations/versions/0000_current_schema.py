@@ -102,7 +102,7 @@ def upgrade() -> None:
             sa.Column("params", sa.JSON(), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("name"),
+            sa.UniqueConstraint("type", "name", name="uq_presets_type_name"),
         )
 
     if not _table_exists("rag_documents"):

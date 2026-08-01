@@ -42,7 +42,7 @@ async def test_legacy_db_without_image_metadata_columns_upgrades(isolated_runtim
     assert image_row is not None
     assert image_row[0] == 0
     assert json.loads(image_row[1])["_hfabric_media_status"] == "missing_original"
-    assert version == "0005_video_workspace"
+    assert version == "0006_preset_type_names"
 
 
 def _create_legacy_db(path) -> None:
