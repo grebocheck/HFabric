@@ -20,13 +20,26 @@ class DiffusersMemoryMixin:
         return snap
 
     async def unload(self) -> None:
-        if not self._loaded and not self._warm:
+        if not self._loaded and not self._warm and self._pipe is None and self._accelerator is None:
             return
         try:
-            if not settings.stub_mode and self._pipe is not None:
-                await asyncio.to_thread(self._free_pipeline_sync)
+            if not settings.stub_mode:
+                if self._pipe is not None:
+                    await asyncio.to_thread(self._free_pipeline_sync)
+                else:
+                    await asyncio.to_thread(self._release_runtime_cache_sync)
         finally:
             self._clear_resident_state(reset_generation=True)
+
+    def _release_runtime_cache_sync(self) -> None:
+        """Release allocations left by a loader that failed before assigning its pipeline."""
+        import gc  # noqa: PLC0415
+
+        import torch  # noqa: PLC0415
+
+        gc.collect()
+        if self._accelerator is not None:
+            self._runtime().empty_cache(torch)
 
     async def park(self) -> bool:
         if not self._loaded:
@@ -112,10 +125,16 @@ class DiffusersMemoryMixin:
         self._load_pipeline_sync()
         self._loaded = True
 
-    async def after_job(self, job_id: str, params: dict[str, Any], *, failed: bool = False) -> dict[str, Any] | None:
-        if settings.stub_mode or not settings.image_cleanup_after_each_job or self._pipe is None:
-            return None
-        return await asyncio.to_thread(self._stabilize_after_job_sync, params, failed)
+    async def after_job(
+        self, job_id: str, params: dict[str, Any], *, failed: bool = False
+    ) -> dict[str, Any] | None:
+        try:
+            if settings.stub_mode or not settings.image_cleanup_after_each_job or self._pipe is None:
+                return None
+            return await asyncio.to_thread(self._stabilize_after_job_sync, params, failed)
+        finally:
+            # Cancellation is scoped to one job; do not poison the next lease.
+            self._stop = False
 
     def _stabilize_after_job_sync(self, params: dict[str, Any], failed: bool) -> dict[str, Any]:
         import gc  # noqa: PLC0415

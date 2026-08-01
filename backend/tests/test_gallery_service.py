@@ -166,6 +166,14 @@ async def test_reconciliation_repairs_thumbnails_and_retains_broken_metadata(
     orphan_file = day / "orphan.png"
     PILImage.new("RGB", (32, 32), "red").save(orphan_file)
     (day / "dangling.json").write_text('{"prompt":"lost"}', encoding="utf-8")
+    upload_dir = outputs / "uploads"
+    upload_dir.mkdir()
+    PILImage.new("RGB", (32, 32), "green").save(upload_dir / "source.png")
+    chat_upload_dir = outputs / "chat_uploads"
+    chat_upload_dir.mkdir()
+    (chat_upload_dir / "attachment.json").write_text(
+        '{"name":"source"}', encoding="utf-8"
+    )
 
     broken_path = day / "missing.png"
     async with session_scope() as session:

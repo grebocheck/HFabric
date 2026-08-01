@@ -235,6 +235,21 @@ async def test_failed_pin_target_that_partially_loaded_is_cleaned_up():
     assert arbiter.resident_pin is None
 
 
+async def test_failed_worker_load_that_partially_loaded_is_cleaned_up():
+    arbiter = GpuArbiter(EventBus())
+    broken = _Backend(
+        "broken",
+        load_error=RuntimeError("load failed late"),
+        load_before_error=True,
+    )
+
+    with pytest.raises(RuntimeError, match="load failed late"):
+        await arbiter.ensure(broken)
+
+    assert not broken.loaded
+    assert arbiter.current is None
+
+
 async def test_exclusive_lane_rejects_competing_owners_and_can_roll_back():
     arbiter = GpuArbiter(EventBus())
     resident = _Backend("resident")

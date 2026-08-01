@@ -286,8 +286,15 @@ def _scan_media_inventory(
     thumbnail_paths: set[str] = set()
 
     if outputs_dir.exists():
-        for dirpath, _, filenames in os.walk(outputs_dir):
+        excluded_roots = {
+            (outputs_dir / "uploads").resolve(),
+            (outputs_dir / "chat_uploads").resolve(),
+        }
+        for dirpath, dirnames, filenames in os.walk(outputs_dir):
             directory = Path(dirpath)
+            dirnames[:] = [
+                name for name in dirnames if (directory / name).resolve() not in excluded_roots
+            ]
             for filename in filenames:
                 path = directory / filename
                 lower_name = filename.lower()

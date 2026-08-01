@@ -68,10 +68,17 @@ def test_z_image_bnb_ram_estimate_is_lighter_than_bf16():
     assert bnb == pytest.approx(20 * 0.25 + 3.0)
 
 
-def test_learned_profile_overrides_static_ram_estimate():
+def test_learned_profile_raises_static_ram_estimate():
     sysmon.set_learned_profile("flux-x", ram_gb=11.0)
     got = sysmon.estimate_ram_need_gb(ModelFamily.FLUX, 999, "nunchaku-fp4", "flux-x")
     assert got == pytest.approx(11.0 + settings.learned_ram_margin_gb)
+
+
+def test_low_observation_does_not_lower_static_safety_estimate():
+    sysmon.set_learned_profile("flux-heavy", ram_gb=1.0, vram_gb=2.0)
+    size = 20 * 1_000_000_000
+    assert sysmon.estimate_ram_need_gb(ModelFamily.FLUX, size, None, "flux-heavy") > 20
+    assert sysmon.estimate_vram_need_gb(ModelFamily.FLUX, size, None, "flux-heavy") == 20.0
 
 
 def test_learned_profile_keeps_conservative_max():

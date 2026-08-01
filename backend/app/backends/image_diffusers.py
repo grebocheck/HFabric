@@ -16,12 +16,13 @@ import asyncio
 import importlib.util
 import random
 from typing import Any
+import uuid
 
 from ..config import settings
 from ..core.enums import ModelFamily
 from ..services import accelerator_runtime
 from ..util import imaging
-from .base import ImageBackend, ModelDescriptor, ProgressCb
+from .base import GenerationCancelled, ImageBackend, ModelDescriptor, ProgressCb
 from .image_diffusers_parts import (
     AnimaLoaderMixin,
     DiffusersMemoryMixin,
@@ -218,20 +219,27 @@ class DiffusersImageBackend(
             if self.descriptor.family is not ModelFamily.SDXL:
                 raise ValueError("ControlNet is currently supported only for SDXL models")
 
-        self._stop = False
         results: list[dict[str, Any]] = []
-        for i in range(batch):
-            seed = int(base_seed) + i
-            self._generation_index += 1
-            if settings.stub_mode:
-                rec = await self._generate_stub(params, width, height, steps, seed, i, batch, progress)
-            else:
-                rec = await self._generate_real(params, width, height, steps, seed, i, batch, progress)
-            results.append(rec)
+        try:
+            for i in range(batch):
+                if self._stop:
+                    raise GenerationCancelled()
+                seed = int(base_seed) + i
+                self._generation_index += 1
+                if settings.stub_mode:
+                    rec = await self._generate_stub(params, width, height, steps, seed, i, batch, progress)
+                else:
+                    rec = await self._generate_real(params, width, height, steps, seed, i, batch, progress)
+                results.append(rec)
+        except BaseException:
+            imaging.remove_image_records(results, settings.outputs_dir)
+            raise
         return results
 
     async def _generate_stub(self, params, width, height, steps, seed, i, batch, progress) -> dict[str, Any]:
         for s in range(steps):
+            if self._stop:
+                raise GenerationCancelled()
             await asyncio.sleep(0.03)
             frac = (i + (s + 1) / steps) / batch
             await progress(frac, f"step {s + 1}/{steps} (img {i + 1}/{batch})")
@@ -411,11 +419,18 @@ class DiffusersImageBackend(
 
     def _persist(self, img, meta, seed, width, height) -> dict[str, Any]:
         out_dir = imaging.day_dir(settings.outputs_dir)
-        stem = f"{seed}_{random.randint(1000, 9999)}"
+        stem = f"{seed}_{uuid.uuid4().hex}"
         png_path = out_dir / f"{stem}.png"
         thumb_path = out_dir / f"{stem}.thumb.webp"
-        imaging.save_png(img, png_path, meta)
-        imaging.make_thumbnail(img, thumb_path)
+        try:
+            imaging.save_png(img, png_path, meta)
+            imaging.make_thumbnail(img, thumb_path)
+        except BaseException:
+            imaging.remove_image_records(
+                [{"path": str(png_path), "thumb_path": str(thumb_path)}],
+                settings.outputs_dir,
+            )
+            raise
         return {
             "path": str(png_path),
             "thumb_path": str(thumb_path),
