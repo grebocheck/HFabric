@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.backends.base import ModelDescriptor
 from app.backends.image_diffusers import DiffusersImageBackend
 from app.config import settings
@@ -106,6 +108,15 @@ def test_dimension_falls_back_to_qwen_and_z_image_defaults_when_unset():
         == settings.qwen_image_default_height
     )
     assert (
+        qwen._dimension(
+            {"width": settings.qwen_image_default_width},
+            "width",
+            settings.default_width,
+            settings.flux2_default_width,
+        )
+        == settings.qwen_image_default_width
+    )
+    assert (
         z_image._dimension({}, "width", settings.default_width, settings.flux2_default_width)
         == settings.z_image_default_width
     )
@@ -124,6 +135,13 @@ def test_steps_flux2_default_when_untouched():
     assert b._steps({}) == settings.flux2_default_steps
     # An explicit, non-default value is respected.
     assert b._steps({"steps": 20}) == 20
+
+
+def test_explicit_global_defaults_are_never_reinterpreted_as_family_defaults():
+    for family in (ModelFamily.ANIMA, ModelFamily.FLUX2, ModelFamily.QWEN_IMAGE, ModelFamily.Z_IMAGE):
+        backend = _backend(family, name="z-image-turbo" if family is ModelFamily.Z_IMAGE else "M")
+        assert backend._steps({"steps": settings.default_steps}) == settings.default_steps
+        assert backend._guidance({"guidance": settings.default_guidance}) == settings.default_guidance
 
 
 def test_steps_sdxl_uses_global_default():
@@ -145,14 +163,8 @@ def test_steps_qwen_and_z_image_defaults_when_untouched():
     assert _backend(ModelFamily.Z_IMAGE, name="z-image-turbo")._steps({}) == settings.z_image_default_steps
     assert _backend(ModelFamily.Z_IMAGE, name="z-image")._steps({}) == settings.z_image_base_default_steps
     assert _backend(ModelFamily.Z_IMAGE)._steps({"steps": 12}) == 12
-    assert (
-        _backend(ModelFamily.QWEN_IMAGE_EDIT)._steps({})
-        == settings.qwen_image_edit_default_steps
-    )
-    assert (
-        _backend(ModelFamily.FLUX_KONTEXT)._steps({})
-        == settings.flux_kontext_default_steps
-    )
+    assert _backend(ModelFamily.QWEN_IMAGE_EDIT)._steps({}) == settings.qwen_image_edit_default_steps
+    assert _backend(ModelFamily.FLUX_KONTEXT)._steps({}) == settings.flux_kontext_default_steps
 
 
 def test_guidance_flux2_default_when_untouched():
@@ -170,11 +182,28 @@ def test_guidance_qwen_and_z_image_defaults_when_untouched():
         _backend(ModelFamily.Z_IMAGE, name="z-image")._guidance({}) == settings.z_image_base_default_guidance
     )
     assert _backend(ModelFamily.Z_IMAGE)._guidance({"guidance": 1.5}) == 1.5
-    assert (
-        _backend(ModelFamily.QWEN_IMAGE_EDIT)._guidance({})
-        == settings.qwen_image_edit_default_guidance
-    )
-    assert (
-        _backend(ModelFamily.FLUX_KONTEXT)._guidance({})
-        == settings.flux_kontext_default_guidance
-    )
+    assert _backend(ModelFamily.QWEN_IMAGE_EDIT)._guidance({}) == settings.qwen_image_edit_default_guidance
+    assert _backend(ModelFamily.FLUX_KONTEXT)._guidance({}) == settings.flux_kontext_default_guidance
+
+
+@pytest.mark.parametrize(
+    ("method", "params"),
+    [
+        ("steps", {"steps": 0}),
+        ("steps", {"steps": 151}),
+        ("guidance", {"guidance": -0.1}),
+        ("guidance", {"guidance": 30.1}),
+        ("dimension", {"width": 255}),
+        ("dimension", {"width": 2050}),
+        ("dimension", {"width": 1000}),
+    ],
+)
+def test_backend_defensively_rejects_out_of_bounds_image_params(method, params):
+    backend = _backend(ModelFamily.SDXL)
+    with pytest.raises(ValueError):
+        if method == "steps":
+            backend._steps(params)
+        elif method == "guidance":
+            backend._guidance(params)
+        else:
+            backend._dimension(params, "width", settings.default_width, settings.flux2_default_width)

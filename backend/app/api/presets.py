@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Preset
@@ -48,9 +49,9 @@ async def create_preset(
     session.add(preset)
     try:
         await session.commit()
-    except Exception:
+    except IntegrityError:
         await session.rollback()
-        raise HTTPException(409, f"preset name already exists: {body.name}")
+        raise HTTPException(409, f"preset name already exists for {body.type}: {body.name}")
     return PresetOut.model_validate(preset)
 
 
@@ -58,12 +59,16 @@ async def create_preset(
 async def import_presets(
     body: PresetImportIn, session: AsyncSession = Depends(get_session)
 ) -> PresetImportOut:
-    existing = set((await session.execute(select(Preset.name))).scalars().all())
+    rows = (await session.execute(select(Preset.type, Preset.name))).all()
+    existing_by_type: dict[str, set[str]] = {}
+    for preset_type, name in rows:
+        existing_by_type.setdefault(preset_type, set()).add(name)
     imported: list[Preset] = []
     skipped = 0
 
     for item in body.presets:
         requested_name = item.name.strip() or "Imported preset"
+        existing = existing_by_type.setdefault(item.type, set())
         if requested_name in existing and body.on_conflict == "skip":
             skipped += 1
             continue
@@ -72,7 +77,11 @@ async def import_presets(
         session.add(preset)
         imported.append(preset)
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "preset import conflicted with a concurrent change")
     return PresetImportOut(
         imported=len(imported),
         skipped=skipped,

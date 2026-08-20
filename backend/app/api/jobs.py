@@ -29,6 +29,8 @@ router = APIRouter(
     responses=ERROR_RESPONSES,
 )
 
+MAX_JOBS_PER_REQUEST = 100
+
 
 def _validate_model(registry: ModelRegistry, payload: JobCreate) -> ModelDescriptor:
     try:
@@ -36,9 +38,7 @@ def _validate_model(registry: ModelRegistry, payload: JobCreate) -> ModelDescrip
     except KeyError:
         raise HTTPException(404, f"unknown model_id: {payload.model_id}")
     if desc.job_type != payload.type:
-        raise HTTPException(
-            400, f"model '{desc.id}' is {desc.job_type.value}, not {payload.type.value}"
-        )
+        raise HTTPException(400, f"model '{desc.id}' is {desc.job_type.value}, not {payload.type.value}")
     try:
         model_compatibility.require_model_available(desc)
     except ValueError as exc:
@@ -81,16 +81,71 @@ def _normalize_loras(registry: ModelRegistry, desc: ModelDescriptor, payload: Jo
                 f"LoRA '{lora.name}' targets {lora.family.value}, "
                 f"but model '{desc.name}' is {desc.family.value}",
             )
-        public_loras.append({
-            "id": lora.id,
-            "name": lora.name,
-            "family": lora.family.value if lora.family else None,
-            "weight": weight,
-        })
+        public_loras.append(
+            {
+                "id": lora.id,
+                "name": lora.name,
+                "family": lora.family.value if lora.family else None,
+                "weight": weight,
+            }
+        )
 
     params = dict(payload.params)
     params["loras"] = public_loras
     payload.params = params
+
+
+def _normalize_image_params(desc: ModelDescriptor, payload: JobCreate) -> None:
+    """Reject invalid image modes and missing upload tokens before model load."""
+
+    if payload.type is not JobType.IMAGE:
+        return
+    params = payload.params
+    init_image = params.get("init_image")
+    mask_image = params.get("mask_image")
+    control_image = params.get("control_image")
+    mode = str(params.get("edit_mode") or ("inpaint" if mask_image else "img2img"))
+
+    if mask_image and not init_image:
+        raise HTTPException(400, "params.mask_image requires params.init_image")
+
+    edit_families = {
+        ModelFamily.ANIMA,
+        ModelFamily.SDXL,
+        ModelFamily.FLUX,
+        ModelFamily.FLUX2,
+        ModelFamily.QWEN_IMAGE,
+        ModelFamily.QWEN_IMAGE_EDIT,
+        ModelFamily.Z_IMAGE,
+        ModelFamily.FLUX_KONTEXT,
+    }
+    if (init_image or mask_image) and desc.family not in edit_families:
+        raise HTTPException(400, "this model family does not support image editing")
+    if mask_image and desc.family is ModelFamily.ANIMA:
+        raise HTTPException(400, "Anima supports img2img but not inpainting")
+    if mode == "outpaint" and not init_image:
+        raise HTTPException(400, "outpainting requires params.init_image")
+    if mode == "outpaint" and desc.family is ModelFamily.ANIMA:
+        raise HTTPException(400, "Anima does not support outpainting")
+
+    instruction_families = {ModelFamily.QWEN_IMAGE_EDIT, ModelFamily.FLUX_KONTEXT}
+    if desc.family in instruction_families:
+        if not init_image:
+            raise HTTPException(400, "instruction-edit models require params.init_image")
+        if mask_image or mode in {"inpaint", "outpaint"}:
+            raise HTTPException(400, "instruction-edit models do not use an inpaint mask")
+    if control_image and desc.family is not ModelFamily.SDXL:
+        raise HTTPException(400, "ControlNet is currently supported only for SDXL models")
+
+    for key, token in (
+        ("init_image", init_image),
+        ("mask_image", mask_image),
+        ("control_image", control_image),
+    ):
+        if token:
+            source = uploads_util.resolve_upload(token)
+            if source is None or not source.is_file():
+                raise HTTPException(400, f"params.{key} was not found; upload it again")
 
 
 async def _normalize_upscale_source(session: AsyncSession, payload: JobCreate) -> None:
@@ -122,9 +177,7 @@ async def _normalize_upscale_source(session: AsyncSession, payload: JobCreate) -
     payload.params = params
 
 
-def _normalize_video_params(
-    registry: ModelRegistry, desc: ModelDescriptor, payload: JobCreate
-) -> None:
+def _normalize_video_params(registry: ModelRegistry, desc: ModelDescriptor, payload: JobCreate) -> None:
     if payload.type is not JobType.VIDEO:
         return
 
@@ -165,7 +218,9 @@ def _normalize_video_params(
         temporal = 8 if desc.family is ModelFamily.LTX_VIDEO else 4
         frames = max(temporal + 1, (frames - 1) // temporal * temporal + 1)
     fps = integer("fps", int(family_video_default(desc.family, "fps", settings.video_default_fps)), 4, 30)
-    steps = integer("steps", int(family_video_default(desc.family, "steps", settings.video_default_steps)), 1, 80)
+    steps = integer(
+        "steps", int(family_video_default(desc.family, "steps", settings.video_default_steps)), 1, 80
+    )
     mode = str(payload.params.get("mode") or ("i2v" if payload.params.get("init_image") else "t2v"))
     if mode not in {"t2v", "i2v"}:
         raise HTTPException(400, "params.mode must be t2v or i2v")
@@ -182,14 +237,16 @@ def _normalize_video_params(
             raise HTTPException(400, "image-to-video source image was not found; upload it again")
 
     params = dict(payload.params)
-    params.update({
-        "mode": mode,
-        "width": width,
-        "height": height,
-        "frames": frames,
-        "fps": fps,
-        "steps": steps,
-    })
+    params.update(
+        {
+            "mode": mode,
+            "width": width,
+            "height": height,
+            "frames": frames,
+            "fps": fps,
+            "steps": steps,
+        }
+    )
     if desc.family is ModelFamily.HUNYUAN_VIDEO:
         params["latent_window_size"] = latent_window_size
     payload.params = params
@@ -214,13 +271,11 @@ def _normalize_video_params(
     details = []
     if not decision["ram_ok"]:
         details.append(
-            f"RAM peak ~{decision['ram_need_gb']:.1f} GB, "
-            f"available {decision['ram_available_gb']:.1f} GB"
+            f"RAM peak ~{decision['ram_need_gb']:.1f} GB, available {decision['ram_available_gb']:.1f} GB"
         )
     if not decision["vram_ok"]:
         details.append(
-            f"VRAM peak ~{decision['vram_need_gb']:.1f} GB, "
-            f"card {decision['vram_total_gb']:.1f} GB"
+            f"VRAM peak ~{decision['vram_need_gb']:.1f} GB, card {decision['vram_total_gb']:.1f} GB"
         )
     raise HTTPException(
         409,
@@ -240,9 +295,12 @@ async def create_jobs(
     """Accept a *batch* of jobs in one call (the core 'throw a batch in' flow)."""
     if not payloads:
         raise HTTPException(400, "no jobs provided")
+    if len(payloads) > MAX_JOBS_PER_REQUEST:
+        raise HTTPException(400, f"at most {MAX_JOBS_PER_REQUEST} jobs may be queued at once")
     created = []
     for payload in payloads:
         desc = _validate_model(registry, payload)
+        _normalize_image_params(desc, payload)
         _normalize_loras(registry, desc, payload)
         await _normalize_upscale_source(session, payload)
         _normalize_video_params(registry, desc, payload)
@@ -325,9 +383,7 @@ async def chat(
         "temperature": max(0.0, min(2.0, body.temperature)),
         "max_tokens": max(1, min(16384, body.max_tokens)),
     }
-    payload = JobCreate(
-        type=JobType.LLM, model_id=body.model_id, params=params, priority=body.priority
-    )
+    payload = JobCreate(type=JobType.LLM, model_id=body.model_id, params=params, priority=body.priority)
     _validate_model(registry, payload)
     job = await queue_service.create_job(session, payload)
     await session.commit()

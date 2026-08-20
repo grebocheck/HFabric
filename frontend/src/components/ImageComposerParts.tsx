@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Badge } from "./Badge";
 import { Slider } from "./Slider";
 import { Toggle } from "./Toggle";
@@ -10,6 +12,7 @@ export function ImageParamForm({
   activeRatio,
   guidance,
   height,
+  dimensionGrid,
   labelClass,
   onApplyRatio,
   ratios,
@@ -28,6 +31,7 @@ export function ImageParamForm({
   activeRatio: string;
   guidance: number;
   height: number;
+  dimensionGrid: number;
   labelClass: string;
   onApplyRatio: (w: number, h: number) => void;
   ratios: RatioOption[];
@@ -67,25 +71,25 @@ export function ImageParamForm({
           })}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <Num label="Width" v={width} set={setWidth} step={64} labelClass={labelClass} />
-          <Num label="Height" v={height} set={setHeight} step={64} labelClass={labelClass} />
+          <Num label="Width" v={width} set={setWidth} step={dimensionGrid} min={256} max={2048} multipleOf={dimensionGrid} labelClass={labelClass} />
+          <Num label="Height" v={height} set={setHeight} step={dimensionGrid} min={256} max={2048} multipleOf={dimensionGrid} labelClass={labelClass} />
         </div>
       </section>
 
       <section className={sectionClass}>
         <div className={labelClass}>Sampling</div>
         <div className="mt-1.5 grid grid-cols-2 gap-2">
-          <Num label="Steps" v={steps} set={setSteps} labelClass={labelClass} />
-          <Num label="Guidance" v={guidance} set={setGuidance} step={0.1} labelClass={labelClass} />
-          <Num label="Seed" v={seed} set={setSeed} labelClass={labelClass} />
-          <Num label="Batch" v={batch} set={setBatch} labelClass={labelClass} />
+          <Num label="Steps" v={steps} set={setSteps} min={1} max={150} integer labelClass={labelClass} />
+          <Num label="Guidance" v={guidance} set={setGuidance} step={0.1} min={0} max={30} labelClass={labelClass} />
+          <Num label="Seed" v={seed} set={setSeed} min={-1} max={2 ** 31 - 1} integer labelClass={labelClass} />
+          <Num label="Batch" v={batch} set={setBatch} min={1} max={16} integer labelClass={labelClass} />
         </div>
       </section>
     </>
   );
 }
 
-export function Notice({ tone, children }: { tone: "amber" | "emerald" | "sky"; children: string }) {
+export function Notice({ tone, children }: { tone: "amber" | "emerald" | "sky"; children: ReactNode }) {
   const classes = {
     amber: "border-amber-500/30 bg-amber-500/10 text-amber-100",
     emerald: "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
@@ -139,12 +143,20 @@ function Num({
   v,
   set,
   step = 1,
+  min,
+  max,
+  integer = false,
+  multipleOf,
 }: {
   label: string;
   labelClass: string;
   v: number;
   set: (n: number) => void;
   step?: number;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  multipleOf?: number;
 }) {
   return (
     <label className="block">
@@ -153,7 +165,17 @@ function Num({
         type="number"
         value={v}
         step={step}
-        onChange={(e) => set(Number(e.target.value))}
+        min={min}
+        max={max}
+        onChange={(e) => {
+          let next = e.currentTarget.valueAsNumber;
+          if (!Number.isFinite(next)) return;
+          if (integer) next = Math.trunc(next);
+          if (multipleOf) next = Math.round(next / multipleOf) * multipleOf;
+          if (min !== undefined) next = Math.max(min, next);
+          if (max !== undefined) next = Math.min(max, next);
+          set(next);
+        }}
         className="ui-field mt-1 w-full rounded-md px-2 py-1.5 text-sm"
       />
     </label>

@@ -42,6 +42,7 @@ class _Arbiter:
         self.acquire_error: BaseException | None = None
         self.release_error: BaseException | None = None
         self.release_calls: list[str] = []
+        self.profile_calls = 0
         self.force_shutdown_calls = 0
 
     async def acquire(self, backend, job_id: str) -> None:
@@ -57,7 +58,7 @@ class _Arbiter:
         return True
 
     async def record_profile(self, _backend) -> None:
-        return None
+        self.profile_calls += 1
 
     async def force_shutdown(self) -> None:
         self.force_shutdown_calls += 1
@@ -192,6 +193,9 @@ class _Results:
     def enrich_image_params(self, params: dict[str, Any]) -> dict[str, Any]:
         return {**params, "_enriched": True}
 
+    async def discard_images(self, records) -> None:
+        self.calls.append(("discard_images", records))
+
     async def finish_image(self, snap, records) -> None:
         self.calls.append(("finish_image", snap.id, records))
 
@@ -254,6 +258,7 @@ async def test_run_completes_every_backend_kind(kind, job_type, finish_call):
     assert results.calls[0][0] == finish_call
     assert backend.after_job_failed == [False]
     assert arbiter.release_calls == ["job"]
+    assert arbiter.profile_calls == 0
     assert worker.running_job_id is None
     event_types = [event["type"] for event in bus.events]
     assert "job.started" in event_types
@@ -281,9 +286,29 @@ async def test_run_honours_cancellation_after_backend_returns(kind, job_type):
         JobSnapshot("job", job_type, backend.descriptor.id, {}),
     )
 
-    assert results.calls[0][0] == "cancelled"
+    if job_type in (JobType.IMAGE, JobType.UPSCALE):
+        assert results.calls[0][0] == "discard_images"
+        assert results.calls[1][0] == "cancelled"
+    else:
+        assert results.calls[0][0] == "cancelled"
     assert backend.after_job_failed == [True]
     assert worker._cancel_current is False
+
+
+async def test_run_honours_cancellation_requested_during_model_load():
+    worker, backend, bus, arbiter, results = _worker("image")
+
+    async def acquire_during_cancel(next_backend, _job_id: str) -> None:
+        worker._cancel_current = True
+        await next_backend.load()
+        arbiter.current = next_backend
+
+    arbiter.acquire = acquire_during_cancel
+    await worker._run(JobSnapshot("job", JobType.IMAGE, backend.descriptor.id, {}))
+
+    assert results.calls == [("cancelled", "job", None)]
+    assert backend.after_job_failed == [True]
+    assert not any(event["type"] == "job.started" for event in bus.events)
 
 
 @pytest.mark.parametrize(

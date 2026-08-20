@@ -11,7 +11,7 @@ import asyncio
 from datetime import UTC, datetime
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..backends.base import (
     GenerationCancelled,
@@ -188,26 +188,30 @@ class Worker:
             )
 
         async with session_scope() as session:
+            pin = self._arbiter.resident_pin
+            filters = [Job.status == JobStatus.QUEUED]
+            if pin is not None:
+                filters.append(Job.model_id == pin.get("model_id"))
+
+            max_priority = select(func.max(Job.priority)).where(*filters).correlate(None).scalar_subquery()
             rows = (
                 (
                     await session.execute(
                         select(Job)
-                        .where(Job.status == JobStatus.QUEUED)
-                        .order_by(Job.priority.desc(), Job.created_at.asc())
+                        .where(*filters, Job.priority == max_priority)
+                        .order_by(Job.created_at.asc())
                     )
                 )
                 .scalars()
                 .all()
             )
             if not rows:
-                self._resident_pin_parked = False
-                return None
-
-            pin = self._arbiter.resident_pin
-            if pin is not None:
-                pinned_model_id = pin.get("model_id")
-                runnable = [job for job in rows if job.model_id == pinned_model_id]
-                if not runnable:
+                any_queued = False
+                if pin is not None:
+                    any_queued = (
+                        await session.scalar(select(Job.id).where(Job.status == JobStatus.QUEUED).limit(1))
+                    ) is not None
+                if pin is not None and any_queued:
                     if not self._resident_pin_parked:
                         self._resident_pin_parked = True
                         await self._bus.publish(
@@ -216,16 +220,18 @@ class Worker:
                                 reason="resident_pinned",
                                 message=(
                                     f"{pin.get('label', 'Resident pin')} is keeping "
-                                    f"{pin.get('model', pinned_model_id)} in VRAM — "
+                                    f"{pin.get('model', pin.get('model_id'))} in VRAM — "
                                     "queued jobs for other models will wait."
                                 ),
-                                model_id=pinned_model_id,
+                                model_id=pin.get("model_id"),
                                 model=pin.get("model"),
                                 family=pin.get("family"),
                             )
                         )
-                    return None
-                rows = runnable
+                else:
+                    self._resident_pin_parked = False
+                return None
+            if pin is not None:
                 self._resident_pin_parked = False
             elif self._resident_pin_parked:
                 self._resident_pin_parked = False
@@ -237,11 +243,9 @@ class Worker:
                     )
                 )
 
-            top_priority = rows[0].priority
-            tier = [job for job in rows if job.priority == top_priority]
             current = self._arbiter.current
             chosen = select_in_tier(
-                tier,
+                rows,
                 current.descriptor.id if current is not None else None,
                 (current.descriptor.job_type.value if current is not None else None),
             )
@@ -280,6 +284,8 @@ class Worker:
             backend = self._registry.get_backend(snap.model_id)
             await self._arbiter.acquire(backend, snap.id)
             lease_acquired = True
+            if self._cancel_current:
+                raise GenerationCancelled()
             await self._bus.publish(
                 Event(
                     EventType.JOB_STARTED,
@@ -315,6 +321,7 @@ class Worker:
                 )
                 if self._cancel_current:
                     failed = True
+                    await self._results.discard_images(records)
                     await self._results.mark_cancelled(snap)
                 else:
                     await self._results.finish_image(snap, records)
@@ -323,6 +330,7 @@ class Worker:
                 records = await backend.upscale(snap.params, progress)
                 if self._cancel_current:
                     failed = True
+                    await self._results.discard_images(records)
                     await self._results.mark_cancelled(snap)
                 else:
                     await self._results.finish_image(snap, records)
@@ -388,7 +396,6 @@ class Worker:
         finally:
             if backend is not None:
                 try:
-                    await self._arbiter.record_profile(backend)
                     cleanup = await backend.after_job(
                         snap.id,
                         snap.params,

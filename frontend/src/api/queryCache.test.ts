@@ -24,4 +24,18 @@ describe("QueryCache", () => {
     cache.invalidate("jobs");
     expect(signal?.aborted).toBe(true);
   });
+
+  it("force refresh aborts stale in-flight work and starts a new request", async () => {
+    const cache = new QueryCache();
+    let firstSignal: AbortSignal | undefined;
+    void cache.fetch("presets", async (signal) => {
+      firstSignal = signal;
+      return new Promise<never>(() => undefined);
+    });
+    const freshLoader = vi.fn(async () => ["fresh"]);
+
+    await expect(cache.fetch("presets", freshLoader, { force: true })).resolves.toEqual(["fresh"]);
+    expect(firstSignal?.aborted).toBe(true);
+    expect(freshLoader).toHaveBeenCalledTimes(1);
+  });
 });

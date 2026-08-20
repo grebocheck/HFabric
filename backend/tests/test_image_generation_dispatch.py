@@ -154,6 +154,7 @@ async def test_real_generation_dispatches_text_and_img2img_modes(family, params,
     if family is ModelFamily.QWEN_IMAGE:
         assert kwargs["true_cfg_scale"] == 7.5
         assert "guidance_scale" not in kwargs
+        assert kwargs["negative_prompt"] == " "
     if family is ModelFamily.FLUX2:
         assert "negative_prompt" not in kwargs
 

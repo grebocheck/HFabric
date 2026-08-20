@@ -482,7 +482,20 @@ class GpuArbiter:
                 family=backend.descriptor.family.value,
                 warm_resume=warm_resume,
             ))
-            await backend.load()
+            try:
+                await backend.load()
+            except BaseException:
+                # A loader may have allocated a pipeline before its final
+                # acceleration/offload step fails. Always offer it a rollback;
+                # relying on ``loaded`` alone leaks that partial resident.
+                try:
+                    await backend.unload()
+                except BaseException:  # noqa: BLE001 - preserve load failure
+                    logger.exception(
+                        "event=arbiter.load.rollback_failed model_id=%s",
+                        backend.descriptor.id,
+                    )
+                raise
             await self._record_profile(backend)
             if backend in self._warm_backends:
                 self._warm_backends.remove(backend)

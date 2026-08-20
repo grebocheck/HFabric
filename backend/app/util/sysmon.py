@@ -128,14 +128,10 @@ _VIDEO_FAMILIES = {
 }
 
 
-def estimate_ram_need_gb(
+def _static_ram_need_gb(
     family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None
 ) -> float:
-    """Rough CPU-RAM a load will need, by model kind. A learned measurement (the
-    real peak RSS a load added) overrides the heuristic once we have one."""
-    prof = get_learned_profile(model_id)
-    if prof and prof.get("ram_gb"):
-        return prof["ram_gb"] + settings.learned_ram_margin_gb
+    """Static CPU-RAM heuristic before locally observed profile data."""
     gb = size_bytes / _GB
     if family is ModelFamily.GGUF:
         return 2.0  # llama-server mmaps the gguf (disk-backed) -> low RSS
@@ -191,14 +187,21 @@ def estimate_ram_need_gb(
     return gb * 1.3  # diffusers single-file materialization overhead
 
 
-def estimate_vram_need_gb(
+def estimate_ram_need_gb(
+    family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None
+) -> float:
+    """Conservative RAM estimate, raised but never lowered by observations."""
+    static = _static_ram_need_gb(family, size_bytes, quant, model_id)
+    prof = get_learned_profile(model_id)
+    if prof and prof.get("ram_gb"):
+        return max(static, prof["ram_gb"] + settings.learned_ram_margin_gb)
+    return static
+
+
+def _static_vram_need_gb(
     family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None
 ) -> float | None:
-    """Rough resident VRAM estimate shown in the UI before the user queues work.
-    Prefers a learned measurement when available."""
-    prof = get_learned_profile(model_id)
-    if prof and prof.get("vram_gb"):
-        return round(prof["vram_gb"], 1)
+    """Static resident VRAM heuristic before locally observed profile data."""
     gb = size_bytes / _GB
     if family is ModelFamily.FLUX and _is_nunchaku_quant(quant):
         return 9.8  # M0 measured SVDQuant fp4 on RTX 5070 Ti
@@ -231,6 +234,18 @@ def estimate_vram_need_gb(
     if family in _VIDEO_FAMILIES:
         return 12.0 if quant and quant.startswith("bnb-") else 16.0
     return None
+
+
+def estimate_vram_need_gb(
+    family: ModelFamily, size_bytes: int, quant: str | None, model_id: str | None = None
+) -> float | None:
+    """Conservative VRAM estimate, raised but never lowered by observations."""
+    static = _static_vram_need_gb(family, size_bytes, quant, model_id)
+    prof = get_learned_profile(model_id)
+    measured = prof.get("vram_gb") if prof else None
+    if measured:
+        return round(max(static or 0.0, measured), 1)
+    return static
 
 
 def video_decode_need_gb(width: int, height: int, frames: int) -> dict[str, float]:

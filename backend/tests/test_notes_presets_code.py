@@ -41,6 +41,12 @@ async def test_presets_crud_import_conflicts_and_validation(app_client):
     )
     assert duplicate.status_code == 409
 
+    same_name_other_type = await app_client.post(
+        "/api/presets",
+        json={"name": "Fast image", "type": "llm", "params": {"temperature": 0.2}},
+    )
+    assert same_name_other_type.status_code == 200
+
     imported = (await app_client.post(
         "/api/presets/import",
         json={"on_conflict": "rename", "presets": [{"name": "Fast image", "type": "llm", "params": {"temperature": 0.4}}]},
@@ -56,7 +62,7 @@ async def test_presets_crud_import_conflicts_and_validation(app_client):
     assert skipped["skipped"] == 1
 
     names = [preset["name"] for preset in (await app_client.get("/api/presets")).json()]
-    assert names == ["Fast image (2)", "Fast image"]
+    assert names == ["Fast image (2)", "Fast image", "Fast image"]
 
     bad_type = await app_client.post("/api/presets", json={"name": "Bad", "type": "audio", "params": {}})
     assert bad_type.status_code == 422

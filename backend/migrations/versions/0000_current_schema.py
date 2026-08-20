@@ -102,7 +102,7 @@ def upgrade() -> None:
             sa.Column("params", sa.JSON(), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("name"),
+            sa.UniqueConstraint("type", "name", name="uq_presets_type_name"),
         )
 
     if not _table_exists("rag_documents"):
@@ -168,6 +168,12 @@ def upgrade() -> None:
     _create_index_if_missing("ix_jobs_priority", "jobs", ["priority"])
     _create_index_if_missing("ix_jobs_type", "jobs", ["type"])
     _create_index_if_missing("ix_jobs_created_at", "jobs", ["created_at"])
+    _create_index_if_missing("ix_jobs_queue_priority_created", "jobs", ["status", "priority", "created_at"])
+    _create_index_if_missing(
+        "ix_jobs_queue_model_priority_created",
+        "jobs",
+        ["status", "model_id", "priority", "created_at"],
+    )
     _create_index_if_missing("ix_notes_updated_at", "notes", ["updated_at"])
     _create_index_if_missing("ix_notes_created_at", "notes", ["created_at"])
     _create_index_if_missing("ix_rag_documents_updated_at", "rag_documents", ["updated_at"])

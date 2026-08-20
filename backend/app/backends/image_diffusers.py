@@ -16,12 +16,13 @@ import asyncio
 import importlib.util
 import random
 from typing import Any
+import uuid
 
 from ..config import settings
 from ..core.enums import ModelFamily
 from ..services import accelerator_runtime
 from ..util import imaging
-from .base import ImageBackend, ModelDescriptor, ProgressCb
+from .base import GenerationCancelled, ImageBackend, ModelDescriptor, ProgressCb
 from .image_diffusers_parts import (
     AnimaLoaderMixin,
     DiffusersMemoryMixin,
@@ -178,6 +179,8 @@ class DiffusersImageBackend(
         width, height = self._normalize_dims(width, height)
         steps = self._steps(params)
         batch = int(params.get("batch_size", 1))
+        if not 1 <= batch <= 16:
+            raise ValueError("batch_size must be between 1 and 16")
         base_seed = params.get("seed")
         if base_seed in (None, -1):
             base_seed = random.randint(0, 2**31 - 1)
@@ -216,20 +219,27 @@ class DiffusersImageBackend(
             if self.descriptor.family is not ModelFamily.SDXL:
                 raise ValueError("ControlNet is currently supported only for SDXL models")
 
-        self._stop = False
         results: list[dict[str, Any]] = []
-        for i in range(batch):
-            seed = int(base_seed) + i
-            self._generation_index += 1
-            if settings.stub_mode:
-                rec = await self._generate_stub(params, width, height, steps, seed, i, batch, progress)
-            else:
-                rec = await self._generate_real(params, width, height, steps, seed, i, batch, progress)
-            results.append(rec)
+        try:
+            for i in range(batch):
+                if self._stop:
+                    raise GenerationCancelled()
+                seed = int(base_seed) + i
+                self._generation_index += 1
+                if settings.stub_mode:
+                    rec = await self._generate_stub(params, width, height, steps, seed, i, batch, progress)
+                else:
+                    rec = await self._generate_real(params, width, height, steps, seed, i, batch, progress)
+                results.append(rec)
+        except BaseException:
+            imaging.remove_image_records(results, settings.outputs_dir)
+            raise
         return results
 
     async def _generate_stub(self, params, width, height, steps, seed, i, batch, progress) -> dict[str, Any]:
         for s in range(steps):
+            if self._stop:
+                raise GenerationCancelled()
             await asyncio.sleep(0.03)
             frac = (i + (s + 1) / steps) / batch
             await progress(frac, f"step {s + 1}/{steps} (img {i + 1}/{batch})")
@@ -348,11 +358,18 @@ class DiffusersImageBackend(
                 return settings.z_image_default_width if key == "width" else settings.z_image_default_height
             if self.descriptor.family is ModelFamily.FLUX_KONTEXT:
                 return default
-        return int(params.get(key, default))
+        value = int(params.get(key, default))
+        if not 256 <= value <= 2048:
+            raise ValueError(f"{key} must be between 256 and 2048")
+        if value % 16:
+            raise ValueError(f"{key} must be a multiple of 16")
+        return value
 
     def _steps(self, params: dict[str, Any]) -> int:
         steps = int(params.get("steps", settings.default_steps))
-        untouched = "steps" not in params or steps == settings.default_steps
+        if not 1 <= steps <= 150:
+            raise ValueError("steps must be between 1 and 150")
+        untouched = "steps" not in params
         if self._is_sdxl_lightning_checkpoint() and untouched:
             return 4
         if self.descriptor.family is ModelFamily.ANIMA and untouched:
@@ -374,7 +391,9 @@ class DiffusersImageBackend(
 
     def _guidance(self, params: dict[str, Any]) -> float:
         guidance = float(params.get("guidance", settings.default_guidance))
-        untouched = "guidance" not in params or guidance == settings.default_guidance
+        if not 0.0 <= guidance <= 30.0:
+            raise ValueError("guidance must be between 0 and 30")
+        untouched = "guidance" not in params
         if self._is_sdxl_lightning_checkpoint() and untouched:
             return 1.0
         if self.descriptor.family is ModelFamily.ANIMA and untouched:
@@ -400,11 +419,18 @@ class DiffusersImageBackend(
 
     def _persist(self, img, meta, seed, width, height) -> dict[str, Any]:
         out_dir = imaging.day_dir(settings.outputs_dir)
-        stem = f"{seed}_{random.randint(1000, 9999)}"
+        stem = f"{seed}_{uuid.uuid4().hex}"
         png_path = out_dir / f"{stem}.png"
         thumb_path = out_dir / f"{stem}.thumb.webp"
-        imaging.save_png(img, png_path, meta)
-        imaging.make_thumbnail(img, thumb_path)
+        try:
+            imaging.save_png(img, png_path, meta)
+            imaging.make_thumbnail(img, thumb_path)
+        except BaseException:
+            imaging.remove_image_records(
+                [{"path": str(png_path), "thumb_path": str(thumb_path)}],
+                settings.outputs_dir,
+            )
+            raise
         return {
             "path": str(png_path),
             "thumb_path": str(thumb_path),

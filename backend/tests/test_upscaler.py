@@ -33,25 +33,39 @@ async def test_upscale_job_runs_through_queue_and_gallery(client: AsyncClient):
     image_model = next(m for m in models if m["job_type"] == "image")
     upscaler = next(m for m in models if m["job_type"] == "upscale")
 
-    created = (await client.post("/api/jobs", json=[{
-        "type": "image",
-        "model_id": image_model["id"],
-        "params": {"prompt": "seed image", "steps": 1, "width": 64, "height": 64},
-    }])).json()
+    created = (
+        await client.post(
+            "/api/jobs",
+            json=[
+                {
+                    "type": "image",
+                    "model_id": image_model["id"],
+                    "params": {"prompt": "seed image", "steps": 1, "width": 256, "height": 256},
+                }
+            ],
+        )
+    ).json()
     image_job = await _wait_done(client, created[0]["id"])
     source_id = image_job["result"]["image_ids"][0]
 
-    created = (await client.post("/api/jobs", json=[{
-        "type": "upscale",
-        "model_id": upscaler["id"],
-        "params": {"image_id": source_id, "scale": 2},
-    }])).json()
+    created = (
+        await client.post(
+            "/api/jobs",
+            json=[
+                {
+                    "type": "upscale",
+                    "model_id": upscaler["id"],
+                    "params": {"image_id": source_id, "scale": 2},
+                }
+            ],
+        )
+    ).json()
     upscale_job = await _wait_done(client, created[0]["id"])
     upscale_id = upscale_job["result"]["image_ids"][0]
 
     rows = (await client.get("/api/images", params={"family": "upscaler"})).json()
     upscaled = next(row for row in rows if row["id"] == upscale_id)
     assert upscaled["family"] == "upscaler"
-    assert upscaled["width"] == 128
-    assert upscaled["height"] == 128
+    assert upscaled["width"] == 512
+    assert upscaled["height"] == 512
     assert upscaled["params"]["upscale"]["scale"] == 2

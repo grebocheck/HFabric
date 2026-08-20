@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  boundedNumberParam,
+  DEFAULT_IMAGE_SETTINGS,
   formatSize,
   formatVram,
   imageFamilyDefaults,
+  imageDimensionGrid,
   imageModelRank,
   inferTouched,
   isKnownGuidanceDefault,
@@ -13,7 +16,10 @@ import {
   isModelAvailable,
   isNunchaku,
   isZImageTurbo,
+  mergeImageDefaultSettings,
+  normalizeImageRequest,
   numberParam,
+  parseLoraSelections,
   pickDefaultImageModel,
   readSaved,
   STORE_KEY,
@@ -44,6 +50,49 @@ describe("formatters", () => {
     expect(numberParam("3", 0)).toBe(3);
     expect(numberParam("nope", 7)).toBe(7);
     expect(numberParam(undefined, 1)).toBe(1);
+    expect(numberParam(null, 2)).toBe(2);
+    expect(numberParam("", 3)).toBe(3);
+  });
+
+  it("boundedNumberParam normalizes values to the API contract", () => {
+    expect(boundedNumberParam(129, 1024, 256, 2048, { integer: true, multipleOf: 64 })).toBe(256);
+    expect(boundedNumberParam(1080, 1024, 256, 2048, { integer: true, multipleOf: 64 })).toBe(1088);
+    expect(boundedNumberParam("bad", 28, 1, 150, { integer: true })).toBe(28);
+  });
+});
+
+describe("image request normalization", () => {
+  const draft = {
+    prompt: "  portrait  ",
+    negative: "  blur  ",
+    steps: 0,
+    guidance: 99,
+    width: 1000,
+    height: 1080,
+    seed: -4,
+    batch: 20,
+    loras: Array.from({ length: 10 }, (_, index) => ({ id: `lora-${index}`, weight: 3 })),
+  };
+
+  it("normalizes stale SDXL state before it reaches the API", () => {
+    expect(normalizeImageRequest(draft, "sdxl")).toEqual({
+      prompt: "portrait",
+      negative: "blur",
+      steps: 1,
+      guidance: 30,
+      width: 1024,
+      height: 1088,
+      seed: -1,
+      batch_size: 16,
+      loras: Array.from({ length: 8 }, (_, index) => ({ id: `lora-${index}`, weight: 2 })),
+    });
+  });
+
+  it("keeps Qwen's native 16-pixel dimension grid", () => {
+    expect(imageDimensionGrid("sdxl")).toBe(64);
+    expect(imageDimensionGrid("qwen-image")).toBe(16);
+    expect(normalizeImageRequest({ ...draft, width: 1328, height: 1328 }, "qwen-image"))
+      .toMatchObject({ width: 1328, height: 1328 });
   });
 });
 
@@ -109,6 +158,40 @@ describe("model ranking & selection", () => {
     expect(isKnownGuidanceDefault(0)).toBe(true);
     expect(isKnownSizeDefault(1328)).toBe(true);
   });
+
+  it("uses validated server overrides for family defaults", () => {
+    const settings = mergeImageDefaultSettings({
+      flux2_default_steps: 11,
+      flux2_default_width: 896,
+      flux2_default_height: Number.NaN,
+      qwen_image_default_guidance: "invalid",
+    });
+    expect(settings).toMatchObject({
+      flux2_default_steps: 11,
+      flux2_default_width: 896,
+      flux2_default_height: DEFAULT_IMAGE_SETTINGS.flux2_default_height,
+      qwen_image_default_guidance: DEFAULT_IMAGE_SETTINGS.qwen_image_default_guidance,
+    });
+    expect(imageFamilyDefaults("flux2", undefined, settings)).toEqual({
+      steps: 11,
+      guidance: 4,
+      width: 896,
+      height: 768,
+    });
+  });
+
+  it("filters missing, duplicate, and incompatible LoRA selections", () => {
+    const loras = [
+      { id: "sdxl", name: "SDXL", family: "sdxl" },
+      { id: "flux", name: "Flux", family: "flux" },
+    ] as Lora[];
+    expect(parseLoraSelections([
+      { id: "sdxl", weight: 9 },
+      { id: "sdxl", weight: 0.5 },
+      { id: "flux", weight: 1 },
+      "missing",
+    ], loras, model({ family: "sdxl" }))).toEqual([{ id: "sdxl", weight: 2 }]);
+  });
 });
 
 describe("inferTouched", () => {
@@ -153,8 +236,43 @@ describe("readSaved", () => {
     expect(readSaved()).toEqual({});
   });
 
+  it("sanitizes malformed persisted fields instead of trusting storage", () => {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      imgModel: 7,
+      steps: "28",
+      count: Number.POSITIVE_INFINITY,
+      selectedLoras: [null, "bad", { id: "ok", weight: 9 }],
+      touched: { steps: "yes", width: true },
+    }));
+    expect(readSaved()).toEqual({
+      selectedLoras: [{ id: "ok", weight: 2 }],
+      touched: { width: true },
+    });
+  });
+
   it("round-trips a saved composer snapshot", () => {
     localStorage.setItem(STORE_KEY, JSON.stringify({ imgModel: "x", steps: 12, count: 3 }));
     expect(readSaved()).toMatchObject({ imgModel: "x", steps: 12, count: 3 });
+  });
+
+  it("bounds legacy numeric state before restoring the form", () => {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      steps: 0,
+      guidance: 99,
+      width: 1000,
+      height: 9000,
+      seed: -5,
+      batch: 50,
+      count: 500,
+    }));
+    expect(readSaved()).toMatchObject({
+      steps: 1,
+      guidance: 30,
+      width: 1008,
+      height: 2048,
+      seed: -1,
+      batch: 16,
+      count: 100,
+    });
   });
 });

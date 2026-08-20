@@ -55,12 +55,18 @@ def _step_callback(backend: Any, loop, progress: ProgressCb, req: RealGeneration
 
 
 def _common_kwargs(backend: Any, torch, req: RealGenerationRequest, callback) -> dict[str, Any]:
+    guidance = backend._guidance(req.params)
+    negative = req.params.get("negative") or None
+    if req.family in (ModelFamily.QWEN_IMAGE, ModelFamily.QWEN_IMAGE_EDIT) and guidance > 1 and not negative:
+        # Qwen's true-CFG path requires an unconditional branch. An empty
+        # string preserves the user's intent while keeping that branch valid.
+        negative = " "
     common = {
         "prompt": req.params.get("prompt", ""),
         "num_inference_steps": req.steps,
-        "guidance_scale": backend._guidance(req.params),
+        "guidance_scale": guidance,
         "generator": backend._runtime().generator(torch, req.seed),
-        "negative_prompt": req.params.get("negative") or None,
+        "negative_prompt": negative,
         "callback_on_step_end": callback,
     }
     if req.family is ModelFamily.FLUX2:
@@ -71,7 +77,9 @@ def _common_kwargs(backend: Any, torch, req: RealGenerationRequest, callback) ->
 
 
 def _call_controlnet(backend: Any, torch, req: RealGenerationRequest, common: dict[str, Any]):
-    control = backend._load_control_image(req.control_token, req.width, req.height, req.params.get("control_type"))
+    control = backend._load_control_image(
+        req.control_token, req.width, req.height, req.params.get("control_type")
+    )
     control_type = str(req.params.get("control_type") or "canny")
     control_mode = backend._controlnet_mode_kwargs(control_type)
     if req.init_token and req.has_mask:

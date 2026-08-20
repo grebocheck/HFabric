@@ -3,7 +3,7 @@ import { PromptLibrary } from "./PromptLibrary";
 import { Select } from "./Select";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
 import { ImageParamForm, LoraCard, Notice } from "./ImageComposerParts";
-import { isNunchaku, isZImageTurbo } from "./imageComposerHelpers";
+import { isNunchaku, isZImageTurbo, MAX_IMAGE_JOBS, MAX_IMAGE_PROMPT_LENGTH } from "./imageComposerHelpers";
 import { useImageComposerController, type ImageComposerProps } from "./useImageComposerController";
 
 const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-[13px]";
@@ -17,15 +17,19 @@ export function ImageComposer(props: ImageComposerProps) {
     applyPreset,
     applyRatio,
     batch,
+    canApplyPreset,
     canQueue,
+    canSavePreset,
     compatibleLoras,
     count,
     deletePreset,
+    dimensionGrid,
     editGuidance,
     editHeight,
     editSteps,
     editWidth,
     generate,
+    familyDefaults,
     guidance,
     height,
     imagePresets,
@@ -36,6 +40,7 @@ export function ImageComposer(props: ImageComposerProps) {
     modelsLoading,
     negative,
     presetError,
+    presetBusy,
     presetId,
     presetName,
     presetOptions,
@@ -45,6 +50,7 @@ export function ImageComposer(props: ImageComposerProps) {
     promptHistoryOpen,
     promptHistoryRef,
     queueLabel,
+    queueing,
     ratios: RATIOS,
     savePreset,
     seed,
@@ -146,6 +152,7 @@ export function ImageComposer(props: ImageComposerProps) {
             value={promptDraft}
             onChange={(e) => setPromptDraft(e.target.value)}
             rows={6}
+            maxLength={MAX_IMAGE_PROMPT_LENGTH}
             placeholder="describe the image..."
             className={`${field} mt-1.5 min-h-32 resize-y leading-5`}
           />
@@ -153,6 +160,7 @@ export function ImageComposer(props: ImageComposerProps) {
             <div className={label}>Negative {selectedFamily === "flux2" ? "(ignored by FLUX.2)" : ""}</div>
             <input
               value={negative}
+              maxLength={MAX_IMAGE_PROMPT_LENGTH}
               onChange={(e) => setNegative(e.target.value)}
               placeholder="things to avoid..."
               className={`${field} mt-1.5`}
@@ -198,19 +206,23 @@ export function ImageComposer(props: ImageComposerProps) {
             <Notice tone="emerald">FLUX.2 nunchaku uses the local SVDQuant transformer sidecar.</Notice>
           ) : selectedFamily === "flux2" ? (
             <Notice tone="sky">
-              FLUX.2 klein is tuned here for 768x768, 6 steps, guidance 4.0. Negative prompt is ignored.
+              FLUX.2 server default: {familyDefaults?.width}x{familyDefaults?.height}, {familyDefaults?.steps} steps,
+              guidance {familyDefaults?.guidance}. Negative prompt is ignored.
             </Notice>
           ) : selectedFamily === "qwen-image" ? (
             <Notice tone="sky">
-              Qwen-Image-2512 is tuned here for 1328x1328, 50 steps, true CFG 4.0. The backend defaults to
-              bnb-nf4.
+              Qwen-Image server default: {familyDefaults?.width}x{familyDefaults?.height}, {familyDefaults?.steps}
+              steps, true CFG {familyDefaults?.guidance}. The backend defaults to bnb-nf4.
             </Notice>
           ) : selectedFamily === "z-image" && isZImageTurbo(selectedImgModel) ? (
-            <Notice tone="sky">Z-Image-Turbo is tuned here for 1024x1024, 9 steps, guidance 0.0.</Notice>
+            <Notice tone="sky">
+              Z-Image-Turbo server default: {familyDefaults?.width}x{familyDefaults?.height}, {familyDefaults?.steps}
+              steps, guidance {familyDefaults?.guidance}.
+            </Notice>
           ) : selectedFamily === "z-image" ? (
             <Notice tone="sky">
-              Z-Image base is tuned here for 1024x1024, 50 steps, guidance 4.0. The backend defaults to
-              bnb-fp4.
+              Z-Image base server default: {familyDefaults?.width}x{familyDefaults?.height}, {familyDefaults?.steps}
+              steps, guidance {familyDefaults?.guidance}. The backend defaults to bnb-fp4.
             </Notice>
           ) : null}
         </section>
@@ -233,6 +245,7 @@ export function ImageComposer(props: ImageComposerProps) {
           setWidth={editWidth}
           steps={steps}
           width={width}
+          dimensionGrid={dimensionGrid}
         />
 
         <section className={section}>
@@ -282,12 +295,12 @@ export function ImageComposer(props: ImageComposerProps) {
                 placeholder="unsaved"
               />
             )}
-            <button onClick={applyPreset} disabled={!presetId} className={subtleButton}>
-              Apply
+            <button onClick={applyPreset} disabled={!canApplyPreset} className={subtleButton}>
+              {presetBusy ? "Working…" : "Apply"}
             </button>
             <button
               onClick={deletePreset}
-              disabled={!presetId}
+              disabled={!presetId || presetBusy}
               className="rounded-md border border-red-400/25 px-2.5 py-1.5 text-xs text-red-300 transition hover:bg-red-400/10 disabled:opacity-30"
             >
               Delete
@@ -300,8 +313,8 @@ export function ImageComposer(props: ImageComposerProps) {
               placeholder="preset name"
               className={field}
             />
-            <button onClick={savePreset} disabled={!presetName.trim()} className={subtleButton}>
-              Save
+            <button onClick={savePreset} disabled={!canSavePreset} className={subtleButton}>
+              {presetBusy ? "Working…" : "Save"}
             </button>
           </div>
           {presetError ? (
@@ -320,7 +333,8 @@ export function ImageComposer(props: ImageComposerProps) {
               type="number"
               value={count}
               min={1}
-              onChange={(e) => setCount(Math.max(1, Number(e.target.value)))}
+              max={MAX_IMAGE_JOBS}
+              onChange={(e) => setCount(Math.max(1, Math.min(MAX_IMAGE_JOBS, Number(e.target.value) || 1)))}
               className="ui-field mt-1 w-full rounded-md px-2 py-2 text-sm"
             />
           </label>
@@ -330,7 +344,7 @@ export function ImageComposer(props: ImageComposerProps) {
             title={selectedUnavailableReason || undefined}
             className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-ui-inverse transition hover:bg-accent-hover disabled:opacity-40"
           >
-            {queueLabel}
+            {queueing ? "Queuing…" : queueLabel}
           </button>
         </div>
         <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-ui-subtle">

@@ -12,14 +12,23 @@ import { toast } from "./Toast";
 import { Toggle } from "./Toggle";
 import { ZoomableImage } from "./ZoomableImage";
 import {
+  imageDimensionGrid,
   imageFamilyDefaults,
   isLoraCompatible,
-  isModelAvailable,
-  numberParam,
-  type LoraSelection,
+  parseLoraSelections,
 } from "./imageComposerHelpers";
+import {
+  buildEditJobParams,
+  DEFAULT_EDIT_DRAFT,
+  editDraftPatchFromParams,
+  EDIT_MODE_LABELS,
+  round64,
+  supportsEditMode,
+  type EditDraft,
+  type EditMode,
+} from "./editWorkspaceHelpers";
+import { useImageDefaultSettings } from "./useImageDefaultSettings";
 
-type EditMode = "img2img" | "inpaint" | "outpaint" | "instruction" | "controlnet";
 type Source = { token: string; url: string; width: number; height: number };
 type ViewMode = "source" | "result" | "compare";
 
@@ -34,34 +43,13 @@ const ratios = [
   { label: "9:16", w: 9, h: 16 },
 ];
 
-const modeLabels: Record<EditMode, string> = {
-  img2img: "Img2img",
-  inpaint: "Inpaint",
-  outpaint: "Outpaint",
-  instruction: "Instruction",
-  controlnet: "ControlNet",
-};
-
-export function editModeFromParams(params: Record<string, unknown>): EditMode {
-  const candidate = typeof params.edit_mode === "string" ? params.edit_mode : "img2img";
-  return candidate in modeLabels ? candidate as EditMode : "img2img";
-}
-
-export function supportsEditMode(model: Model, mode: EditMode): boolean {
-  if (!isModelAvailable(model) || model.job_type !== "image") return false;
-  if (mode === "instruction") return model.family === "qwen-image-edit" || model.family === "flux-kontext";
-  if (mode === "controlnet") return model.family === "sdxl";
-  if (mode === "inpaint" || mode === "outpaint") {
-    return ["sdxl", "flux", "flux2", "qwen-image", "z-image"].includes(model.family);
-  }
-  return ["sdxl", "flux", "flux2", "qwen-image", "z-image", "anima"].includes(model.family);
-}
-
 export function EditWorkspace({
   models,
   modelsLoading = false,
   loras,
+  lorasLoading = false,
   presets,
+  presetsLoading = false,
   jobs,
   images,
   apply,
@@ -71,36 +59,19 @@ export function EditWorkspace({
   models: Model[];
   modelsLoading?: boolean;
   loras: Lora[];
+  lorasLoading?: boolean;
   presets: Preset[];
+  presetsLoading?: boolean;
   jobs: Job[];
   images: ImageItem[];
   apply?: EditApply | null;
   onQueued: () => void;
   onGetModels: () => void;
 }) {
-  const [mode, setMode] = useState<EditMode>("img2img");
+  const [draft, setDraft] = useState<EditDraft>(DEFAULT_EDIT_DRAFT);
   const [modelId, setModelId] = useState("");
   const [source, setSource] = useState<Source | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [negative, setNegative] = useState("");
-  const [steps, setSteps] = useState(28);
-  const [guidance, setGuidance] = useState(3.5);
-  const [width, setWidth] = useState(1024);
-  const [height, setHeight] = useState(1024);
-  const [seed, setSeed] = useState(-1);
-  const [batch, setBatch] = useState(1);
-  const [strength, setStrength] = useState(0.6);
-  const [resizeMode, setResizeMode] = useState("crop");
   const [maskDraft, setMaskDraft] = useState<File | null>(null);
-  const [maskBlur, setMaskBlur] = useState(6);
-  const [maskGrow, setMaskGrow] = useState(0);
-  const [maskInvert, setMaskInvert] = useState(false);
-  const [paddingCrop, setPaddingCrop] = useState(32);
-  const [outpaint, setOutpaint] = useState({ left: 128, right: 128, top: 128, bottom: 128 });
-  const [controlType, setControlType] = useState("canny");
-  const [controlScale, setControlScale] = useState(0.75);
-  const [controlMask, setControlMask] = useState(false);
-  const [selectedLoras, setSelectedLoras] = useState<LoraSelection[]>([]);
   const [presetId, setPresetId] = useState("");
   const [uploading, setUploading] = useState(false);
   const [queueing, setQueueing] = useState(false);
@@ -109,6 +80,35 @@ export function EditWorkspace({
   const [libraryOpen, setLibraryOpen] = useState(false);
   const appliedNonce = useRef<number | null>(null);
   const skipModelDefaults = useRef(false);
+  const imageDefaults = useImageDefaultSettings();
+  const patchDraft = useCallback((patch: Partial<EditDraft>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+  }, []);
+  const setDraftField = useCallback(<K extends keyof EditDraft,>(key: K, value: EditDraft[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }, []);
+  const {
+    mode,
+    prompt,
+    negative,
+    steps,
+    guidance,
+    width,
+    height,
+    seed,
+    batch,
+    strength,
+    resizeMode,
+    maskBlur,
+    maskGrow,
+    maskInvert,
+    paddingCrop,
+    outpaint,
+    controlType,
+    controlScale,
+    controlMask,
+    selectedLoras,
+  } = draft;
 
   const eligibleModels = useMemo(
     () => models.filter((model) => supportsEditMode(model, mode)).sort((a, b) => a.name.localeCompare(b.name)),
@@ -133,25 +133,35 @@ export function EditWorkspace({
       skipModelDefaults.current = false;
       return;
     }
-    const defaults = imageFamilyDefaults(family, selectedModel);
+    const defaults = imageFamilyDefaults(family, selectedModel, imageDefaults);
+    const next: Partial<EditDraft> = {};
     if (defaults) {
-      setSteps(defaults.steps);
-      setGuidance(defaults.guidance);
+      next.steps = defaults.steps;
+      next.guidance = defaults.guidance;
       if (!source) {
-        setWidth(defaults.width);
-        setHeight(defaults.height);
+        next.width = defaults.width;
+        next.height = defaults.height;
       }
     }
-    if (family === "qwen-image") setStrength(0.6);
-    if (family === "z-image") setStrength(0.45);
-    if (family === "anima") setStrength(0.55);
-  }, [family, selectedModel, source]);
+    if (family === "qwen-image") next.strength = 0.6;
+    if (family === "z-image") next.strength = 0.45;
+    if (family === "anima") next.strength = 0.55;
+    patchDraft(next);
+  }, [family, imageDefaults, patchDraft, selectedModel, source]);
+
+  useEffect(() => {
+    if (!presetsLoading && presetId && !imagePresets.some((preset) => preset.id === presetId)) {
+      setPresetId("");
+    }
+  }, [imagePresets, presetId, presetsLoading]);
 
   useEffect(() => {
     if (mode !== "outpaint" || !source) return;
-    setWidth(round64(source.width + outpaint.left + outpaint.right));
-    setHeight(round64(source.height + outpaint.top + outpaint.bottom));
-  }, [mode, outpaint, source]);
+    patchDraft({
+      width: round64(source.width + outpaint.left + outpaint.right),
+      height: round64(source.height + outpaint.top + outpaint.bottom),
+    });
+  }, [mode, outpaint, patchDraft, source]);
 
   const uploadSource = useCallback(async (file: File) => {
     setUploading(true);
@@ -163,8 +173,7 @@ export function EditWorkspace({
         width: uploaded.width,
         height: uploaded.height,
       });
-      setWidth(round64(uploaded.width));
-      setHeight(round64(uploaded.height));
+      patchDraft({ width: round64(uploaded.width), height: round64(uploaded.height) });
       setMaskDraft(null);
       setQueuedJobId(null);
       setViewMode("source");
@@ -173,47 +182,27 @@ export function EditWorkspace({
     } finally {
       setUploading(false);
     }
-  }, []);
+  }, [patchDraft]);
 
   useEffect(() => {
     if (!apply || apply.nonce === appliedNonce.current) return;
     appliedNonce.current = apply.nonce;
     const params = apply.params;
-    const requestedMode = editModeFromParams(params);
-    skipModelDefaults.current = true;
-    setMode(requestedMode);
-    setPrompt(typeof params.prompt === "string" ? params.prompt : "");
-    setNegative(typeof params.negative === "string" ? params.negative : "");
-    setSteps(numberParam(params.steps, 28));
-    setGuidance(numberParam(params.guidance, 3.5));
-    setWidth(numberParam(params.width, apply.width ?? 1024));
-    setHeight(numberParam(params.height, apply.height ?? 1024));
-    setSeed(numberParam(params.seed, -1));
-    setBatch(numberParam(params.batch_size, 1));
-    setStrength(numberParam(params.requested_strength ?? params.strength, 0.6));
-    setResizeMode(typeof params.resize_mode === "string" ? params.resize_mode : "crop");
-    setMaskBlur(numberParam(params.mask_blur, 6));
-    setMaskGrow(numberParam(params.mask_grow, 0));
-    setMaskInvert(Boolean(params.mask_invert));
-    setPaddingCrop(numberParam(params.padding_mask_crop, 32));
-    const margins = typeof params.outpaint === "object" && params.outpaint ? params.outpaint as Record<string, unknown> : params;
-    setOutpaint({
-      left: numberParam(margins.left ?? params.outpaint_left, 128),
-      right: numberParam(margins.right ?? params.outpaint_right, 128),
-      top: numberParam(margins.top ?? params.outpaint_top, 128),
-      bottom: numberParam(margins.bottom ?? params.outpaint_bottom, 128),
-    });
-    setControlType(typeof params.control_type === "string" ? params.control_type : "canny");
-    setControlScale(numberParam(params.control_scale, 0.75));
-    setControlMask(requestedMode === "controlnet" && Boolean(params.mask_image ?? params.inpaint));
     const target = apply.model_id ? models.find((model) => model.id === apply.model_id) : undefined;
-    if (target && supportsEditMode(target, requestedMode)) setModelId(target.id);
+    const restored = editDraftPatchFromParams(
+      params,
+      { width: apply.width ?? 1024, height: apply.height ?? 1024 },
+      target?.family,
+    );
+    skipModelDefaults.current = true;
+    patchDraft(restored);
+    if (target && restored.mode && supportsEditMode(target, restored.mode)) setModelId(target.id);
     if (apply.source_url) {
       void api.downloadUrlBlob(apply.source_url)
         .then((blob) => uploadSource(new File([blob], `${apply.image_id ?? "history"}.png`, { type: blob.type || "image/png" })))
         .catch(() => toast.error("Could not load the history image into Edit"));
     }
-  }, [apply, models, uploadSource]);
+  }, [apply, models, patchDraft, uploadSource]);
 
   useEffect(() => {
     if (result) setViewMode("result");
@@ -233,37 +222,15 @@ export function EditWorkspace({
       if ((mode === "inpaint" || (mode === "controlnet" && controlMask)) && maskDraft) {
         maskToken = (await api.uploadMaskImage(maskDraft)).mask_image;
       }
-      const params: Record<string, unknown> = {
-        prompt: prompt.trim(),
-        negative: negative.trim() || undefined,
-        steps,
-        guidance,
-        width,
-        height,
-        seed,
-        batch_size: batch,
-        edit_mode: mode,
-        init_image: source.token,
-        mask_image: maskToken,
-        strength: mode === "instruction" || (family === "flux2" && mode === "img2img") ? undefined : strength,
-        resize_mode: resizeMode,
-        mask_blur: maskBlur,
-        mask_grow: maskGrow,
-        mask_invert: maskInvert,
-        padding_mask_crop: paddingCrop,
-        outpaint_left: outpaint.left,
-        outpaint_right: outpaint.right,
-        outpaint_top: outpaint.top,
-        outpaint_bottom: outpaint.bottom,
-        control_image: mode === "controlnet" ? source.token : undefined,
-        control_type: mode === "controlnet" ? controlType : undefined,
-        control_scale: mode === "controlnet" ? controlScale : undefined,
-        loras: selectedLoras.length ? selectedLoras : undefined,
-      };
+      const params = buildEditJobParams(draft, {
+        sourceToken: source.token,
+        maskToken,
+        family,
+      });
       const created = await api.createJobs([{ type: "image", model_id: selectedModel.id, params }]);
       setQueuedJobId(created[0]?.id ?? null);
       onQueued();
-      toast.success(`Queued ${modeLabels[mode].toLowerCase()} edit`);
+      toast.success(`Queued ${EDIT_MODE_LABELS[mode].toLowerCase()} edit`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not queue edit");
     } finally {
@@ -272,29 +239,54 @@ export function EditWorkspace({
   };
 
   const applyPreset = () => {
+    if (modelsLoading || lorasLoading || presetsLoading) return;
     const preset = imagePresets.find((item) => item.id === presetId);
     if (!preset) return;
-    setPrompt(typeof preset.params.prompt === "string" ? preset.params.prompt : prompt);
-    setNegative(typeof preset.params.negative === "string" ? preset.params.negative : negative);
-    setSteps(numberParam(preset.params.steps, steps));
-    setGuidance(numberParam(preset.params.guidance, guidance));
+    const targetId = typeof preset.params.model_id === "string" ? preset.params.model_id : "";
+    const target = targetId ? models.find((model) => model.id === targetId) : undefined;
+    if (targetId && (!target || !supportsEditMode(target, mode))) {
+      toast.error("The model saved in this preset is unavailable for the current edit mode");
+      return;
+    }
+    const parsedLoras = parseLoraSelections(preset.params.loras, loras, target ?? selectedModel);
+    const restored = editDraftPatchFromParams({
+      ...preset.params,
+      edit_mode: mode,
+      prompt: typeof preset.params.prompt === "string" ? preset.params.prompt : prompt,
+    }, { width, height }, target?.family ?? family);
+    patchDraft({
+      ...restored,
+      selectedLoras: parsedLoras,
+    });
+    if (target) {
+      skipModelDefaults.current = true;
+      setModelId(target.id);
+    }
+    if (Array.isArray(preset.params.loras) && parsedLoras.length < preset.params.loras.length) {
+      toast.error("Some LoRAs in this preset are missing or incompatible and were skipped");
+    }
   };
 
   const applyRatio = (rw: number, rh: number) => {
+    setPresetId("");
     const base = Math.max(width, height, 512);
+    const grid = imageDimensionGrid(family);
+    const snap = (value: number) => Math.max(256, Math.round(value / grid) * grid);
     if (rw >= rh) {
-      setWidth(round64(base));
-      setHeight(round64((base * rh) / rw));
+      patchDraft({ width: snap(base), height: snap((base * rh) / rw) });
     } else {
-      setHeight(round64(base));
-      setWidth(round64((base * rw) / rh));
+      patchDraft({ height: snap(base), width: snap((base * rw) / rh) });
     }
   };
 
   const toggleLora = (lora: Lora, enabled: boolean) => {
-    setSelectedLoras((current) => enabled
-      ? [...current.filter((item) => item.id !== lora.id), { id: lora.id, weight: 1 }]
-      : current.filter((item) => item.id !== lora.id));
+    setPresetId("");
+    setDraft((current) => ({
+      ...current,
+      selectedLoras: enabled
+        ? [...current.selectedLoras.filter((item) => item.id !== lora.id), { id: lora.id, weight: 1 }]
+        : current.selectedLoras.filter((item) => item.id !== lora.id),
+    }));
   };
 
   return (
@@ -308,13 +300,13 @@ export function EditWorkspace({
           <section className={section}>
             <div className={label}>Mode</div>
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-              {(Object.keys(modeLabels) as EditMode[]).map((item) => (
+              {(Object.keys(EDIT_MODE_LABELS) as EditMode[]).map((item) => (
                 <button
                   key={item}
-                  onClick={() => setMode(item)}
+                  onClick={() => { setDraftField("mode", item); setPresetId(""); }}
                   className={`h-8 rounded-md border text-xs transition ${mode === item ? "border-accent bg-accent/15 text-accent-fg" : "border-border-strong text-ui-muted hover:bg-control-hover"}`}
                 >
-                  {modeLabels[item]}
+                  {EDIT_MODE_LABELS[item]}
                 </button>
               ))}
             </div>
@@ -324,7 +316,7 @@ export function EditWorkspace({
             <div className={label}>Model</div>
             <div className="mt-1.5">
               {eligibleModels.length ? (
-                <ModelPicker models={eligibleModels} value={modelId} onChange={setModelId} />
+                <ModelPicker models={eligibleModels} value={modelId} onChange={(value) => { setModelId(value); setPresetId(""); }} />
               ) : (
                 <div className="rounded-md border border-warn-border bg-warn-bg p-2 text-xs text-warn-fg">
                   {modelsLoading ? "Loading models..." : "No installed model supports this mode."}
@@ -360,19 +352,22 @@ export function EditWorkspace({
               <div className={label}>Instruction / prompt</div>
               <button onClick={() => setLibraryOpen(true)} className="ui-button ui-button-compact rounded-md">Library</button>
             </div>
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} className={`${field} mt-1.5 resize-y`} placeholder="Describe what should change..." />
-            <input value={negative} onChange={(event) => setNegative(event.target.value)} className={`${field} mt-2`} placeholder="Negative prompt (optional)" />
+            <textarea value={prompt} onChange={(event) => { setDraftField("prompt", event.target.value); setPresetId(""); }} rows={5} className={`${field} mt-1.5 resize-y`} placeholder="Describe what should change..." />
+            <input value={negative} onChange={(event) => { setDraftField("negative", event.target.value); setPresetId(""); }} className={`${field} mt-2`} placeholder="Negative prompt (optional)" />
             <PromptLibrary open={libraryOpen} onClose={() => setLibraryOpen(false)} currentPrompt={prompt} currentNegative={negative} onApply={(body, neg) => {
-              setPrompt(prompt.trim() ? `${prompt.trim()}, ${body}` : body);
-              if (neg) setNegative(negative.trim() ? `${negative.trim()}, ${neg}` : neg);
+              patchDraft({
+                prompt: prompt.trim() ? `${prompt.trim()}, ${body}` : body,
+                ...(neg ? { negative: negative.trim() ? `${negative.trim()}, ${neg}` : neg } : {}),
+              });
+              setPresetId("");
             }} />
           </section>
 
           {mode !== "instruction" && family !== "flux2" ? (
             <section className={section}>
               <div className="flex items-center justify-between text-xs text-ui-subtle"><span>Strength</span><span className="font-mono">{strength.toFixed(2)}</span></div>
-              <Slider value={strength} min={0.05} max={1} step={0.05} onChange={setStrength} />
-              <div className="mt-2"><Select ariaLabel="Resize mode" value={resizeMode} onChange={setResizeMode} options={[{ value: "crop", label: "Crop to fit" }, { value: "pad", label: "Pad to fit" }, { value: "stretch", label: "Stretch" }]} /></div>
+              <Slider value={strength} min={0.05} max={1} step={0.05} onChange={(value) => setDraftField("strength", value)} />
+              <div className="mt-2"><Select ariaLabel="Resize mode" value={resizeMode} onChange={(value) => setDraftField("resizeMode", value)} options={[{ value: "crop", label: "Crop to fit" }, { value: "pad", label: "Pad to fit" }, { value: "stretch", label: "Stretch" }]} /></div>
             </section>
           ) : null}
 
@@ -380,10 +375,10 @@ export function EditWorkspace({
             <section className={section}>
               <div className={label}>Mask quality</div>
               <div className="mt-1.5 grid grid-cols-2 gap-2">
-                <Num label="Grow / shrink" value={maskGrow} set={setMaskGrow} />
-                <Num label="Blur" value={maskBlur} set={setMaskBlur} />
-                <Num label="Crop padding" value={paddingCrop} set={setPaddingCrop} />
-                <div className="flex items-end gap-2 pb-1 text-xs text-ui-muted"><Toggle checked={maskInvert} onChange={setMaskInvert} ariaLabel="Invert mask" />Invert</div>
+                <Num label="Grow / shrink" value={maskGrow} set={(value) => setDraftField("maskGrow", value)} />
+                <Num label="Blur" value={maskBlur} set={(value) => setDraftField("maskBlur", value)} />
+                <Num label="Crop padding" value={paddingCrop} set={(value) => setDraftField("paddingCrop", value)} />
+                <div className="flex items-end gap-2 pb-1 text-xs text-ui-muted"><Toggle checked={maskInvert} onChange={(value) => setDraftField("maskInvert", value)} ariaLabel="Invert mask" />Invert</div>
               </div>
             </section>
           ) : null}
@@ -392,7 +387,7 @@ export function EditWorkspace({
             <section className={section}>
               <div className={label}>Extend canvas</div>
               <div className="mt-1.5 grid grid-cols-2 gap-2">
-                {(["left", "right", "top", "bottom"] as const).map((side) => <Num key={side} label={side} value={outpaint[side]} set={(value) => setOutpaint((current) => ({ ...current, [side]: Math.max(0, value) }))} step={64} />)}
+                {(["left", "right", "top", "bottom"] as const).map((side) => <Num key={side} label={side} value={outpaint[side]} set={(value) => setDraft((current) => ({ ...current, outpaint: { ...current.outpaint, [side]: Math.max(0, value) } }))} step={64} />)}
               </div>
             </section>
           ) : null}
@@ -400,33 +395,33 @@ export function EditWorkspace({
           {mode === "controlnet" ? (
             <section className={section}>
               <div className={label}>ControlNet</div>
-              <div className="mt-1.5"><Select ariaLabel="ControlNet type" value={controlType} onChange={setControlType} options={["canny", "depth", "pose", "scribble", "union-canny", "union-depth", "union-pose", "union-scribble"].map((value) => ({ value, label: value }))} /></div>
-              <div className="mt-2 flex items-center gap-2 text-xs text-ui-muted"><Toggle checked={controlMask} onChange={(enabled) => { setControlMask(enabled); if (!enabled) setMaskDraft(null); }} ariaLabel="Use an inpaint mask with ControlNet" />Use inpaint mask</div>
+              <div className="mt-1.5"><Select ariaLabel="ControlNet type" value={controlType} onChange={(value) => setDraftField("controlType", value)} options={["canny", "depth", "pose", "scribble", "union-canny", "union-depth", "union-pose", "union-scribble"].map((value) => ({ value, label: value }))} /></div>
+              <div className="mt-2 flex items-center gap-2 text-xs text-ui-muted"><Toggle checked={controlMask} onChange={(enabled) => { setDraftField("controlMask", enabled); if (!enabled) setMaskDraft(null); }} ariaLabel="Use an inpaint mask with ControlNet" />Use inpaint mask</div>
               <div className="mt-2 flex items-center justify-between text-xs text-ui-subtle"><span>Scale</span><span>{controlScale.toFixed(2)}</span></div>
-              <Slider value={controlScale} min={0} max={2} step={0.05} onChange={setControlScale} />
+              <Slider value={controlScale} min={0} max={2} step={0.05} onChange={(value) => setDraftField("controlScale", value)} />
             </section>
           ) : null}
 
-          <ImageParamForm activeRatio={activeRatio} batch={batch} guidance={guidance} height={height} labelClass={label} onApplyRatio={applyRatio} ratios={ratios} sectionClass={section} seed={seed} setBatch={setBatch} setGuidance={setGuidance} setHeight={setHeight} setSeed={setSeed} setSteps={setSteps} setWidth={setWidth} steps={steps} width={width} />
+          <ImageParamForm activeRatio={activeRatio} batch={batch} dimensionGrid={imageDimensionGrid(selectedModel?.family)} guidance={guidance} height={height} labelClass={label} onApplyRatio={applyRatio} ratios={ratios} sectionClass={section} seed={seed} setBatch={(value) => { setDraftField("batch", value); setPresetId(""); }} setGuidance={(value) => { setDraftField("guidance", value); setPresetId(""); }} setHeight={(value) => { setDraftField("height", value); setPresetId(""); }} setSeed={(value) => { setDraftField("seed", value); setPresetId(""); }} setSteps={(value) => { setDraftField("steps", value); setPresetId(""); }} setWidth={(value) => { setDraftField("width", value); setPresetId(""); }} steps={steps} width={width} />
 
           {compatibleLoras.length ? (
             <section className={section}>
               <div className={label}>LoRA</div>
               <div className="mt-1.5 space-y-2">{compatibleLoras.map((lora) => {
                 const selected = selectedLoras.find((item) => item.id === lora.id);
-                return <LoraCard key={lora.id} lora={lora} selected={selected} onToggle={(enabled) => toggleLora(lora, enabled)} onWeight={(weight) => setSelectedLoras((current) => current.map((item) => item.id === lora.id ? { ...item, weight } : item))} />;
+                return <LoraCard key={lora.id} lora={lora} selected={selected} onToggle={(enabled) => toggleLora(lora, enabled)} onWeight={(weight) => { setDraft((current) => ({ ...current, selectedLoras: current.selectedLoras.map((item) => item.id === lora.id ? { ...item, weight } : item) })); setPresetId(""); }} />;
               })}</div>
             </section>
           ) : null}
 
           <section className={section}>
             <div className={label}>Preset</div>
-            <div className="mt-1.5 flex gap-2"><div className="min-w-0 flex-1"><Select ariaLabel="Edit preset" value={presetId} onChange={setPresetId} options={[{ value: "", label: "unsaved" }, ...imagePresets.map((preset) => ({ value: preset.id, label: preset.name }))]} /></div><button onClick={applyPreset} disabled={!presetId} className="ui-button rounded-md px-3 text-xs">Apply</button></div>
+            <div className="mt-1.5 flex gap-2"><div className="min-w-0 flex-1"><Select ariaLabel="Edit preset" value={presetId} onChange={setPresetId} options={[{ value: "", label: "unsaved" }, ...imagePresets.map((preset) => ({ value: preset.id, label: preset.name }))]} /></div><button onClick={applyPreset} disabled={!presetId || modelsLoading || lorasLoading || presetsLoading} className="ui-button rounded-md px-3 text-xs">Apply</button></div>
           </section>
         </div>
         <div className="border-t border-border bg-raised p-3">
           <button onClick={() => void queue()} disabled={!source || !selectedModel || !prompt.trim() || queueing} className="ui-button-primary h-10 w-full rounded-md text-sm font-semibold disabled:opacity-40">
-            {queueing ? "Queuing..." : `Queue ${modeLabels[mode]}`}
+            {queueing ? "Queuing..." : `Queue ${EDIT_MODE_LABELS[mode]}`}
           </button>
         </div>
       </aside>
@@ -440,7 +435,7 @@ export function EditWorkspace({
         </div>
         <div className="ui-stage min-h-0 flex-1 p-4">
           {!source ? <DropHero uploading={uploading} onFile={(file) => void uploadSource(file)} /> : (mode === "inpaint" || (mode === "controlnet" && controlMask)) && viewMode === "source" ? (
-            <MaskEditor src={source.url} onMaskChange={onMaskChange} large onFeatherChange={setMaskBlur} />
+            <MaskEditor src={source.url} onMaskChange={onMaskChange} large onFeatherChange={(value) => setDraftField("maskBlur", value)} />
           ) : viewMode === "compare" && result ? (
             <ComparePane before={source.url} after={result.url} />
           ) : (
@@ -483,8 +478,4 @@ function ComparePane({ before, after }: { before: string; after: string }) {
 
 function Num({ label: text, value, set, step = 1 }: { label: string; value: number; set: (value: number) => void; step?: number }) {
   return <label><span className={label}>{text}</span><input type="number" value={value} step={step} onChange={(event) => set(Number(event.target.value))} className={`${field} mt-1`} /></label>;
-}
-
-export function round64(value: number): number {
-  return Math.max(64, Math.round(value / 64) * 64);
 }

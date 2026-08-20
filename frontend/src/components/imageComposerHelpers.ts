@@ -10,6 +10,9 @@ export const promptHistoryLimit = 14;
 export const DEFAULT_STEPS = 28;
 export const DEFAULT_GUIDANCE = 3.5;
 export const DEFAULT_SIZE = 1024;
+export const MAX_IMAGE_PROMPT_LENGTH = 20_000;
+export const MAX_IMAGE_LORAS = 8;
+export const MAX_IMAGE_JOBS = 100;
 const ANIMA_STEPS = 30;
 const ANIMA_GUIDANCE = 4.0;
 const ANIMA_SIZE = 1024;
@@ -26,39 +29,136 @@ const Z_IMAGE_BASE_GUIDANCE = 4.0;
 const Z_IMAGE_SIZE = 1024;
 
 export type ImageFamilyDefaults = { steps: number; guidance: number; width: number; height: number };
+export type ImageDefaultSettings = {
+  default_steps: number;
+  default_guidance: number;
+  default_width: number;
+  default_height: number;
+  anima_default_steps: number;
+  anima_default_guidance: number;
+  anima_default_width: number;
+  anima_default_height: number;
+  flux2_default_steps: number;
+  flux2_default_guidance: number;
+  flux2_default_width: number;
+  flux2_default_height: number;
+  qwen_image_default_steps: number;
+  qwen_image_default_guidance: number;
+  qwen_image_default_width: number;
+  qwen_image_default_height: number;
+  qwen_image_edit_default_steps: number;
+  qwen_image_edit_default_guidance: number;
+  flux_kontext_default_steps: number;
+  flux_kontext_default_guidance: number;
+  z_image_default_steps: number;
+  z_image_default_guidance: number;
+  z_image_base_default_steps: number;
+  z_image_base_default_guidance: number;
+  z_image_default_width: number;
+  z_image_default_height: number;
+};
+
+export const DEFAULT_IMAGE_SETTINGS: ImageDefaultSettings = {
+  default_steps: DEFAULT_STEPS,
+  default_guidance: DEFAULT_GUIDANCE,
+  default_width: DEFAULT_SIZE,
+  default_height: DEFAULT_SIZE,
+  anima_default_steps: ANIMA_STEPS,
+  anima_default_guidance: ANIMA_GUIDANCE,
+  anima_default_width: ANIMA_SIZE,
+  anima_default_height: ANIMA_SIZE,
+  flux2_default_steps: FLUX2_STEPS,
+  flux2_default_guidance: FLUX2_GUIDANCE,
+  flux2_default_width: FLUX2_SIZE,
+  flux2_default_height: FLUX2_SIZE,
+  qwen_image_default_steps: QWEN_IMAGE_STEPS,
+  qwen_image_default_guidance: QWEN_IMAGE_GUIDANCE,
+  qwen_image_default_width: QWEN_IMAGE_SIZE,
+  qwen_image_default_height: QWEN_IMAGE_SIZE,
+  qwen_image_edit_default_steps: 40,
+  qwen_image_edit_default_guidance: 4,
+  flux_kontext_default_steps: 28,
+  flux_kontext_default_guidance: 2.5,
+  z_image_default_steps: Z_IMAGE_TURBO_STEPS,
+  z_image_default_guidance: Z_IMAGE_TURBO_GUIDANCE,
+  z_image_base_default_steps: Z_IMAGE_BASE_STEPS,
+  z_image_base_default_guidance: Z_IMAGE_BASE_GUIDANCE,
+  z_image_default_width: Z_IMAGE_SIZE,
+  z_image_default_height: Z_IMAGE_SIZE,
+};
+
+export function mergeImageDefaultSettings(
+  values: Record<string, unknown> | undefined,
+  current: ImageDefaultSettings = DEFAULT_IMAGE_SETTINGS,
+): ImageDefaultSettings {
+  const next = { ...current };
+  if (!values) return next;
+  for (const key of Object.keys(next) as (keyof ImageDefaultSettings)[]) {
+    const value = values[key];
+    if (typeof value === "number" && Number.isFinite(value)) next[key] = value;
+  }
+  return next;
+}
 
 export function imageFamilyDefaults(
   family: string | undefined,
   model?: Model,
+  settings: ImageDefaultSettings = DEFAULT_IMAGE_SETTINGS,
 ): ImageFamilyDefaults | undefined {
   if (family === "anima") {
-    return { steps: ANIMA_STEPS, guidance: ANIMA_GUIDANCE, width: ANIMA_SIZE, height: ANIMA_SIZE };
+    return {
+      steps: settings.anima_default_steps,
+      guidance: settings.anima_default_guidance,
+      width: settings.anima_default_width,
+      height: settings.anima_default_height,
+    };
   }
   if (family === "flux2") {
-    return { steps: FLUX2_STEPS, guidance: FLUX2_GUIDANCE, width: FLUX2_SIZE, height: FLUX2_SIZE };
+    return {
+      steps: settings.flux2_default_steps,
+      guidance: settings.flux2_default_guidance,
+      width: settings.flux2_default_width,
+      height: settings.flux2_default_height,
+    };
   }
   if (family === "qwen-image") {
     return {
-      steps: QWEN_IMAGE_STEPS,
-      guidance: QWEN_IMAGE_GUIDANCE,
-      width: QWEN_IMAGE_SIZE,
-      height: QWEN_IMAGE_SIZE,
+      steps: settings.qwen_image_default_steps,
+      guidance: settings.qwen_image_default_guidance,
+      width: settings.qwen_image_default_width,
+      height: settings.qwen_image_default_height,
+    };
+  }
+  if (family === "qwen-image-edit") {
+    return {
+      steps: settings.qwen_image_edit_default_steps,
+      guidance: settings.qwen_image_edit_default_guidance,
+      width: settings.qwen_image_default_width,
+      height: settings.qwen_image_default_height,
+    };
+  }
+  if (family === "flux-kontext") {
+    return {
+      steps: settings.flux_kontext_default_steps,
+      guidance: settings.flux_kontext_default_guidance,
+      width: settings.default_width,
+      height: settings.default_height,
     };
   }
   if (family === "z-image") {
     if (model && !isZImageTurbo(model)) {
       return {
-        steps: Z_IMAGE_BASE_STEPS,
-        guidance: Z_IMAGE_BASE_GUIDANCE,
-        width: Z_IMAGE_SIZE,
-        height: Z_IMAGE_SIZE,
+        steps: settings.z_image_base_default_steps,
+        guidance: settings.z_image_base_default_guidance,
+        width: settings.z_image_default_width,
+        height: settings.z_image_default_height,
       };
     }
     return {
-      steps: Z_IMAGE_TURBO_STEPS,
-      guidance: Z_IMAGE_TURBO_GUIDANCE,
-      width: Z_IMAGE_SIZE,
-      height: Z_IMAGE_SIZE,
+      steps: settings.z_image_default_steps,
+      guidance: settings.z_image_default_guidance,
+      width: settings.z_image_default_width,
+      height: settings.z_image_default_height,
     };
   }
   return undefined;
@@ -87,6 +187,72 @@ export const isKnownGuidanceDefault = (value: number): boolean => knownGuidanceD
 export const isKnownSizeDefault = (value: number): boolean => knownSizeDefaults.includes(value);
 
 export type LoraSelection = { id: string; weight: number };
+
+export type ImageRequestDraft = {
+  prompt: unknown;
+  negative: unknown;
+  steps: unknown;
+  guidance: unknown;
+  width: unknown;
+  height: unknown;
+  seed: unknown;
+  batch: unknown;
+  loras: LoraSelection[];
+};
+
+export type NormalizedImageParams = {
+  prompt: string;
+  negative?: string;
+  steps: number;
+  guidance: number;
+  width: number;
+  height: number;
+  seed: number;
+  batch_size: number;
+  loras?: LoraSelection[];
+};
+
+export function imageDimensionGrid(family: string | undefined): number {
+  return family === "qwen-image" || family === "qwen-image-edit" ? 16 : 64;
+}
+
+/** Build the only image payload shape sent by the composer.
+ *
+ * Browser storage, old presets, and writable server defaults can all outlive a
+ * validation-contract change. Normalize once at the request boundary instead
+ * of relying on every input and state-restoration path to do it independently.
+ */
+export function normalizeImageRequest(
+  draft: ImageRequestDraft,
+  family: string | undefined,
+): NormalizedImageParams {
+  const dimensionGrid = imageDimensionGrid(family);
+  const prompt = typeof draft.prompt === "string" ? draft.prompt.trim().slice(0, MAX_IMAGE_PROMPT_LENGTH) : "";
+  const negative = typeof draft.negative === "string"
+    ? draft.negative.trim().slice(0, MAX_IMAGE_PROMPT_LENGTH)
+    : "";
+  const loras = draft.loras
+    .filter((item) => Boolean(item.id))
+    .slice(0, MAX_IMAGE_LORAS)
+    .map(({ id, weight }) => ({ id, weight: boundedNumberParam(weight, 1, -2, 2) }));
+  return {
+    prompt,
+    ...(negative ? { negative } : {}),
+    steps: boundedNumberParam(draft.steps, DEFAULT_STEPS, 1, 150, { integer: true }),
+    guidance: boundedNumberParam(draft.guidance, DEFAULT_GUIDANCE, 0, 30),
+    width: boundedNumberParam(draft.width, DEFAULT_SIZE, 256, 2048, {
+      integer: true,
+      multipleOf: dimensionGrid,
+    }),
+    height: boundedNumberParam(draft.height, DEFAULT_SIZE, 256, 2048, {
+      integer: true,
+      multipleOf: dimensionGrid,
+    }),
+    seed: boundedNumberParam(draft.seed, -1, -1, 2 ** 31 - 1, { integer: true }),
+    batch_size: boundedNumberParam(draft.batch, 1, 1, 16, { integer: true }),
+    ...(loras.length ? { loras } : {}),
+  };
+}
 
 // Which of the auto-managed numeric fields the user has explicitly edited.
 // Untouched fields follow the selected family / server defaults; touched fields
@@ -128,7 +294,54 @@ export function inferTouched(saved: SavedComposer): TouchedFields {
 export function readSaved(): SavedComposer {
   try {
     const raw = storage.get(STORE_KEY);
-    return raw ? (JSON.parse(raw) as SavedComposer) : {};
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const value = parsed as Record<string, unknown>;
+    const saved: SavedComposer = {};
+    if (typeof value.imgModel === "string") saved.imgModel = value.imgModel;
+    if (typeof value.negative === "string") {
+      saved.negative = value.negative.slice(0, MAX_IMAGE_PROMPT_LENGTH);
+    }
+    if (typeof value.steps === "number" && Number.isFinite(value.steps)) {
+      saved.steps = boundedNumberParam(value.steps, DEFAULT_STEPS, 1, 150, { integer: true });
+    }
+    if (typeof value.guidance === "number" && Number.isFinite(value.guidance)) {
+      saved.guidance = boundedNumberParam(value.guidance, DEFAULT_GUIDANCE, 0, 30);
+    }
+    if (typeof value.width === "number" && Number.isFinite(value.width)) {
+      saved.width = boundedNumberParam(value.width, DEFAULT_SIZE, 256, 2048, { integer: true, multipleOf: 16 });
+    }
+    if (typeof value.height === "number" && Number.isFinite(value.height)) {
+      saved.height = boundedNumberParam(value.height, DEFAULT_SIZE, 256, 2048, { integer: true, multipleOf: 16 });
+    }
+    if (typeof value.seed === "number" && Number.isFinite(value.seed)) {
+      saved.seed = boundedNumberParam(value.seed, -1, -1, 2 ** 31 - 1, { integer: true });
+    }
+    if (typeof value.batch === "number" && Number.isFinite(value.batch)) {
+      saved.batch = boundedNumberParam(value.batch, 1, 1, 16, { integer: true });
+    }
+    if (typeof value.count === "number" && Number.isFinite(value.count)) {
+      saved.count = boundedNumberParam(value.count, 1, 1, MAX_IMAGE_JOBS, { integer: true });
+    }
+    if (Array.isArray(value.selectedLoras)) {
+      saved.selectedLoras = value.selectedLoras.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const selection = item as Record<string, unknown>;
+        if (typeof selection.id !== "string" || !selection.id) return [];
+        const weight = numberParam(selection.weight, 1);
+        return [{ id: selection.id, weight: Math.max(-2, Math.min(2, weight)) }];
+      }).slice(0, MAX_IMAGE_LORAS);
+    }
+    if (typeof value.presetId === "string") saved.presetId = value.presetId;
+    if (value.touched && typeof value.touched === "object" && !Array.isArray(value.touched)) {
+      const touched = value.touched as Record<string, unknown>;
+      saved.touched = Object.fromEntries(
+        ["steps", "guidance", "width", "height"]
+          .filter((key) => typeof touched[key] === "boolean")
+          .map((key) => [key, touched[key]]),
+      ) as TouchedFields;
+    }
+    return saved;
   } catch {
     return {};
   }
@@ -193,8 +406,49 @@ export function familyColor(family: string): string {
 }
 
 export function numberParam(value: unknown, fallback: number): number {
+  if (value === null || value === undefined || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+export function boundedNumberParam(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  { integer = false, multipleOf }: { integer?: boolean; multipleOf?: number } = {},
+): number {
+  let next = numberParam(value, fallback);
+  if (integer) next = Math.trunc(next);
+  if (multipleOf) next = Math.round(next / multipleOf) * multipleOf;
+  return Math.max(minimum, Math.min(maximum, next));
+}
+
+export function parseLoraSelections(
+  value: unknown,
+  loras: Lora[],
+  model: Model | undefined,
+): LoraSelection[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const selections: LoraSelection[] = [];
+  for (const item of value) {
+    const id =
+      typeof item === "string"
+        ? item
+        : item && typeof item === "object" && "id" in item && typeof item.id === "string"
+          ? item.id
+          : "";
+    if (!id || seen.has(id)) continue;
+    const lora = loras.find((candidate) => candidate.id === id);
+    if (!lora || !isLoraCompatible(lora, model)) continue;
+    const rawWeight = item && typeof item === "object" && "weight" in item ? item.weight : 1;
+    const weight = Math.max(-2, Math.min(2, numberParam(rawWeight, 1)));
+    selections.push({ id, weight });
+    seen.add(id);
+    if (selections.length === MAX_IMAGE_LORAS) break;
+  }
+  return selections;
 }
 
 export function imageModelRank(model: Model): number {

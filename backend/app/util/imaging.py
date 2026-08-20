@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+import os
 from pathlib import Path
 from typing import Any
+import uuid
 
 from PIL import Image, ImageDraw, PngImagePlugin
 
@@ -25,17 +27,55 @@ def save_png(img: Image.Image, path: Path, metadata: dict[str, Any]) -> None:
     info = PngImagePlugin.PngInfo()
     info.add_text("parameters", json.dumps(metadata, ensure_ascii=False))
     path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(path, format="PNG", pnginfo=info)
-    path.with_suffix(".json").write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    sidecar = path.with_suffix(".json")
+    png_tmp = _temporary_sibling(path)
+    json_tmp = _temporary_sibling(sidecar)
+    try:
+        img.save(png_tmp, format="PNG", pnginfo=info)
+        json_tmp.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(png_tmp, path)
+        os.replace(json_tmp, sidecar)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        sidecar.unlink(missing_ok=True)
+        raise
+    finally:
+        png_tmp.unlink(missing_ok=True)
+        json_tmp.unlink(missing_ok=True)
 
 
 def make_thumbnail(img: Image.Image, path: Path, size: int = 384) -> None:
     thumb = img.copy()
     thumb.thumbnail((size, size))
     path.parent.mkdir(parents=True, exist_ok=True)
-    thumb.save(path, format="WEBP", quality=80)
+    temporary = _temporary_sibling(path)
+    try:
+        thumb.save(temporary, format="WEBP", quality=80)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def remove_image_records(records: list[dict[str, Any]], outputs_dir: Path) -> None:
+    """Best-effort cleanup for image bundles that were never committed to DB."""
+    root = outputs_dir.resolve()
+    for record in records:
+        for key in ("path", "thumb_path"):
+            raw = record.get(key)
+            if not isinstance(raw, str) or not raw:
+                continue
+            path = Path(raw).resolve()
+            try:
+                path.relative_to(root)
+            except ValueError:
+                continue
+            path.unlink(missing_ok=True)
+            if key == "path":
+                path.with_suffix(".json").unlink(missing_ok=True)
+
+
+def _temporary_sibling(path: Path) -> Path:
+    return path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
 
 
 def make_placeholder(width: int, height: int, lines: list[str]) -> Image.Image:

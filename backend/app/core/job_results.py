@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from ..backends.registry import ModelRegistry
+from ..config import settings
 from ..db.models import Image, Job, Video
 from ..db.session import session_scope
+from ..util import imaging
 from .enums import EventType, JobStatus, JobType
 from .events import Event, EventBus
 from .llm_tools import ToolCallPlanner, strip_reasoning
@@ -81,6 +84,10 @@ class JobResultService:
         if not lora_paths:
             return params
         return {**params, "_lora_paths": lora_paths}
+
+    async def discard_images(self, records: list[dict[str, Any]]) -> None:
+        """Remove generated files that will not receive durable gallery rows."""
+        await asyncio.to_thread(imaging.remove_image_records, records, settings.outputs_dir)
 
     async def finish_image(
         self,

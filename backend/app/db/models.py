@@ -8,7 +8,18 @@ from datetime import UTC, datetime
 from typing import Any
 import uuid
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ..core.enums import JobStatus, JobType
@@ -28,6 +39,10 @@ class Base(DeclarativeBase):
 
 class Job(Base):
     __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_queue_priority_created", "status", "priority", "created_at"),
+        Index("ix_jobs_queue_model_priority_created", "status", "model_id", "priority", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     type: Mapped[JobType] = mapped_column(String(16), index=True)
@@ -130,9 +145,10 @@ class Message(Base):
 
 class Preset(Base):
     __tablename__ = "presets"
+    __table_args__ = (UniqueConstraint("type", "name", name="uq_presets_type_name"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(128), unique=True)
+    name: Mapped[str] = mapped_column(String(128))
     type: Mapped[JobType] = mapped_column(String(16))
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
