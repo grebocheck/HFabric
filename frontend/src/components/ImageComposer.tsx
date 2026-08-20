@@ -3,7 +3,7 @@ import { PromptLibrary } from "./PromptLibrary";
 import { Select } from "./Select";
 import { SkeletonLine, SkeletonRows } from "./WorkspaceChrome";
 import { ImageParamForm, LoraCard, Notice } from "./ImageComposerParts";
-import { isNunchaku, isZImageTurbo } from "./imageComposerHelpers";
+import { isNunchaku, isZImageTurbo, MAX_IMAGE_JOBS, MAX_IMAGE_PROMPT_LENGTH } from "./imageComposerHelpers";
 import { useImageComposerController, type ImageComposerProps } from "./useImageComposerController";
 
 const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-[13px]";
@@ -23,6 +23,7 @@ export function ImageComposer(props: ImageComposerProps) {
     compatibleLoras,
     count,
     deletePreset,
+    dimensionGrid,
     editGuidance,
     editHeight,
     editSteps,
@@ -151,6 +152,7 @@ export function ImageComposer(props: ImageComposerProps) {
             value={promptDraft}
             onChange={(e) => setPromptDraft(e.target.value)}
             rows={6}
+            maxLength={MAX_IMAGE_PROMPT_LENGTH}
             placeholder="describe the image..."
             className={`${field} mt-1.5 min-h-32 resize-y leading-5`}
           />
@@ -158,6 +160,7 @@ export function ImageComposer(props: ImageComposerProps) {
             <div className={label}>Negative {selectedFamily === "flux2" ? "(ignored by FLUX.2)" : ""}</div>
             <input
               value={negative}
+              maxLength={MAX_IMAGE_PROMPT_LENGTH}
               onChange={(e) => setNegative(e.target.value)}
               placeholder="things to avoid..."
               className={`${field} mt-1.5`}
@@ -242,6 +245,7 @@ export function ImageComposer(props: ImageComposerProps) {
           setWidth={editWidth}
           steps={steps}
           width={width}
+          dimensionGrid={dimensionGrid}
         />
 
         <section className={section}>
@@ -329,8 +333,8 @@ export function ImageComposer(props: ImageComposerProps) {
               type="number"
               value={count}
               min={1}
-              max={100}
-              onChange={(e) => setCount(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+              max={MAX_IMAGE_JOBS}
+              onChange={(e) => setCount(Math.max(1, Math.min(MAX_IMAGE_JOBS, Number(e.target.value) || 1)))}
               className="ui-field mt-1 w-full rounded-md px-2 py-2 text-sm"
             />
           </label>

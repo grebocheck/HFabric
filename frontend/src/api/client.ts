@@ -76,6 +76,22 @@ function objectValue(value: unknown): ErrorShape | null {
   return value !== null && typeof value === "object" ? value as ErrorShape : null;
 }
 
+function validationSummary(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const issue = value[0];
+  if (!issue || typeof issue !== "object") return null;
+  const record = issue as { loc?: unknown; msg?: unknown };
+  if (typeof record.msg !== "string" || !record.msg) return null;
+  const path = Array.isArray(record.loc)
+    ? record.loc
+      .filter((part) => part !== "body" && typeof part !== "number")
+      .map(String)
+      .join(".")
+    : "";
+  const suffix = value.length > 1 ? ` (+${value.length - 1} more)` : "";
+  return `${path ? `${path}: ` : ""}${record.msg}${suffix}`;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -117,7 +133,7 @@ export class ApiError extends Error {
     }
     const top = objectValue(body);
     const detail = objectValue(top?.detail);
-    const message =
+    const baseMessage =
       (typeof top?.message === "string" && top.message)
       || (typeof detail?.message === "string" && detail.message)
       || (typeof top?.detail === "string" && top.detail)
@@ -133,6 +149,10 @@ export class ApiError extends Error {
       || (typeof detail?.request_id === "string" && detail.request_id)
       || response.headers.get("x-request-id");
     const details = top?.details ?? detail?.details ?? (detail ? top?.detail : undefined);
+    const issue = validationSummary(details);
+    const message = issue && baseMessage === "Request validation failed"
+      ? `${baseMessage}: ${issue}`
+      : baseMessage;
 
     return new ApiError({
       status: response.status,

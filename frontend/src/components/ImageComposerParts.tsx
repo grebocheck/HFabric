@@ -12,6 +12,7 @@ export function ImageParamForm({
   activeRatio,
   guidance,
   height,
+  dimensionGrid,
   labelClass,
   onApplyRatio,
   ratios,
@@ -30,6 +31,7 @@ export function ImageParamForm({
   activeRatio: string;
   guidance: number;
   height: number;
+  dimensionGrid: number;
   labelClass: string;
   onApplyRatio: (w: number, h: number) => void;
   ratios: RatioOption[];
@@ -69,8 +71,8 @@ export function ImageParamForm({
           })}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <Num label="Width" v={width} set={setWidth} step={64} min={256} max={2048} multipleOf={64} labelClass={labelClass} />
-          <Num label="Height" v={height} set={setHeight} step={64} min={256} max={2048} multipleOf={64} labelClass={labelClass} />
+          <Num label="Width" v={width} set={setWidth} step={dimensionGrid} min={256} max={2048} multipleOf={dimensionGrid} labelClass={labelClass} />
+          <Num label="Height" v={height} set={setHeight} step={dimensionGrid} min={256} max={2048} multipleOf={dimensionGrid} labelClass={labelClass} />
         </div>
       </section>
 

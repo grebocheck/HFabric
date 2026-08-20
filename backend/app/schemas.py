@@ -89,8 +89,10 @@ class ImageParamsIn(BaseModel):
     negative: str | None = Field(default=None, max_length=20_000)
     steps: int | None = Field(default=None, ge=1, le=150)
     guidance: float | None = Field(default=None, ge=0.0, le=30.0)
-    width: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
-    height: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
+    # The public grid is 16 px. Qwen's native 1328 px resolution lives on this
+    # grid, while stricter runtimes (currently Anima) snap to their own grid.
+    width: int | None = Field(default=None, ge=256, le=2048, multiple_of=16)
+    height: int | None = Field(default=None, ge=256, le=2048, multiple_of=16)
     seed: int | None = Field(default=None, ge=-1, le=2**31 - 1)
     batch_size: int | None = Field(default=None, ge=1, le=16)
     loras: list[ImageLoraIn | str] | None = Field(default=None, max_length=8)
@@ -345,8 +347,8 @@ class ImageChatSend(BaseModel):
     model_id: str = Field(min_length=1, max_length=512)
     negative: str | None = Field(default=None, max_length=20_000)
     steps: int | None = Field(default=None, ge=1, le=150)
-    width: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
-    height: int | None = Field(default=None, ge=256, le=2048, multiple_of=64)
+    width: int | None = Field(default=None, ge=256, le=2048, multiple_of=16)
+    height: int | None = Field(default=None, ge=256, le=2048, multiple_of=16)
     seed: int | None = Field(default=None, ge=-1, le=2**31 - 1)
 
 

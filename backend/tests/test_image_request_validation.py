@@ -56,6 +56,15 @@ def test_image_params_preserve_explicit_defaults_and_safe_extensions():
     }
 
 
+def test_image_job_accepts_native_qwen_resolution():
+    job = JobCreate(
+        type=JobType.IMAGE,
+        model_id="qwen-image",
+        params={"prompt": "portrait", "width": 1328, "height": 1328},
+    )
+    assert (job.params["width"], job.params["height"]) == (1328, 1328)
+
+
 @pytest.mark.parametrize(
     "control_type",
     ["canny", "depth", "pose", "scribble", "union-canny", "union-depth", "union-pose", "union-scribble"],
@@ -97,6 +106,31 @@ async def test_jobs_api_caps_request_size_before_model_lookup(app_client):
     )
     assert response.status_code == 400
     assert "at most 100" in response.json()["detail"]
+
+
+async def test_jobs_api_accepts_normalized_sdxl_composer_payload(app_client):
+    models = (await app_client.get("/api/models")).json()
+    model = next(item for item in models if item["job_type"] == "image" and item["family"] == "sdxl")
+    response = await app_client.post(
+        "/api/jobs",
+        json=[
+            {
+                "type": "image",
+                "model_id": model["id"],
+                "params": {
+                    "prompt": "portrait",
+                    "steps": 1,
+                    "guidance": 30,
+                    "width": 1024,
+                    "height": 1088,
+                    "seed": -1,
+                    "batch_size": 1,
+                },
+            }
+        ],
+    )
+    assert response.status_code == 200
+    assert response.json()[0]["params"]["height"] == 1088
 
 
 async def test_jobs_api_rejects_missing_edit_upload_before_queueing(app_client):

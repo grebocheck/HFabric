@@ -10,6 +10,9 @@ export const promptHistoryLimit = 14;
 export const DEFAULT_STEPS = 28;
 export const DEFAULT_GUIDANCE = 3.5;
 export const DEFAULT_SIZE = 1024;
+export const MAX_IMAGE_PROMPT_LENGTH = 20_000;
+export const MAX_IMAGE_LORAS = 8;
+export const MAX_IMAGE_JOBS = 100;
 const ANIMA_STEPS = 30;
 const ANIMA_GUIDANCE = 4.0;
 const ANIMA_SIZE = 1024;
@@ -185,6 +188,72 @@ export const isKnownSizeDefault = (value: number): boolean => knownSizeDefaults.
 
 export type LoraSelection = { id: string; weight: number };
 
+export type ImageRequestDraft = {
+  prompt: unknown;
+  negative: unknown;
+  steps: unknown;
+  guidance: unknown;
+  width: unknown;
+  height: unknown;
+  seed: unknown;
+  batch: unknown;
+  loras: LoraSelection[];
+};
+
+export type NormalizedImageParams = {
+  prompt: string;
+  negative?: string;
+  steps: number;
+  guidance: number;
+  width: number;
+  height: number;
+  seed: number;
+  batch_size: number;
+  loras?: LoraSelection[];
+};
+
+export function imageDimensionGrid(family: string | undefined): number {
+  return family === "qwen-image" || family === "qwen-image-edit" ? 16 : 64;
+}
+
+/** Build the only image payload shape sent by the composer.
+ *
+ * Browser storage, old presets, and writable server defaults can all outlive a
+ * validation-contract change. Normalize once at the request boundary instead
+ * of relying on every input and state-restoration path to do it independently.
+ */
+export function normalizeImageRequest(
+  draft: ImageRequestDraft,
+  family: string | undefined,
+): NormalizedImageParams {
+  const dimensionGrid = imageDimensionGrid(family);
+  const prompt = typeof draft.prompt === "string" ? draft.prompt.trim().slice(0, MAX_IMAGE_PROMPT_LENGTH) : "";
+  const negative = typeof draft.negative === "string"
+    ? draft.negative.trim().slice(0, MAX_IMAGE_PROMPT_LENGTH)
+    : "";
+  const loras = draft.loras
+    .filter((item) => Boolean(item.id))
+    .slice(0, MAX_IMAGE_LORAS)
+    .map(({ id, weight }) => ({ id, weight: boundedNumberParam(weight, 1, -2, 2) }));
+  return {
+    prompt,
+    ...(negative ? { negative } : {}),
+    steps: boundedNumberParam(draft.steps, DEFAULT_STEPS, 1, 150, { integer: true }),
+    guidance: boundedNumberParam(draft.guidance, DEFAULT_GUIDANCE, 0, 30),
+    width: boundedNumberParam(draft.width, DEFAULT_SIZE, 256, 2048, {
+      integer: true,
+      multipleOf: dimensionGrid,
+    }),
+    height: boundedNumberParam(draft.height, DEFAULT_SIZE, 256, 2048, {
+      integer: true,
+      multipleOf: dimensionGrid,
+    }),
+    seed: boundedNumberParam(draft.seed, -1, -1, 2 ** 31 - 1, { integer: true }),
+    batch_size: boundedNumberParam(draft.batch, 1, 1, 16, { integer: true }),
+    ...(loras.length ? { loras } : {}),
+  };
+}
+
 // Which of the auto-managed numeric fields the user has explicitly edited.
 // Untouched fields follow the selected family / server defaults; touched fields
 // are preserved across remounts (tab switches), family changes, and default
@@ -230,9 +299,29 @@ export function readSaved(): SavedComposer {
     const value = parsed as Record<string, unknown>;
     const saved: SavedComposer = {};
     if (typeof value.imgModel === "string") saved.imgModel = value.imgModel;
-    if (typeof value.negative === "string") saved.negative = value.negative;
-    for (const key of ["steps", "guidance", "width", "height", "seed", "batch", "count"] as const) {
-      if (typeof value[key] === "number" && Number.isFinite(value[key])) saved[key] = value[key];
+    if (typeof value.negative === "string") {
+      saved.negative = value.negative.slice(0, MAX_IMAGE_PROMPT_LENGTH);
+    }
+    if (typeof value.steps === "number" && Number.isFinite(value.steps)) {
+      saved.steps = boundedNumberParam(value.steps, DEFAULT_STEPS, 1, 150, { integer: true });
+    }
+    if (typeof value.guidance === "number" && Number.isFinite(value.guidance)) {
+      saved.guidance = boundedNumberParam(value.guidance, DEFAULT_GUIDANCE, 0, 30);
+    }
+    if (typeof value.width === "number" && Number.isFinite(value.width)) {
+      saved.width = boundedNumberParam(value.width, DEFAULT_SIZE, 256, 2048, { integer: true, multipleOf: 16 });
+    }
+    if (typeof value.height === "number" && Number.isFinite(value.height)) {
+      saved.height = boundedNumberParam(value.height, DEFAULT_SIZE, 256, 2048, { integer: true, multipleOf: 16 });
+    }
+    if (typeof value.seed === "number" && Number.isFinite(value.seed)) {
+      saved.seed = boundedNumberParam(value.seed, -1, -1, 2 ** 31 - 1, { integer: true });
+    }
+    if (typeof value.batch === "number" && Number.isFinite(value.batch)) {
+      saved.batch = boundedNumberParam(value.batch, 1, 1, 16, { integer: true });
+    }
+    if (typeof value.count === "number" && Number.isFinite(value.count)) {
+      saved.count = boundedNumberParam(value.count, 1, 1, MAX_IMAGE_JOBS, { integer: true });
     }
     if (Array.isArray(value.selectedLoras)) {
       saved.selectedLoras = value.selectedLoras.flatMap((item) => {
@@ -241,7 +330,7 @@ export function readSaved(): SavedComposer {
         if (typeof selection.id !== "string" || !selection.id) return [];
         const weight = numberParam(selection.weight, 1);
         return [{ id: selection.id, weight: Math.max(-2, Math.min(2, weight)) }];
-      });
+      }).slice(0, MAX_IMAGE_LORAS);
     }
     if (typeof value.presetId === "string") saved.presetId = value.presetId;
     if (value.touched && typeof value.touched === "object" && !Array.isArray(value.touched)) {
@@ -357,6 +446,7 @@ export function parseLoraSelections(
     const weight = Math.max(-2, Math.min(2, numberParam(rawWeight, 1)));
     selections.push({ id, weight });
     seen.add(id);
+    if (selections.length === MAX_IMAGE_LORAS) break;
   }
   return selections;
 }

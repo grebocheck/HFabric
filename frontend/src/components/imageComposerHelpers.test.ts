@@ -6,6 +6,7 @@ import {
   formatSize,
   formatVram,
   imageFamilyDefaults,
+  imageDimensionGrid,
   imageModelRank,
   inferTouched,
   isKnownGuidanceDefault,
@@ -16,6 +17,7 @@ import {
   isNunchaku,
   isZImageTurbo,
   mergeImageDefaultSettings,
+  normalizeImageRequest,
   numberParam,
   parseLoraSelections,
   pickDefaultImageModel,
@@ -56,6 +58,41 @@ describe("formatters", () => {
     expect(boundedNumberParam(129, 1024, 256, 2048, { integer: true, multipleOf: 64 })).toBe(256);
     expect(boundedNumberParam(1080, 1024, 256, 2048, { integer: true, multipleOf: 64 })).toBe(1088);
     expect(boundedNumberParam("bad", 28, 1, 150, { integer: true })).toBe(28);
+  });
+});
+
+describe("image request normalization", () => {
+  const draft = {
+    prompt: "  portrait  ",
+    negative: "  blur  ",
+    steps: 0,
+    guidance: 99,
+    width: 1000,
+    height: 1080,
+    seed: -4,
+    batch: 20,
+    loras: Array.from({ length: 10 }, (_, index) => ({ id: `lora-${index}`, weight: 3 })),
+  };
+
+  it("normalizes stale SDXL state before it reaches the API", () => {
+    expect(normalizeImageRequest(draft, "sdxl")).toEqual({
+      prompt: "portrait",
+      negative: "blur",
+      steps: 1,
+      guidance: 30,
+      width: 1024,
+      height: 1088,
+      seed: -1,
+      batch_size: 16,
+      loras: Array.from({ length: 8 }, (_, index) => ({ id: `lora-${index}`, weight: 2 })),
+    });
+  });
+
+  it("keeps Qwen's native 16-pixel dimension grid", () => {
+    expect(imageDimensionGrid("sdxl")).toBe(64);
+    expect(imageDimensionGrid("qwen-image")).toBe(16);
+    expect(normalizeImageRequest({ ...draft, width: 1328, height: 1328 }, "qwen-image"))
+      .toMatchObject({ width: 1328, height: 1328 });
   });
 });
 
@@ -216,5 +253,26 @@ describe("readSaved", () => {
   it("round-trips a saved composer snapshot", () => {
     localStorage.setItem(STORE_KEY, JSON.stringify({ imgModel: "x", steps: 12, count: 3 }));
     expect(readSaved()).toMatchObject({ imgModel: "x", steps: 12, count: 3 });
+  });
+
+  it("bounds legacy numeric state before restoring the form", () => {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      steps: 0,
+      guidance: 99,
+      width: 1000,
+      height: 9000,
+      seed: -5,
+      batch: 50,
+      count: 500,
+    }));
+    expect(readSaved()).toMatchObject({
+      steps: 1,
+      guidance: 30,
+      width: 1008,
+      height: 2048,
+      seed: -1,
+      batch: 16,
+      count: 100,
+    });
   });
 });

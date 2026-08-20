@@ -108,6 +108,15 @@ def test_dimension_falls_back_to_qwen_and_z_image_defaults_when_unset():
         == settings.qwen_image_default_height
     )
     assert (
+        qwen._dimension(
+            {"width": settings.qwen_image_default_width},
+            "width",
+            settings.default_width,
+            settings.flux2_default_width,
+        )
+        == settings.qwen_image_default_width
+    )
+    assert (
         z_image._dimension({}, "width", settings.default_width, settings.flux2_default_width)
         == settings.z_image_default_width
     )

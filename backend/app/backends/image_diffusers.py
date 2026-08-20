@@ -361,8 +361,8 @@ class DiffusersImageBackend(
         value = int(params.get(key, default))
         if not 256 <= value <= 2048:
             raise ValueError(f"{key} must be between 256 and 2048")
-        if value % 64:
-            raise ValueError(f"{key} must be a multiple of 64")
+        if value % 16:
+            raise ValueError(f"{key} must be a multiple of 16")
         return value
 
     def _steps(self, params: dict[str, Any]) -> int:

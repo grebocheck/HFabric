@@ -61,6 +61,10 @@ def test_setting_payload_keeps_optional_contract_fields():
     assert width["step"] == 64
     assert width["multiple_of"] == 64
 
+    qwen_width = by_key["qwen_image_default_width"].payload()
+    assert qwen_width["step"] == 16
+    assert qwen_width["multiple_of"] == 16
+
     resize = by_key["image_edit_resize_mode"].payload()
     assert resize["choices"] == [
         {"value": "crop", "label": "crop"},

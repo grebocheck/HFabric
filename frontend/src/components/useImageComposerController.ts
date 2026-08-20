@@ -8,12 +8,16 @@ import {
   DEFAULT_SIZE,
   DEFAULT_STEPS,
   boundedNumberParam,
+  imageDimensionGrid,
   imageFamilyDefaults,
   imageModelRank,
   inferTouched,
   isLoraCompatible,
   isModelAvailable,
   loadPromptHistory,
+  MAX_IMAGE_JOBS,
+  MAX_IMAGE_LORAS,
+  normalizeImageRequest,
   parseLoraSelections,
   pickDefaultImageModel,
   PROMPT_HISTORY_KEY,
@@ -95,6 +99,7 @@ export function useImageComposerController({
   const compatibleLoras = loras
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
     .sort((a, b) => a.name.localeCompare(b.name));
+  const normalizedCount = boundedNumberParam(count, 1, 1, MAX_IMAGE_JOBS, { integer: true });
 
   useEffect(() => {
     if (!imgModel || !isModelAvailable(selectedImgModel)) {
@@ -217,17 +222,10 @@ export function useImageComposerController({
     clearActivePreset();
   }, [clearActivePreset]);
 
-  const imageParams = () => ({
-    prompt: promptDraft.trim(),
-    negative: negative.trim() || undefined,
-    steps,
-    guidance,
-    width,
-    height,
-    seed,
-    batch_size: batch,
-    loras: selectedLoras.length ? selectedLoras.map(({ id, weight }) => ({ id, weight })) : undefined,
-  });
+  const imageParams = () => normalizeImageRequest(
+    { prompt: promptDraft, negative, steps, guidance, width, height, seed, batch, loras: selectedLoras },
+    selectedFamily,
+  );
 
   const rememberPrompt = useCallback((content: string) => {
     const text = content.trim();
@@ -242,12 +240,12 @@ export function useImageComposerController({
     setQueueing(true);
     try {
       await api.createJobs(
-        Array.from({ length: count }, (_, index) => ({
+        Array.from({ length: normalizedCount }, (_, index) => ({
           type: "image" as const,
           model_id: imgModel,
           params: {
             ...params,
-            seed: seed >= 0 ? (seed + index * batch) % 2 ** 31 : -1,
+            seed: params.seed >= 0 ? (params.seed + index * params.batch_size) % 2 ** 31 : -1,
           },
         })),
       );
@@ -261,13 +259,14 @@ export function useImageComposerController({
   const applyRatio = (rw: number, rh: number) => {
     const base =
       imageFamilyDefaults(selectedFamily, selectedImgModel, serverDefaults)?.width ?? serverDefaults.default_width;
-    const round64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
+    const grid = imageDimensionGrid(selectedFamily);
+    const snap = (n: number) => Math.max(256, Math.round(n / grid) * grid);
     if (rw >= rh) {
-      editWidth(round64(base));
-      editHeight(round64((base * rh) / rw));
+      editWidth(snap(base));
+      editHeight(snap((base * rh) / rw));
     } else {
-      editHeight(round64(base));
-      editWidth(round64((base * rw) / rh));
+      editHeight(snap(base));
+      editWidth(snap((base * rw) / rh));
     }
   };
 
@@ -280,7 +279,7 @@ export function useImageComposerController({
     clearActivePreset();
     setSelectedLoras((current) => {
       const exists = current.some((selected) => selected.id === lora.id);
-      if (enabled && !exists) return [...current, { id: lora.id, weight: 1 }];
+      if (enabled && !exists && current.length < MAX_IMAGE_LORAS) return [...current, { id: lora.id, weight: 1 }];
       if (!enabled) return current.filter((selected) => selected.id !== lora.id);
       return current;
     });
@@ -312,18 +311,29 @@ export function useImageComposerController({
       setPresetError("The model saved in this preset is unavailable. Rescan models or update the preset.");
       return false;
     }
-    if (typeof params.prompt === "string") setPromptDraft(params.prompt);
-    setNegative(typeof params.negative === "string" ? params.negative : "");
     if (model && isModelAvailable(model)) setImgModel(model.id);
-    // A loaded snapshot is an explicit choice: mark the fields touched so the
-    // defaults effect doesn't snap them back on the next family resolve/remount.
-    editSteps(boundedNumberParam(params.steps, steps, 1, 150, { integer: true }));
-    editGuidance(boundedNumberParam(params.guidance, guidance, 0, 30));
-    editWidth(boundedNumberParam(params.width, width, 256, 2048, { integer: true, multipleOf: 64 }));
-    editHeight(boundedNumberParam(params.height, height, 256, 2048, { integer: true, multipleOf: 64 }));
-    setSeed(boundedNumberParam(params.seed, seed, -1, 2 ** 31 - 1, { integer: true }));
-    setBatch(boundedNumberParam(params.batch_size, batch, 1, 16, { integer: true }));
     const parsedLoras = parseLoraSelections(params.loras, loras, model ?? selectedImgModel);
+    const normalized = normalizeImageRequest({
+      prompt: typeof params.prompt === "string" ? params.prompt : promptDraft,
+      negative: typeof params.negative === "string" ? params.negative : "",
+      steps: params.steps ?? steps,
+      guidance: params.guidance ?? guidance,
+      width: params.width ?? width,
+      height: params.height ?? height,
+      seed: params.seed ?? seed,
+      batch: params.batch_size ?? batch,
+      loras: parsedLoras,
+    }, model?.family ?? selectedFamily);
+    setPromptDraft(normalized.prompt);
+    setNegative(normalized.negative ?? "");
+    // A loaded snapshot is an explicit choice: mark the fields touched so the
+    // defaults effect doesn't replace them on the next model change/remount.
+    editSteps(normalized.steps);
+    editGuidance(normalized.guidance);
+    editWidth(normalized.width);
+    editHeight(normalized.height);
+    setSeed(normalized.seed);
+    setBatch(normalized.batch_size);
     setSelectedLoras(parsedLoras);
     const requestedLoras = Array.isArray(params.loras) ? params.loras.length : 0;
     if (activePresetId && parsedLoras.length < requestedLoras) {
@@ -397,7 +407,7 @@ export function useImageComposerController({
   const familyDefaults = imageFamilyDefaults(selectedFamily, selectedImgModel, serverDefaults);
   const activeRatio = RATIOS.find((r) => isRatio(width, height, r.w, r.h))?.label ?? "custom";
   const promptChars = promptDraft.trim().length;
-  const queueLabel = count > 1 ? `Queue ${count} jobs` : "Queue generation";
+  const queueLabel = normalizedCount > 1 ? `Queue ${normalizedCount} jobs` : "Queue generation";
   const visiblePromptHistory = promptHistory.filter((item) => item !== promptDraft.trim()).slice(0, 8);
 
   return {
@@ -409,7 +419,8 @@ export function useImageComposerController({
     canQueue,
     canSavePreset,
     compatibleLoras,
-    count,
+    count: normalizedCount,
+    dimensionGrid: imageDimensionGrid(selectedFamily),
     deletePreset,
     editGuidance,
     editHeight,

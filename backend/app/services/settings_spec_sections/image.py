@@ -20,6 +20,7 @@ def _dimension(
     *,
     minimum: int = 256,
     maximum: int = 2048,
+    multiple_of: int = 64,
 ) -> SettingSpec:
     return integer(
         key,
@@ -27,8 +28,8 @@ def _dimension(
         _FAMILY,
         minimum=minimum,
         maximum=maximum,
-        step=64,
-        multiple_of=64,
+        step=multiple_of,
+        multiple_of=multiple_of,
     )
 
 
@@ -160,8 +161,8 @@ IMAGE_SPECS = (
     _family_choice("qwen_image_offload", "Qwen offload", ("model", "sequential", "none")),
     _steps("qwen_image_default_steps", "Qwen steps"),
     _guidance("qwen_image_default_guidance", "Qwen guidance"),
-    _dimension("qwen_image_default_width", "Qwen width"),
-    _dimension("qwen_image_default_height", "Qwen height"),
+    _dimension("qwen_image_default_width", "Qwen width", multiple_of=16),
+    _dimension("qwen_image_default_height", "Qwen height", multiple_of=16),
     _family_choice("qwen_image_edit_quant", "Qwen Edit quant", ("bnb-nf4", "bnb-fp4", "none")),
     _family_choice("qwen_image_edit_offload", "Qwen Edit offload", ("model", "sequential", "none")),
     _steps("qwen_image_edit_default_steps", "Qwen Edit steps"),

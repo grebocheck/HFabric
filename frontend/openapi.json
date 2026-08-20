@@ -2418,6 +2418,9 @@
           "height": {
             "anyOf": [
               {
+                "maximum": 2048.0,
+                "minimum": 256.0,
+                "multipleOf": 16.0,
                 "type": "integer"
               },
               {
@@ -2427,12 +2430,15 @@
             "title": "Height"
           },
           "model_id": {
+            "maxLength": 512,
+            "minLength": 1,
             "title": "Model Id",
             "type": "string"
           },
           "negative": {
             "anyOf": [
               {
+                "maxLength": 20000,
                 "type": "string"
               },
               {
@@ -2442,12 +2448,16 @@
             "title": "Negative"
           },
           "prompt": {
+            "maxLength": 20000,
+            "minLength": 1,
             "title": "Prompt",
             "type": "string"
           },
           "seed": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
+                "minimum": -1.0,
                 "type": "integer"
               },
               {
@@ -2459,6 +2469,8 @@
           "steps": {
             "anyOf": [
               {
+                "maximum": 150.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2470,6 +2482,9 @@
           "width": {
             "anyOf": [
               {
+                "maximum": 2048.0,
+                "minimum": 256.0,
+                "multipleOf": 16.0,
                 "type": "integer"
               },
               {
@@ -2883,6 +2898,8 @@
       "JobCreate": {
         "properties": {
           "model_id": {
+            "maxLength": 512,
+            "minLength": 1,
             "title": "Model Id",
             "type": "string"
           },
@@ -2893,6 +2910,8 @@
           },
           "priority": {
             "default": 0,
+            "maximum": 100.0,
+            "minimum": -100.0,
             "title": "Priority",
             "type": "integer"
           },
@@ -4432,6 +4451,8 @@
       "PresetCreate": {
         "properties": {
           "name": {
+            "maxLength": 120,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
@@ -4466,6 +4487,7 @@
             "items": {
               "$ref": "#/components/schemas/PresetImportItem"
             },
+            "maxItems": 500,
             "title": "Presets",
             "type": "array"
           }
@@ -4476,6 +4498,8 @@
       "PresetImportItem": {
         "properties": {
           "name": {
+            "maxLength": 120,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },

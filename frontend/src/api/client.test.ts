@@ -44,6 +44,23 @@ describe("ApiError", () => {
       requestId: "req-header",
     });
   });
+
+  it("includes the failing field in request-validation messages", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: "validation_error",
+      message: "Request validation failed",
+      details: [
+        { loc: ["body", 0, "width"], msg: "Input should be a multiple of 16", type: "multiple_of" },
+        { loc: ["body", 0, "height"], msg: "Input should be a multiple of 16", type: "multiple_of" },
+      ],
+    }), { status: 422 })));
+
+    const error = await api.listJobs().catch((value: unknown) => value);
+    expect(error).toMatchObject({
+      status: 422,
+      message: "Request validation failed: width: Input should be a multiple of 16 (+1 more)",
+    });
+  });
 });
 
 describe("browser asset authentication", () => {
