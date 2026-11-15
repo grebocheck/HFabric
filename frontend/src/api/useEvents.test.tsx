@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { reconnectDelay, useEvents } from "./useEvents";
+import { reconnectDelay, useBusEvents, useEvents } from "./useEvents";
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -41,6 +41,21 @@ afterEach(() => {
 });
 
 describe("useEvents", () => {
+  it("shares one socket with workspace listeners and awaits their reconciliation", async () => {
+    const onWorkspaceEvent = vi.fn();
+    const syncWorkspace = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => {
+      const connection = useEvents(() => undefined);
+      useBusEvents(onWorkspaceEvent, syncWorkspace);
+      return connection;
+    });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    act(() => FakeWebSocket.instances[0].open());
+    await waitFor(() => expect(result.current.state).toBe("ready"));
+    expect(syncWorkspace).toHaveBeenCalledOnce();
+    act(() => FakeWebSocket.instances[0].message({ type: "llm.token", job_id: "job", token: "shared", ts: 1 }));
+    expect(onWorkspaceEvent).toHaveBeenCalledWith(expect.objectContaining({ token: "shared" }));
+  });
   it("uses capped exponential backoff with jitter", () => {
     expect(reconnectDelay(0, () => 0.5, 500, 30_000)).toBe(500);
     expect(reconnectDelay(3, () => 0.5, 500, 30_000)).toBe(4_000);

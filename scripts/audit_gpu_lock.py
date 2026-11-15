@@ -47,7 +47,7 @@ def evaluate(report: dict, *, today: date) -> list[str]:
 
     skipped = {
         str(item.get("name") or "").lower()
-        for item in report.get("fixes", [])
+        for item in report.get("dependencies", [])
         if item.get("skip_reason")
     }
     unexpected_skips = skipped - EXPECTED_UNAUDITABLE
@@ -69,12 +69,19 @@ def main() -> int:
         "--progress-spinner=off",
     ]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+    if result.returncode not in (0, 1):
+        print(result.stderr or f"pip-audit failed (exit {result.returncode})", file=sys.stderr)
+        return 2
     try:
         report = json.loads(result.stdout)
     except json.JSONDecodeError:
         print(result.stderr or result.stdout or "pip-audit produced no report", file=sys.stderr)
         return 2
-    errors = evaluate(report, today=date.today())
+    try:
+        errors = evaluate(report, today=date.today())
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"GPU audit policy error: {exc}", file=sys.stderr)
+        return 2
     if errors:
         for error in errors:
             print(error, file=sys.stderr)

@@ -9,13 +9,34 @@ include breaking changes — this is pre-release software.
 
 ### Added
 
+- Worker readiness and degraded-state diagnostics in `/api/health`.
+- Regression tests for note autosave races, queue recovery, concurrent download
+  admission, conversation selection, shared chat events and reconnect recovery.
+
 ### Changed
+
+- Chat subscribes to the application's existing WebSocket and reconciles its
+  active conversation at the same reconnect boundary.
+- Notes keep a revisioned draft outside the workspace component, persist unsaved
+  text in browser storage, and serialize writes per note.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+- Notes no longer lose drafts when navigating before autosave or when an older
+  save response arrives after further edits; failed saves can be retried.
+- Transient queue/persistence errors no longer terminate the worker. Recovery
+  retries persistence without repeating generation or overwriting terminal jobs.
+- Simultaneous curated/custom model-download requests cannot start duplicate
+  workers; unexpected downloader failures release admission and report an error.
+- Slow conversation/send responses and old stream tokens cannot replace the
+  currently selected chat. Tool-child jobs retain their assistant-message link.
+- The GPU dependency audit now checks unaudited packages in the scanner's
+  dependency entries and reports scanner/policy failures explicitly.
+- Removed an unused editor type export that failed the Knip check.
 
 ### Security
 

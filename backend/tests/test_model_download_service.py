@@ -7,10 +7,13 @@ models tree, and the download loop runs against a stub ``huggingface_hub``.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 import sys
+import threading
 import types
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,6 +25,64 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import fetch_models  # noqa: E402
+
+
+async def test_concurrent_curated_and_custom_requests_have_one_download_owner(
+    app_client, fake_catalog, monkeypatch,
+):
+    from app.api import downloads as router
+
+    preflight_started = threading.Event()
+    release_preflight = threading.Event()
+    release_download = threading.Event()
+    executions = []
+
+    def preflight(_keys):
+        preflight_started.set()
+        assert release_preflight.wait(5)
+        return [object()], None
+
+    def run(keys):
+        executions.append(keys)
+        assert release_download.wait(5)
+        dl._set_status(state="done")
+
+    monkeypatch.setattr(dl, "preflight", preflight)
+    monkeypatch.setattr(dl, "_job_present", lambda _job: False)
+    monkeypatch.setattr(dl, "run_blocking", run)
+    first = asyncio.create_task(app_client.post("/api/downloads/start", json={"keys": ["first"]}))
+    try:
+        assert await asyncio.to_thread(preflight_started.wait, 5)
+        for route, body in [
+            ("start", {"keys": ["second"]}),
+            ("custom", {"items": [{"source": "url"}]}),
+        ]:
+            response = await app_client.post(f"/api/downloads/{route}", json=body)
+            assert response.status_code == 409
+        release_preflight.set()
+        assert (await first).status_code == 200
+    finally:
+        release_preflight.set()
+        release_download.set()
+        await first
+        if router._tasks:
+            await asyncio.gather(*list(router._tasks))
+    assert executions == [["first"]]
+
+
+async def test_unexpected_download_failure_releases_admission(fake_catalog, monkeypatch):
+    from app.api import downloads as router
+
+    def fail(_keys):
+        raise ImportError("missing optional download dependency")
+
+    monkeypatch.setattr(dl, "run_blocking", fail)
+    dl._set_status(state="running")
+    registry = types.SimpleNamespace(scan_async=AsyncMock())
+    await router._run_then_rescan(["model"], registry)
+    assert not dl.is_downloading()
+    assert "missing optional" in dl.get_status()["message"]
+    registry.scan_async.assert_awaited_once()
 
 
 def _fake_jobs(models: Path) -> tuple[list, list]:

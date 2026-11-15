@@ -10,7 +10,7 @@ from typing import Any
 
 from ..backends.registry import ModelRegistry
 from ..config import settings
-from ..db.models import Image, Job, Video
+from ..db.models import Image, Job, Message, Video
 from ..db.session import session_scope
 from ..util import imaging
 from .enums import EventType, JobStatus, JobType
@@ -253,6 +253,10 @@ class JobResultService:
                         "child_job_id": child_job_id,
                     }
                 await self._write_chat_reply(session, snap, child_text)
+                if message_id := snap.params.get("assistant_message_id"):
+                    message = await session.get(Message, message_id)
+                    if message is not None:
+                        message.job_id = child_job_id
             else:
                 if job:
                     job.result = {"text": reply_text}
@@ -315,6 +319,10 @@ class JobResultService:
     async def fail(self, snap: JobSnapshot, error: str) -> None:
         async with session_scope() as session:
             job = await session.get(Job, snap.id)
+            if job is None or job.status in {JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELLED}:
+                # A retry after a persistence/cleanup fault must not replace a
+                # terminal result that was already committed successfully.
+                return
             if job:
                 job.status = JobStatus.ERROR
                 job.error = error

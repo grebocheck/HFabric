@@ -7,7 +7,7 @@ import {
 } from "./imageComposerHelpers";
 
 export type EditMode = "img2img" | "inpaint" | "outpaint" | "instruction" | "controlnet";
-export type OutpaintMargins = { left: number; right: number; top: number; bottom: number };
+type OutpaintMargins = { left: number; right: number; top: number; bottom: number };
 export type EditDraft = {
   mode: EditMode;
   prompt: string;

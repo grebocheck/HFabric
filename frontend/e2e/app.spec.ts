@@ -367,3 +367,58 @@ test("WebSocket reconnect reconciles an authoritative REST snapshot", async ({ p
     .toBeGreaterThan(before);
   await expect(page.locator("output[title^='Synced']")).toBeVisible();
 });
+
+test("notes save on workspace navigation before the autosave delay", async ({ page }) => {
+  let note = { id: "note-e2e", title: "Durable note", content: "original", created_at: "2026-11-15T12:00:00Z", updated_at: "2026-11-15T12:00:00Z" };
+  await installApiStub(page, { welcomeSeen: true, fakeWebSocket: true });
+  await page.route("**/api/notes", (route) => route.fulfill({ json: [note] }));
+  await page.route("**/api/notes/note-e2e", (route) => {
+    note = { ...note, ...route.request().postDataJSON(), updated_at: "2026-11-15T12:01:00Z" };
+    return route.fulfill({ json: note });
+  });
+  await page.goto("/");
+  const tabs = page.getByRole("tablist", { name: "Workspaces" });
+  await tabs.getByRole("tab", { name: "Notes", exact: true }).click();
+  const editor = page.getByPlaceholder("Scratch here...");
+  await expect(editor).toHaveValue("original");
+  await editor.fill("Keep this draft across navigation");
+  await tabs.getByRole("tab", { name: "History", exact: true }).click();
+  await expect.poll(() => note.content).toBe("Keep this draft across navigation");
+  await tabs.getByRole("tab", { name: "Notes", exact: true }).click();
+  await expect(editor).toHaveValue("Keep this draft across navigation");
+});
+
+test("chat shares the app socket and restores a reply completed while disconnected", async ({ page }) => {
+  const conversation = { id: "chat-e2e", title: "Recovery chat", model_id: "llm-e2e", system: null, params: {}, created_at: "2026-11-15T12:00:00Z", updated_at: "2026-11-15T12:00:00Z" };
+  const userMessage = { id: "user-e2e", role: "user", content: "Hello", attachments: [] };
+  let sent = false;
+  let finished = false;
+  const assistant = () => ({ id: "assistant-e2e", role: "assistant", content: finished ? "Recovered browser reply" : "", job_id: finished ? null : "chat-job", attachments: [] });
+  await installApiStub(page, { welcomeSeen: true, fakeWebSocket: true, routes: {
+    "/api/models": { body: [{ id: "llm-e2e", name: "LLM E2E", family: "gguf", job_type: "llm", size_bytes: 1, loaded: false, available: true }] },
+    "/api/chat/conversations": { body: [conversation] },
+    "/api/llm/config": { body: { ctx: 8192, ngl: 0, backend: "default", backends: [{ id: "default", label: "Default", available: true, context_types: ["f16"] }], context_type: "f16", context_types: [{ id: "f16", label: "F16" }], defaults: { temperature: 0.8, max_tokens: 4096 }, loaded: false, stub: true } },
+    "/api/llm/server": { body: { enabled: false, available: false, loaded: false, pinned: false } },
+  } });
+  await page.route("**/api/chat/conversations/chat-e2e", (route) => route.fulfill({ json: { ...conversation, messages: sent ? [userMessage, assistant()] : [] } }));
+  await page.route("**/api/chat/conversations/chat-e2e/messages", (route) => {
+    sent = true;
+    return route.fulfill({ json: { job_id: "chat-job", conversation, user_message: userMessage, assistant_message: assistant() } });
+  });
+  await page.route("**/api/jobs/chat-job", (route) => route.fulfill({ json: { id: "chat-job", status: finished ? "done" : "running", result: {} } }));
+  await page.goto("/");
+  await page.getByRole("tablist", { name: "Workspaces" }).getByRole("tab", { name: "LLM", exact: true }).click();
+  await expect(page.getByText("Recovery chat", { exact: true })).toBeVisible();
+  const input = page.getByPlaceholder(/Message/);
+  await expect(input).toBeEnabled();
+  await input.fill("Hello");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __hfabricSocketCount: () => number }).__hfabricSocketCount())).toBe(1);
+  await page.evaluate(() => (window as typeof window & { __emitHfabricEvent: (value: unknown) => void }).__emitHfabricEvent({ type: "llm.token", job_id: "chat-job", token: "Partial browser reply", ts: 1 }));
+  await expect(page.getByText("Partial browser reply", { exact: true })).toBeVisible();
+  finished = true;
+  await page.evaluate(() => (window as typeof window & { __closeHfabricSocket: () => void }).__closeHfabricSocket());
+  await expect(page.getByText("Recovered browser reply", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeHidden();
+});

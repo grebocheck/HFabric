@@ -43,6 +43,19 @@ _status: dict[str, Any] = {
     "updated_at": 0.0,
 }
 _status_lock = threading.Lock()
+_admission_lock = threading.Lock()
+
+
+class DownloadBusyError(ValueError):
+    """Another request owns download admission or execution."""
+
+
+def _admit_start() -> None:
+    if not _admission_lock.acquire(blocking=False):
+        raise DownloadBusyError("a model download is already starting")
+    if is_downloading():
+        _admission_lock.release()
+        raise DownloadBusyError("a model download is already running")
 
 
 # --------------------------------------------------------------------------- #
@@ -202,9 +215,14 @@ def preflight(keys: list[str]) -> tuple[list[Any], str | None]:
 
 def start(keys: list[str]) -> dict[str, Any]:
     """Begin a background download of the selected catalog keys."""
-    with _status_lock:
-        if _status["state"] == "running":
-            return dict(_status)
+    _admit_start()
+    try:
+        return _start(keys)
+    finally:
+        _admission_lock.release()
+
+
+def _start(keys: list[str]) -> dict[str, Any]:
     jobs, error = preflight(keys)
     if error:
         raise ValueError(error)
@@ -315,9 +333,14 @@ def validate_custom(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
 
 def start_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Validate + flip status to running for a custom (any-source) download batch."""
-    with _status_lock:
-        if _status["state"] == "running":
-            return dict(_status)
+    _admit_start()
+    try:
+        return _start_custom(items)
+    finally:
+        _admission_lock.release()
+
+
+def _start_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
     clean, error = validate_custom(items)
     if error:
         raise ValueError(error)
@@ -334,6 +357,13 @@ def start_custom(items: list[dict[str, Any]]) -> dict[str, Any]:
         failed=[],
     )
     return get_status()
+
+
+def fail_unexpected(exc: Exception) -> None:
+    _set_status(
+        state="error", message=f"Download failed: {type(exc).__name__}: {exc}",
+        current=None, failed=[{"label": "download", "error": str(exc)}],
+    )
 
 
 def _assert_public_download_url(url: str) -> None:

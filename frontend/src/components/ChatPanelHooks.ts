@@ -9,12 +9,9 @@ import {
   type SetStateAction,
 } from "react";
 import { api } from "../api/client";
-import { useEvents } from "../api/useEvents";
-import type { BusEvent, ChatAttachment, ChatConversation, ChatMessage, ChatSendBody, Model } from "../types";
+import type { ChatAttachment, ChatConversation, ChatMessage, ChatSendBody, Model } from "../types";
 import { pickImageModel } from "./chatHelpers";
 import { toast } from "./Toast";
-
-export type ChatStats = { tokens: number; tps: number; ttft: number };
 
 export function useConversation() {
   const [convs, setConvs] = useState<ChatConversation[]>([]);
@@ -32,91 +29,6 @@ export function useConversation() {
   }, []);
 
   return { convs, setConvs, convsLoading, refreshConvs };
-}
-
-export function useChatStream({
-  refreshConvs,
-  setBusy,
-  setMessages,
-}: {
-  refreshConvs: () => Promise<void>;
-  setBusy: (busy: boolean) => void;
-  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
-}) {
-  const activeJob = useRef<string | null>(null);
-  const sendStart = useRef(0);
-  const firstAt = useRef<number | null>(null);
-  const tokCount = useRef(0);
-  const [stats, setStats] = useState<ChatStats | null>(null);
-
-  const beginStream = useCallback(() => {
-    setBusy(true);
-    setStats(null);
-    sendStart.current = Date.now();
-    firstAt.current = null;
-    tokCount.current = 0;
-  }, [setBusy]);
-
-  const setActiveJob = useCallback((jobId: string | null) => {
-    activeJob.current = jobId;
-  }, []);
-
-  const trackJump = useCallback((jobId: string | null | undefined) => {
-    activeJob.current = jobId ?? null;
-    if (!jobId) return;
-    setBusy(true);
-    setStats(null);
-    sendStart.current = Date.now();
-    firstAt.current = null;
-    tokCount.current = 0;
-  }, [setBusy]);
-
-  const onChatEvent = useCallback((e: BusEvent) => {
-    if (e.job_id !== activeJob.current) return;
-    if (e.type === "llm.token") {
-      if (firstAt.current === null) firstAt.current = Date.now();
-      tokCount.current += 1;
-      setMessages((p) => appendToLastAssistant(p, e.token as string));
-    } else if (e.type === "job.done") {
-      const childJob = typeof e.tool_child_job_id === "string" ? e.tool_child_job_id : null;
-      if (childJob) {
-        activeJob.current = childJob;
-        setBusy(true);
-        if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
-        return;
-      }
-      activeJob.current = null;
-      setBusy(false);
-      if (typeof e.text === "string") setMessages((p) => setLastAssistant(p, e.text as string));
-      if (firstAt.current && tokCount.current > 0) {
-        const secs = Math.max(0.001, (Date.now() - firstAt.current) / 1000);
-        setStats({ tokens: tokCount.current, tps: tokCount.current / secs, ttft: firstAt.current - sendStart.current });
-      }
-      void refreshConvs();
-    } else if (e.type === "job.error") {
-      activeJob.current = null;
-      setBusy(false);
-      setMessages((p) => setLastAssistant(p, `\u26a0 ${(e.error as string) ?? "generation failed"}`, true));
-    } else if (e.type === "job.progress") {
-      const pct = Math.round(((e.progress as number) ?? 0) * 100);
-      setMessages((p) => setLastAssistant(p, `*generating image\u2026 ${pct}%*`));
-    } else if (e.type === "job.cancelled") {
-      activeJob.current = null;
-      setBusy(false);
-    }
-  }, [refreshConvs, setBusy, setMessages]);
-
-  useEvents(onChatEvent);
-
-  return { activeJob, beginStream, setActiveJob, setStats, stats, trackJump };
-}
-
-function appendToLastAssistant(msgs: ChatMessage[], token: string): ChatMessage[] {
-  const out = [...msgs];
-  for (let i = out.length - 1; i >= 0; i--) {
-    if (out[i].role === "assistant") { out[i] = { ...out[i], content: out[i].content + token }; return out; }
-  }
-  return out;
 }
 
 function setLastAssistant(msgs: ChatMessage[], content: string, error = false): ChatMessage[] {
@@ -146,7 +58,9 @@ type ChatActionArgs = {
   activeJob: MutableRefObject<string | null>;
   attachments: ChatAttachment[];
   attachmentsUploading: boolean;
-  beginStream: () => void;
+  beginStream: () => number;
+  isCurrentStream: (revision: number) => boolean;
+  reconcile: () => Promise<void>;
   busy: boolean;
   documentTool: boolean;
   editingId: string | null;
@@ -162,7 +76,7 @@ type ChatActionArgs = {
   rememberPrompt: (content: string) => void;
   sampling: () => Omit<ChatSendBody, "content" | "model_id">;
   setActiveId: (id: string | null) => void;
-  setActiveJob: (jobId: string | null) => void;
+  setActiveJob: (jobId: string | null, messageId?: string) => void;
   setAttachmentNote: (note: string) => void;
   setAttachments: Dispatch<SetStateAction<ChatAttachment[]>>;
   setAttachmentsUploading: (uploading: boolean) => void;
@@ -182,6 +96,8 @@ export function useChatActions({
   attachments,
   attachmentsUploading,
   beginStream,
+  isCurrentStream,
+  reconcile,
   busy,
   documentTool,
   editingId,
@@ -210,6 +126,7 @@ export function useChatActions({
   setMessages,
   stickToBottom,
 }: ChatActionArgs) {
+  const sending = useRef(false);
   const uploadAttachments = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files).filter((file) => file.size > 0);
     if (!list.length) return;
@@ -229,7 +146,7 @@ export function useChatActions({
     const mdl = modelId || llmModels[0]?.id;
     if (!mdl) return;
     stickToBottom.current = true;
-    beginStream();
+    const streamRevision = beginStream();
     setMessages((p) => [
       ...p,
       { id: "tmp-u", role: "user", content, attachments: outgoingAttachments },
@@ -245,12 +162,15 @@ export function useChatActions({
         ...(imageTool && img ? { image_tool: true, image_model_id: img.id } : {}),
         ...(documentTool ? { document_tool: true, rag_top_k: ragTopK } : {}),
       });
-      setActiveJob(res.job_id);
+      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
+      if (!isCurrentStream(streamRevision)) return;
+      setActiveJob(res.job_id, res.assistant_message.id);
       setMessages((p) => p.map((m) =>
         m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
       ));
-      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
+      void reconcile().catch((error: unknown) => console.warn("Could not synchronize submitted chat", error));
     } catch (err) {
+      if (!isCurrentStream(streamRevision)) return;
       setActiveJob(null);
       setBusy(false);
       setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
@@ -259,10 +179,12 @@ export function useChatActions({
     beginStream,
     documentTool,
     imageTool,
+    isCurrentStream,
     llmModels,
     modelId,
     models,
     ragTopK,
+    reconcile,
     sampling,
     setActiveJob,
     setBusy,
@@ -279,58 +201,76 @@ export function useChatActions({
         { id: "tmp-a", role: "assistant", content: "⚠ no image model available", error: true }]);
       return;
     }
-    beginStream();
+    const streamRevision = beginStream();
     setMessages((p) => [...p, { id: "tmp-u", role: "user", content: `/image ${prompt}` },
       { id: "tmp-a", role: "assistant", content: "" }]);
     try {
       const res = await api.sendChatImage(convId, { prompt, model_id: img.id, negative });
-      setActiveJob(res.job_id);
+      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
+      if (!isCurrentStream(streamRevision)) return;
+      setActiveJob(res.job_id, res.assistant_message.id);
       setMessages((p) => p.map((m) =>
         m.id === "tmp-u" ? res.user_message : m.id === "tmp-a" ? { ...res.assistant_message, content: "" } : m,
       ));
-      setConvs((p) => [res.conversation, ...p.filter((c) => c.id !== res.conversation.id)]);
+      void reconcile().catch((error: unknown) => console.warn("Could not synchronize submitted image", error));
     } catch (err) {
+      if (!isCurrentStream(streamRevision)) return;
       setActiveJob(null);
       setBusy(false);
       setMessages((p) => setLastAssistant(p, `⚠ ${err instanceof Error ? err.message : "request failed"}`, true));
     }
-  }, [beginStream, models, setActiveJob, setBusy, setConvs, setMessages, stickToBottom]);
+  }, [beginStream, isCurrentStream, models, reconcile, setActiveJob, setBusy, setConvs, setMessages, stickToBottom]);
 
   const send = useCallback(async () => {
     const content = input.trim();
     const outgoingAttachments = attachments;
-    if ((!content && outgoingAttachments.length === 0) || busy || attachmentsUploading) return;
-    let cid = activeId;
-    if (!cid) {
-      const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
-      setConvs((p) => [c, ...p]);
-      setActiveId(c.id);
-      cid = c.id;
-    }
-    setInput("");
-    setAttachments([]);
-    setAttachmentNote("");
-    if (content) rememberPrompt(content);
-    const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
-    if (imgCmd && outgoingAttachments.length === 0) {
-      const parsed = parseImageCommand(imgCmd[1].trim());
-      if (!parsed.prompt) return;
-      await submitImage(parsed.prompt, cid, parsed.negative);
-    } else {
-      await submit(content, cid, outgoingAttachments);
+    if ((!content && outgoingAttachments.length === 0) || busy || attachmentsUploading || sending.current) return;
+    sending.current = true;
+    let creatingRevision: number | undefined;
+    try {
+      let cid = activeId;
+      if (!cid) {
+        const revision = creatingRevision = beginStream();
+        const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
+        setConvs((p) => [c, ...p]);
+        if (!isCurrentStream(revision)) return;
+        setActiveId(c.id);
+        cid = c.id;
+      }
+      setInput("");
+      setAttachments([]);
+      setAttachmentNote("");
+      if (content) rememberPrompt(content);
+      const imgCmd = content.match(/^\/(?:image|img)\s+([\s\S]+)/i);
+      if (imgCmd && outgoingAttachments.length === 0) {
+        const parsed = parseImageCommand(imgCmd[1].trim());
+        if (!parsed.prompt) return;
+        await submitImage(parsed.prompt, cid, parsed.negative);
+      } else {
+        await submit(content, cid, outgoingAttachments);
+      }
+    } catch (error) {
+      if (creatingRevision !== undefined && !isCurrentStream(creatingRevision)) return;
+      setBusy(false);
+      toast.error(error instanceof Error ? error.message : "Could not create conversation");
+    } finally {
+      sending.current = false;
     }
   }, [
     activeId,
     attachments,
     attachmentsUploading,
+    beginStream,
     busy,
     input,
+    isCurrentStream,
     llmModels,
     modelId,
     rememberPrompt,
     setActiveId,
     setAttachmentNote,
     setAttachments,
+    setBusy,
     setConvs,
     setInput,
     submit,

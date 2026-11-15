@@ -113,6 +113,7 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
 
   if (options.fakeWebSocket) {
     await page.addInitScript(() => {
+      let activeSockets = 0;
       type SocketHandler = ((event: Event) => void) | null;
       class StubWebSocket {
         static latest: StubWebSocket | null = null;
@@ -123,6 +124,7 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
         private closed = false;
 
         constructor() {
+          activeSockets += 1;
           StubWebSocket.latest = this;
           setTimeout(() => {
             if (!this.closed) this.onopen?.(new Event("open"));
@@ -132,6 +134,7 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
         close() {
           if (this.closed) return;
           this.closed = true;
+          activeSockets -= 1;
           this.onclose?.(new Event("close"));
         }
       }
@@ -142,6 +145,10 @@ export async function installApiStub(page: Page, options: StubOptions = {}): Pro
       });
       (window as typeof window & { __closeHfabricSocket?: () => void }).__closeHfabricSocket = () => {
         StubWebSocket.latest?.close();
+      };
+      (window as typeof window & { __hfabricSocketCount?: () => number }).__hfabricSocketCount = () => activeSockets;
+      (window as typeof window & { __emitHfabricEvent?: (value: unknown) => void }).__emitHfabricEvent = (value) => {
+        StubWebSocket.latest?.onmessage?.(new MessageEvent("message", { data: JSON.stringify(value) }));
       };
     });
   }

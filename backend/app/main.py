@@ -237,6 +237,7 @@ async def lifespan(app: FastAPI):
     worker.start()
     mem_task = asyncio.create_task(_mem_monitor(bus), name="hfabric-mem-monitor")
     try:
+        await worker.wait_ready()
         yield
     finally:
         app.state.accepting_mutations = False
@@ -458,14 +459,16 @@ app.include_router(ws.router)
 )
 async def health() -> HealthOut:
     memory = await asyncio.to_thread(sysmon.snapshot)
+    worker = app.state.worker.status()
     return {
-        "status": "ok",
+        "status": "ok" if worker["ready"] else "degraded",
         "version": __version__,
         "stub_mode": settings.stub_mode,
         "models": len(app.state.registry.descriptors()),
         "gpu": app.state.arbiter.status(),
         "mem": memory,
         "security": security.security_posture(),
+        "worker": worker,
     }
 
 

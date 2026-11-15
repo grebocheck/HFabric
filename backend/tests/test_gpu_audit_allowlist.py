@@ -49,3 +49,15 @@ def test_gpu_audit_allowlist_expires(monkeypatch, tmp_path):
             {"dependencies": [{"name": "pkg", "vulns": [{"id": "VULN-1"}]}]},
             today=date(2026, 7, 23),
         )
+
+
+def test_unaudited_dependencies_are_read_from_scanner_dependency_entries(monkeypatch):
+    monkeypatch.setattr(audit_gpu_lock, "_allowlist", lambda _today: {})
+    errors = audit_gpu_lock.evaluate(
+        {"dependencies": [
+            {"name": "torch", "skip_reason": "CUDA build absent on PyPI"},
+            {"name": "unexpected-package", "skip_reason": "cannot audit"},
+        ], "fixes": []},
+        today=date(2026, 11, 15),
+    )
+    assert errors == ["unexpected unaudited packages: unexpected-package"]

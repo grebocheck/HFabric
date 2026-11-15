@@ -17,6 +17,27 @@ export type EventConnection = {
   reconnectAttempts: number;
 };
 
+const eventListeners = new Set<(event: BusEvent) => void>();
+const syncListeners = new Set<() => void | Promise<void>>();
+
+/** Workspace subscriptions share the app's WebSocket and reconnect boundary. */
+export function useBusEvents(onEvent: (event: BusEvent) => void, onSync?: () => void | Promise<void>) {
+  const eventRef = useRef(onEvent);
+  const syncRef = useRef(onSync);
+  eventRef.current = onEvent;
+  syncRef.current = onSync;
+  useEffect(() => {
+    const handleEvent = (event: BusEvent) => eventRef.current(event);
+    const handleSync = () => syncRef.current?.();
+    eventListeners.add(handleEvent);
+    syncListeners.add(handleSync);
+    return () => {
+      eventListeners.delete(handleEvent);
+      syncListeners.delete(handleSync);
+    };
+  }, []);
+}
+
 export function reconnectDelay(
   attempt: number,
   random = Math.random,
@@ -120,12 +141,16 @@ export function useEvents(
         const currentSync = ++syncRun;
         const sync = hasOpened ? reconnectRef.current : connectRef.current;
         hasOpened = true;
-        update({ connected: true, state: sync ? "syncing" : "ready", reconnectAttempts: 0 });
-        if (!sync) {
+        const needsSync = Boolean(sync) || syncListeners.size > 0;
+        update({ connected: true, state: needsSync ? "syncing" : "ready", reconnectAttempts: 0 });
+        if (!needsSync) {
           update({ lastSyncAt: Date.now() });
           return;
         }
-        Promise.resolve(sync())
+        const synchronize = async () => {
+          await Promise.all([sync?.(), ...[...syncListeners].map((listener) => listener())]);
+        };
+        synchronize()
           .then(() => {
             if (!stopped && socket === currentSocket && currentSync === syncRun) {
               update({ connected: true, state: "ready", lastSyncAt: Date.now() });
@@ -140,7 +165,9 @@ export function useEvents(
       };
       currentSocket.onmessage = (event) => {
         try {
-          eventRef.current(JSON.parse(event.data) as BusEvent);
+          const parsed = JSON.parse(event.data) as BusEvent;
+          eventRef.current(parsed);
+          for (const listener of eventListeners) listener(parsed);
         } catch (error) {
           console.warn("Ignored malformed WebSocket event", error);
         }

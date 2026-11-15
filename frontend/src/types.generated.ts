@@ -2498,6 +2498,7 @@ export interface components {
             stub_mode: boolean;
             /** Version */
             version: string;
+            worker?: components["schemas"]["WorkerStatusOut"] | null;
         } & {
             [key: string]: unknown;
         };
@@ -4228,6 +4229,20 @@ export interface components {
             total_gb: number;
             /** Used Gb */
             used_gb: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** WorkerStatusOut */
+        WorkerStatusOut: {
+            /** Error */
+            error?: string | null;
+            /** Ready */
+            ready: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "starting" | "running" | "degraded" | "stopped";
         } & {
             [key: string]: unknown;
         };

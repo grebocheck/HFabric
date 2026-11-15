@@ -336,10 +336,12 @@ async def voice_engine_fetch_assets(
     if not specs:
         return await _status_payload()  # nothing missing (or no known source)
     try:
-        await asyncio.to_thread(downloads.start_custom, specs)
+        status = await asyncio.to_thread(downloads.start_custom, specs)
+    except downloads.DownloadBusyError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    if downloads.is_downloading():
+    if status["state"] == "running":
         asyncio.create_task(asyncio.to_thread(downloads.run_blocking_custom, specs))
         await asyncio.sleep(0)  # let the task start before we report
     return await _status_payload()

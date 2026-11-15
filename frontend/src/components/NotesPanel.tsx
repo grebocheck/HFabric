@@ -1,8 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api/client";
 import { EmptyState, Panel, SectionTitle, StatusPill, WorkspaceHeader } from "./WorkspaceChrome";
-import { toast } from "./Toast";
-import type { Note } from "../types";
+import { useNotesController } from "./useNotesController";
 
 const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 
@@ -17,91 +14,8 @@ function excerpt(text: string): string {
 }
 
 export function NotesPanel() {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [loadError, setLoadError] = useState("");
-  const loadedId = useRef<string | null>(null);
-
-  const active = useMemo(
-    () => notes.find((n) => n.id === activeId) ?? null,
-    [notes, activeId],
-  );
-
-  const refresh = useCallback((q = query) => {
-    api.listNotes(q).then((rows) => {
-      setNotes(rows);
-      setLoadError("");
-      if (!activeId && rows[0]) setActiveId(rows[0].id);
-    }).catch((error: unknown) => {
-      setLoadError(error instanceof Error ? error.message : "Could not load notes");
-    });
-  }, [activeId, query]);
-
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const h = window.setTimeout(() => refresh(query), 180);
-    return () => window.clearTimeout(h);
-  }, [query, refresh]);
-
-  useEffect(() => {
-    if (!active) {
-      loadedId.current = null;
-      setTitle("");
-      setContent("");
-      setDirty(false);
-      setSaving("idle");
-      return;
-    }
-    loadedId.current = active.id;
-    setTitle(active.title);
-    setContent(active.content);
-    setDirty(false);
-    setSaving("idle");
-  }, [active]);
-
-  useEffect(() => {
-    if (!activeId || !dirty || loadedId.current !== activeId) return;
-    setSaving("saving");
-    const h = window.setTimeout(() => {
-      api.updateNote(activeId, { title, content })
-        .then((saved) => {
-          setNotes((prev) => [saved, ...prev.filter((n) => n.id !== saved.id)]);
-          setSaving("saved");
-          setDirty(false);
-        })
-        .catch(() => setSaving("error"));
-    }, 650);
-    return () => window.clearTimeout(h);
-  }, [activeId, content, dirty, title]);
-
-  const create = useCallback(async () => {
-    const note = await api.createNote({ title: "Untitled note", content: "" });
-    setNotes((prev) => [note, ...prev]);
-    setActiveId(note.id);
-  }, []);
-
-  const remove = useCallback(async () => {
-    if (!activeId) return;
-    try {
-      await api.deleteNote(activeId);
-      setNotes((prev) => {
-        const next = prev.filter((n) => n.id !== activeId);
-        setActiveId(next[0]?.id ?? null);
-        return next;
-      });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not delete note");
-    }
-  }, [activeId]);
+  const { notes, active, query, setQuery, saving, loadError, refresh, select, create, remove, edit, retrySave } = useNotesController();
+  const activeId = active?.id ?? null;
 
   return (
     <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
@@ -119,9 +33,10 @@ export function NotesPanel() {
       >
         <StatusPill label={`${notes.length} notes`} tone="info" />
         <StatusPill
-          label={saving === "saving" ? "saving" : saving === "error" ? "save failed" : dirty ? "unsaved" : "saved"}
-          tone={saving === "error" ? "bad" : saving === "saving" || dirty ? "warn" : "good"}
+          label={saving === "error" ? "save failed" : saving}
+          tone={saving === "error" ? "bad" : saving === "saving" || saving === "unsaved" ? "warn" : "good"}
         />
+        {saving === "error" ? <button onClick={retrySave} className="ui-button rounded-md px-3 py-1 text-xs">Retry save</button> : null}
       </WorkspaceHeader>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,340px)_minmax(0,1fr)] gap-3 max-[760px]:block max-[760px]:overflow-x-hidden max-[760px]:overflow-y-auto">
@@ -146,7 +61,7 @@ export function NotesPanel() {
           {notes.map((note) => (
             <button
               key={note.id}
-              onClick={() => setActiveId(note.id)}
+              onClick={() => select(note)}
               className={`mb-1 block w-full rounded-md px-2 py-2 text-left transition ${
                 activeId === note.id ? "bg-white/15" : "hover:bg-white/5"
               }`}
@@ -161,7 +76,7 @@ export function NotesPanel() {
 
       <Panel className="flex min-w-0 flex-1 flex-col overflow-hidden max-[760px]:h-[520px]">
         <SectionTitle
-          title={active ? "Editor" : "Editor"}
+          title="Editor"
           subtitle={active ? fmt(active.updated_at) : "No note selected"}
           actions={(
             <button
@@ -175,8 +90,8 @@ export function NotesPanel() {
         />
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <input
-            value={title}
-            onChange={(e) => { setTitle(e.target.value); setDirty(true); }}
+            value={active?.title ?? ""}
+            onChange={(e) => edit({ title: e.target.value })}
             disabled={!activeId}
             placeholder="Untitled note"
             className="min-w-0 flex-1 bg-transparent text-lg font-semibold text-ui-strong outline-none placeholder:text-ui-subtle"
@@ -184,8 +99,8 @@ export function NotesPanel() {
         </div>
 
         <textarea
-          value={content}
-          onChange={(e) => { setContent(e.target.value); setDirty(true); }}
+          value={active?.content ?? ""}
+          onChange={(e) => edit({ content: e.target.value })}
           disabled={!activeId}
           placeholder="Scratch here..."
           spellCheck

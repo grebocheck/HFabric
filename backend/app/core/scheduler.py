@@ -50,6 +50,7 @@ class Worker:
         self._arbiter = arbiter
         self._registry = registry
         self._wakeup = asyncio.Event()
+        self._ready = asyncio.Event()
         self._results = JobResultService(bus, registry, self.notify)
         self._task: asyncio.Task | None = None
         self._running = False
@@ -57,11 +58,16 @@ class Worker:
         self._cancel_current = False
         self._voice_parked = False
         self._resident_pin_parked = False
+        self._state = "stopped"
+        self._last_error: str | None = None
 
     def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
         self._running = True
+        self._state = "starting"
+        self._ready.clear()
+        self._last_error = None
         self._task = asyncio.create_task(self._loop(), name="hfabric-worker")
 
     def request_stop(self) -> None:
@@ -120,9 +126,26 @@ class Worker:
         """Wake the worker after queue state changes."""
         self._wakeup.set()
 
+    async def wait_ready(self, timeout: float = 5.0) -> bool:
+        """Bound startup admission while the worker recovers its durable queue."""
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
+
     @property
     def running_job_id(self) -> str | None:
         return self._current_job_id
+
+    def status(self) -> dict:
+        alive = self._task is not None and not self._task.done()
+        state = self._state if alive else "stopped"
+        return {
+            "state": state,
+            "ready": alive and self._running and state == "running",
+            "error": self._last_error,
+        }
 
     def cancel_running(self, job_id: str) -> bool:
         """Request cancellation when ``job_id`` is the active job."""
@@ -135,17 +158,55 @@ class Worker:
         return True
 
     async def _loop(self) -> None:
-        await self._requeue_orphans()
-        while self._running:
-            snapshot = await self._pick_next()
-            if snapshot is None:
-                self._wakeup.clear()
+        initialized = False
+        pending_failure: tuple[JobSnapshot, str] | None = None
+        failures = 0
+        try:
+            while self._running:
+                snapshot = None
                 try:
-                    await asyncio.wait_for(self._wakeup.wait(), timeout=2.0)
-                except TimeoutError:
-                    pass
-                continue
-            await self._run(snapshot)
+                    if not initialized:
+                        await self._requeue_orphans()
+                        initialized = True
+                    if pending_failure is not None:
+                        # Retry only persistence. Re-running generation here can
+                        # duplicate artifacts or an already-committed chat reply.
+                        await self._results.fail(*pending_failure)
+                        pending_failure = None
+                    snapshot = await self._pick_next()
+                    self._state = "running"
+                    self._last_error = None
+                    self._ready.set()
+                    if snapshot is not None:
+                        await self._run(snapshot)
+                    failures = 0
+                    if snapshot is None:
+                        await self._wait_for_work(2.0)
+                except Exception as exc:  # noqa: BLE001 - supervise persistence and queue selection
+                    if snapshot is not None:
+                        pending_failure = (snapshot, friendly_job_error(exc))
+                    failures += 1
+                    self._state = "degraded"
+                    self._ready.clear()
+                    self._last_error = f"{type(exc).__name__}: queue unavailable; see local logs"
+                    logger.exception(
+                        "event=worker.iteration.failed attempts=%d job_id=%s",
+                        failures,
+                        snapshot.id if snapshot else None,
+                    )
+                    await self._wait_for_work(min(30.0, 0.25 * 2 ** min(failures - 1, 7)))
+        finally:
+            self._state = "stopped"
+            self._ready.clear()
+
+    async def _wait_for_work(self, timeout: float) -> None:
+        self._wakeup.clear()
+        if not self._running:
+            return
+        try:
+            await asyncio.wait_for(self._wakeup.wait(), timeout=timeout)
+        except TimeoutError:
+            pass
 
     async def _requeue_orphans(self) -> None:
         async with session_scope() as session:

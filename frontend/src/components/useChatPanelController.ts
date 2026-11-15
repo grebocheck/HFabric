@@ -24,7 +24,8 @@ import {
   promptHistoryLimit,
   type NumOrEmpty,
 } from "./chatHelpers";
-import { useChatActions, useChatStream, useConversation } from "./ChatPanelHooks";
+import { useChatActions, useConversation } from "./ChatPanelHooks";
+import { useChatStream } from "./useChatStream";
 import { toast } from "./Toast";
 
 export type ChatJump = { conversationId: string; jobId?: string; nonce: number };
@@ -47,7 +48,9 @@ export function useChatPanelController({
   const saved = loadDefaults();
 
   const { convs, convsLoading, refreshConvs, setConvs } = useConversation();
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveIdState] = useState<string | null>(null);
+  const activeConversation = useRef<string | null>(null);
+  const selectionRevision = useRef(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   // The composer draft is lifted to App so it survives tab switches (this panel
@@ -98,11 +101,22 @@ export function useChatPanelController({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const stickToBottom = useRef(true);
-  const { activeJob, beginStream, setActiveJob, setStats, stats, trackJump } = useChatStream({
+  const { activeJob, beginStream, isCurrentStream, reconcile, resetStream, restoreStream, setActiveJob, stats } = useChatStream({
+    activeConversation,
     refreshConvs,
     setBusy,
     setMessages,
   });
+  const setActiveId = useCallback((id: string | null) => {
+    selectionRevision.current += 1;
+    activeConversation.current = id;
+    resetStream();
+    setActiveIdState(id);
+  }, [resetStream]);
+  useEffect(() => () => {
+    selectionRevision.current += 1;
+    activeConversation.current = null;
+  }, []);
   const refreshPersonas = useCallback(async () => {
     setPersonasLoading(true);
     try {
@@ -208,14 +222,21 @@ export function useChatPanelController({
   }, [input]);
 
   const selectConversation = useCallback(
-    async (id: string) => {
+    async (id: string, jobHint?: string) => {
       stickToBottom.current = true;
       setActiveId(id);
+      const revision = selectionRevision.current;
+      setMessages([]);
+      setBusy(true);
       setEditingId(null);
-      setStats(null);
       try {
         const d = await api.getConversation(id);
+        if (selectionRevision.current !== revision) return;
         setMessages(d.messages);
+        restoreStream(d.messages, jobHint);
+        if (jobHint || d.messages.some((message) => message.job_id)) {
+          void reconcile().catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Could not synchronize chat"));
+        }
         setAttachments([]);
         setAttachmentNote("");
         if (d.model_id) setModelId(d.model_id);
@@ -231,11 +252,14 @@ export function useChatPanelController({
         setImageTool(Boolean(pr.image_tool));
         setDocumentTool(Boolean(pr.document_tool));
         setRagTopK(typeof pr.rag_top_k === "number" ? pr.rag_top_k : 5);
-      } catch {
+      } catch (error) {
+        if (selectionRevision.current !== revision) return;
         setMessages([]);
+        setBusy(false);
+        toast.error(error instanceof Error ? error.message : "Could not load conversation");
       }
     },
-    [setStats],
+    [reconcile, restoreStream, setActiveId],
   );
 
   useEffect(() => {
@@ -244,29 +268,29 @@ export function useChatPanelController({
 
   useEffect(() => {
     if (!jump?.conversationId) return;
-    trackJump(jump.jobId);
     refreshConvs();
-    void selectConversation(jump.conversationId);
-  }, [jump, refreshConvs, selectConversation, trackJump]);
+    void selectConversation(jump.conversationId, jump.jobId);
+  }, [jump, refreshConvs, selectConversation]);
 
   const newChat = useCallback(async () => {
+    const revision = ++selectionRevision.current;
     const c = await api.createConversation({ model_id: modelId || llmModels[0]?.id });
     stickToBottom.current = true;
     setConvs((p) => [c, ...p]);
+    if (selectionRevision.current !== revision) return;
     setActiveId(c.id);
     setMessages([]);
     setAttachments([]);
     setAttachmentNote("");
     setEditingId(null);
-    setStats(null);
-  }, [modelId, llmModels, setConvs, setStats]);
+  }, [modelId, llmModels, setActiveId, setConvs]);
 
   const deleteConversation = useCallback(
     async (id: string) => {
       try {
         await api.deleteConversation(id);
         setConvs((p) => p.filter((c) => c.id !== id));
-        if (activeId === id) {
+        if (activeConversation.current === id) {
           setActiveId(null);
           setMessages([]);
           setAttachments([]);
@@ -276,7 +300,7 @@ export function useChatPanelController({
         toast.error(error instanceof Error ? error.message : "Could not delete conversation");
       }
     },
-    [activeId, setConvs],
+    [setActiveId, setConvs],
   );
 
   const sampling = useCallback(
@@ -309,6 +333,8 @@ export function useChatPanelController({
     attachments,
     attachmentsUploading,
     beginStream,
+    isCurrentStream,
+    reconcile,
     busy,
     documentTool,
     editingId,

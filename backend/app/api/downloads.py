@@ -25,6 +25,13 @@ from .contracts import (
 from .deps import get_registry
 
 logger = logging.getLogger("hfabric")
+_tasks: set[asyncio.Task] = set()
+
+
+def _start_task(coroutine) -> None:
+    task = asyncio.create_task(coroutine)
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
 
 router = APIRouter(
     prefix="/api/downloads",
@@ -38,6 +45,9 @@ async def _run_then_rescan(keys: list[str], registry: ModelRegistry) -> None:
     restart. Registry publication is atomic, while the disk walk stays off-loop."""
     try:
         await asyncio.to_thread(downloads.run_blocking, keys)
+    except Exception as exc:  # noqa: BLE001 - keep admission and UI recoverable after setup errors
+        downloads.fail_unexpected(exc)
+        logger.exception("event=downloads.failed")
     finally:
         try:
             await registry.scan_async()
@@ -48,6 +58,9 @@ async def _run_then_rescan(keys: list[str], registry: ModelRegistry) -> None:
 async def _run_custom_then_rescan(items: list[dict[str, Any]], registry: ModelRegistry) -> None:
     try:
         await asyncio.to_thread(downloads.run_blocking_custom, items)
+    except Exception as exc:  # noqa: BLE001 - keep admission and UI recoverable after setup errors
+        downloads.fail_unexpected(exc)
+        logger.exception("event=downloads.failed")
     finally:
         try:
             await registry.scan_async()
@@ -103,13 +116,15 @@ async def start_downloads(
     if not keys:
         raise HTTPException(422, "keys is required")
     try:
-        await asyncio.to_thread(downloads.start, keys)
+        status = await asyncio.to_thread(downloads.start, keys)
+    except downloads.DownloadBusyError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    if downloads.is_downloading():
+    if status["state"] == "running":
         # Fire-and-forget: the heavy download runs in a thread; the UI polls status.
         # When it finishes we rescan so the catalog reflects disk without a restart.
-        asyncio.create_task(_run_then_rescan(keys, registry))
+        _start_task(_run_then_rescan(keys, registry))
         await asyncio.sleep(0)  # let the task start before we report
     return downloads.get_status()
 
@@ -127,10 +142,12 @@ async def start_custom_downloads(
     if not items:
         raise HTTPException(422, "items is required")
     try:
-        await asyncio.to_thread(downloads.start_custom, items)
+        status = await asyncio.to_thread(downloads.start_custom, items)
+    except downloads.DownloadBusyError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    if downloads.is_downloading():
-        asyncio.create_task(_run_custom_then_rescan(items, registry))
+    if status["state"] == "running":
+        _start_task(_run_custom_then_rescan(items, registry))
         await asyncio.sleep(0)
     return downloads.get_status()

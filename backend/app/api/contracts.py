@@ -116,6 +116,12 @@ class SecurityPostureOut(ApiContract):
     token_required: bool
 
 
+class WorkerStatusOut(ApiContract):
+    state: Literal["starting", "running", "degraded", "stopped"]
+    ready: bool
+    error: str | None = None
+
+
 class HealthOut(ApiContract):
     status: str
     version: str
@@ -124,6 +130,7 @@ class HealthOut(ApiContract):
     gpu: GpuStatusOut
     mem: MemoryStatusOut
     security: SecurityPostureOut
+    worker: WorkerStatusOut | None = None
 
 
 # ----------------------------------------------------------------------- code

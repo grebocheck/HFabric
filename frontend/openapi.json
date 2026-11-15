@@ -2165,6 +2165,16 @@
           "version": {
             "title": "Version",
             "type": "string"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkerStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -7166,6 +7176,42 @@
           "used_gb"
         ],
         "title": "VramStatusOut",
+        "type": "object"
+      },
+      "WorkerStatusOut": {
+        "additionalProperties": true,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "starting",
+              "running",
+              "degraded",
+              "stopped"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "ready"
+        ],
+        "title": "WorkerStatusOut",
         "type": "object"
       }
     }

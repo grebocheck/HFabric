@@ -5,7 +5,7 @@ import { AssistantContent } from "./Thinking";
 import { SkeletonLine } from "./WorkspaceChrome";
 import { modelTitle } from "./chatHelpers";
 import { formatSize } from "./imageComposerHelpers";
-import type { ChatStats } from "./ChatPanelHooks";
+import type { ChatStats } from "./useChatStream";
 
 export function MessageList({
   editText,
