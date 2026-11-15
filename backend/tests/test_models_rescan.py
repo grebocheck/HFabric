@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import struct
 
+import pytest
+
+from app.backends.registry import ModelRegistry
 from app.config import settings
+from app.core.arbiter import GpuArbiter
+from app.core.events import EventBus
 
 
 async def test_rescan_picks_up_a_new_model_without_restart(app_client):
@@ -53,3 +59,45 @@ async def test_rescan_classifies_a_hot_added_anima_checkpoint(app_client):
     finally:
         path.unlink(missing_ok=True)
         await app_client.post("/api/models/rescan")
+
+
+@pytest.mark.parametrize("loaded", [False, True])
+async def test_rescan_replaces_changed_backend_without_unloading_outside_arbiter(tmp_path, monkeypatch, loaded):
+    monkeypatch.setattr(settings, "llm_models_dir", tmp_path)
+    path = tmp_path / "replaceable.gguf"
+    path.write_bytes(b"GGUF-old")
+    registry = ModelRegistry()
+    await registry.scan_async()
+    old = registry.get_backend("replaceable")
+    arbiter = GpuArbiter(EventBus())
+    if loaded:
+        await arbiter.ensure(old)
+    stamp = path.stat().st_mtime_ns
+    path.write_bytes(b"GGUF-new")  # same byte count; metadata revision must change
+    os.utime(path, ns=(stamp + 1_000_000, stamp + 1_000_000))
+    await registry.scan_async()
+    assert old.loaded is loaded
+    assert registry.peek_backend("replaceable") is None
+    fresh = registry.get_backend("replaceable")
+    assert fresh is not old
+    assert fresh.descriptor.revision != old.descriptor.revision
+    assert not fresh.loaded
+    if loaded:
+        assert arbiter.current is old
+        await arbiter.ensure(fresh)
+        assert not old.loaded
+        assert arbiter.current is fresh
+    await arbiter.free_all()
+
+
+async def test_rescan_drops_removed_cached_backend(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "llm_models_dir", tmp_path)
+    path = tmp_path / "removed.gguf"
+    path.write_bytes(b"GGUF")
+    registry = ModelRegistry()
+    await registry.scan_async()
+    registry.get_backend("removed")
+    path.unlink()
+    await registry.scan_async()
+    with pytest.raises(KeyError):
+        registry.get_backend("removed")

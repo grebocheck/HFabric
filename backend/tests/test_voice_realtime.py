@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 from httpx import ASGITransport, AsyncClient
 import pytest
@@ -420,7 +421,7 @@ async def test_session_start_failure_rolls_back_voice_lane(client, monkeypatch):
     assert previous.loaded
 
 
-async def test_session_stop_releases_lane_when_audio_teardown_fails(client, monkeypatch):
+async def test_session_stop_retains_lane_when_audio_teardown_fails(client, monkeypatch):
     started = await client.post(
         "/api/voice/engine/session/start",
         json={"model_id": "stub-voice"},
@@ -435,11 +436,90 @@ async def test_session_stop_releases_lane_when_audio_teardown_fails(client, monk
     response = await client.post("/api/voice/engine/session/stop")
 
     assert response.status_code == 500
-    assert (await client.get("/api/gpu")).json()["lanes"] == []
+    assert (await client.get("/api/gpu")).json()["lanes"] == [{"id": "voice", "label": "voice session"}]
 
     # Restore before the fixture's own defensive teardown.
     monkeypatch.setattr(realtime, "stop_session", original_stop)
-    original_stop()
+    assert (await client.post("/api/voice/engine/session/stop")).status_code == 200
+    assert (await client.get("/api/gpu")).json()["lanes"] == []
+
+
+def test_stop_timeout_retains_worker_processor_and_session(monkeypatch):
+    class SlowWorker:
+        alive = True
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout):
+            assert timeout == 5.0
+
+    session = realtime.RealtimeSession.__new__(realtime.RealtimeSession)
+    worker = SlowWorker()
+    processor = object()
+    session._worker = worker
+    session._processor = processor
+    session._stream = None
+    session._monitor_stream = None
+    session._stop = threading.Event()
+    monkeypatch.setattr(realtime, "_SESSION", session)
+    try:
+        with pytest.raises(realtime.VoiceStopTimeout):
+            realtime.stop_session()
+        assert realtime.current_session() is session
+        assert session._worker is worker
+        assert session._processor is processor
+    finally:
+        worker.alive = False
+        realtime.stop_session()
+    assert not realtime.session_active()
+
+
+def test_failed_start_retains_an_inference_thread_that_cannot_stop(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, "stub_mode", False)
+    monkeypatch.setattr(realtime, "_SESSION", None)
+
+    def fail_start(session, _model):
+        session._worker = SimpleNamespace(is_alive=lambda: True)
+        raise OSError("device failed after inference started")
+
+    def pending_stop(_session):
+        raise realtime.VoiceStopTimeout("inference still running")
+
+    monkeypatch.setattr(realtime.RealtimeSession, "start", fail_start)
+    monkeypatch.setattr(realtime.RealtimeSession, "stop", pending_stop)
+    try:
+        with pytest.raises(OSError, match="device failed"):
+            realtime.start_session(SimpleNamespace(provider_health=lambda: {}), "voice")
+        assert realtime.session_active()
+    finally:
+        realtime._SESSION = None
+
+
+async def test_stop_timeout_does_not_release_gpu_or_unload_engine(client, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    assert (await client.post("/api/voice/engine/session/start", json={"model_id": "stub-voice"})).status_code == 200
+    session = realtime.current_session()
+    original_stop = session.stop
+    unload = AsyncMock()
+    monkeypatch.setattr(engine_mod.get_engine(), "unload", unload)
+
+    def pending():
+        raise realtime.VoiceStopTimeout("still finishing")
+
+    monkeypatch.setattr(session, "stop", pending)
+    try:
+        assert (await client.post("/api/voice/engine/session/stop")).status_code == 409
+        assert app.state.arbiter.exclusive_lane_active
+        unload.assert_not_awaited()
+    finally:
+        monkeypatch.setattr(session, "stop", original_stop)
+        assert (await client.post("/api/voice/engine/session/stop")).status_code == 200
+    unload.assert_awaited_once()
+    assert not app.state.arbiter.exclusive_lane_active
 
 
 async def test_app_shutdown_stops_realtime_and_clears_voice_lane(monkeypatch, tmp_path):

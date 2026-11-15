@@ -1,6 +1,6 @@
 # HFabric — підсумок стабілізації та release roadmap
 
-> Оновлено 2026-11-15. Поточні знахідки та план спрощення описано в
+> Оновлено 2026-11-16. Поточні знахідки та план спрощення описано в
 > [аудиті стабільності](docs/audit-2026-11-15.md).
 
 ## Поточний етап стабілізації
@@ -15,13 +15,21 @@
   revision, прив'язка stream до message id і REST recovery включно з tool jobs.
 - [x] F10: перевірка пропущених пакетів у фактичному JSON pip-audit.
 - [x] Прибрано Knip blocker; додано unit/API/browser regressions.
-- [ ] F3/F4: єдиний GPU reservation contract для audio/embeddings та release
-  після реального завершення thread/process.
+- [x] F8: metadata revision моделі та invalidation застарілих backend instances
+  без втрати arbiter ownership активної моделі.
+- [x] F9: staging відео, cleanup повного bundle при помилці/cancel та startup
+  recovery завершених outputs після збою DB transaction.
+- [x] F11: атомарні claim/cancel transitions і idempotent cancellation events.
+- [x] F3/F4, native Voice: exclusive offline reservation, збереження ownership
+  після HTTP timeout/cancel, захист stop/start і очищення F0 cache після unload.
+- [ ] F3/F4, решта: GPU TTS/transcription/embeddings, примусове завершення
+  завислої native роботи та перевірка реальних RAM/VRAM і audio devices.
 - [ ] F7: актуалізація dependency graphs і прострочених exceptions із GPU smoke.
-- [ ] F8/F9/F11: descriptor cache invalidation, video artifact lifecycle та
-  idempotent queue cancellation.
 - [ ] Наступне спрощення: Chat/Voice draft reducers, typed image runtime context
   і централізовані effective model defaults/capabilities.
+
+Попередні гілки зведено в `main` зі збереженням історії. Деталі другого пакета
+та його перевірок додано в кінець аудиту.
 
 Нижче збережено історичну базову лінію та результати станом на 2026-07-23.
 Поточні незакриті пункти визначаються переліком вище.

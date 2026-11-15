@@ -56,7 +56,7 @@ from .core.enums import EventType
 from .core.events import Event, EventBus
 from .core.scheduler import Worker
 from .db.session import init_db
-from .services import capability_profile, gallery_service, runtime_tuning, settings_overrides
+from .services import capability_profile, gallery_service, runtime_tuning, settings_overrides, video_service
 from .services.embedding_service import embedding_service
 from .util import request_context, security, sysmon
 from .util.logging import (
@@ -216,8 +216,11 @@ async def lifespan(app: FastAPI):
         recovered_images = await gallery_service.recover_output_history(
             session, settings.outputs_dir
         )
+        recovered_videos = await video_service.recover_output_history(session, settings.outputs_dir)
     if recovered_images:
         logger.info("event=history.recovered images=%d", recovered_images)
+    if recovered_videos:
+        logger.info("event=history.recovered videos=%d", recovered_videos)
     security.log_startup_posture(logger)
     await _prime_learned_profiles()
     registry = ModelRegistry()

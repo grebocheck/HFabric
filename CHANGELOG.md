@@ -12,6 +12,8 @@ include breaking changes — this is pre-release software.
 - Worker readiness and degraded-state diagnostics in `/api/health`.
 - Regression tests for note autosave races, queue recovery, concurrent download
   admission, conversation selection, shared chat events and reconnect recovery.
+- Startup recovery of completed video bundles whose history transaction was
+  interrupted, plus cancellation, cache refresh and Voice lifecycle regressions.
 
 ### Changed
 
@@ -19,6 +21,8 @@ include breaking changes — this is pre-release software.
   active conversation at the same reconnect boundary.
 - Notes keep a revisioned draft outside the workspace component, persist unsaved
   text in browser storage, and serialize writes per note.
+- Video encoding uses hidden staging and publishes the metadata completion
+  marker last; images and videos share bounded artifact cleanup.
 
 ### Deprecated
 
@@ -37,6 +41,15 @@ include breaking changes — this is pre-release software.
 - The GPU dependency audit now checks unaudited packages in the scanner's
   dependency entries and reports scanner/policy failures explicitly.
 - Removed an unused editor type export that failed the Knip check.
+- Queued cancellation and worker claiming use conditional database transitions;
+  repeated cancellation preserves terminal results and emits no duplicate event.
+- Model rescans invalidate stale backend instances, including same-size model
+  replacements, while the arbiter retains ownership of resident instances.
+- Offline native Voice conversion reserves the GPU exclusively and retains its
+  input, lifecycle lock and reservation after an HTTP timeout or cancellation
+  until inference and cleanup finish.
+- Live Voice stop retains its session and GPU reservation while its worker is
+  still alive; successful unload releases cached pitch models as well.
 
 ### Security
 

@@ -8,6 +8,7 @@ what decides which one is actually resident in VRAM.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 import re
 import threading
@@ -129,8 +130,7 @@ class ModelRegistry:
         snapshot in a worker thread and publishes it atomically.
         """
         descriptors, loras = self._build_inventory_serialized()
-        self._descriptors = descriptors
-        self._loras = loras
+        self._publish_inventory(descriptors, loras)
 
     async def scan_async(self) -> None:
         """Refresh model metadata without blocking WebSocket/HTTP progress.
@@ -145,8 +145,17 @@ class ModelRegistry:
             descriptors, loras = await asyncio.to_thread(
                 self._build_inventory_serialized
             )
-            self._descriptors = descriptors
-            self._loras = loras
+            self._publish_inventory(descriptors, loras)
+
+    def _publish_inventory(self, descriptors, loras) -> None:
+        self._descriptors = descriptors
+        self._loras = loras
+        # GPU ownership stays with the arbiter. Retain active objects until the
+        # next acquire replaces them; idle stale instances can be discarded now.
+        self._backends = {
+            model_id: backend for model_id, backend in self._backends.items()
+            if backend.loaded or backend.warm or backend.descriptor == descriptors.get(model_id)
+        }
 
     def _build_inventory_serialized(
         self,
@@ -255,15 +264,26 @@ class ModelRegistry:
         return deduped
 
     @staticmethod
-    def _path_size(path: Path) -> int:
-        if path.is_dir():
-            return sum(
-                f.stat().st_size for f in path.rglob("*.safetensors") if f.is_file()
-            )
-        try:
-            return path.stat().st_size
-        except OSError:
-            return 0
+    def _path_info(path: Path) -> tuple[int, str]:
+        """Collect size and a cheap revision in one metadata-only disk walk."""
+        directory = path.is_dir()
+        paths = sorted(path.rglob("*")) if directory else [path]
+        fingerprint = hashlib.sha256()
+        size = 0
+        for file in paths:
+            if directory and file.suffix.lower() not in {".safetensors", ".gguf", ".bin", ".pt", ".json"}:
+                continue
+            try:
+                stat = file.stat()
+                if not file.is_file():
+                    continue
+            except OSError:
+                continue
+            if not directory or file.suffix.lower() == ".safetensors":
+                size += stat.st_size
+            name = file.relative_to(path).as_posix() if directory else file.name
+            fingerprint.update(f"{name}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode())
+        return size, fingerprint.hexdigest()
 
     def _add(
         self,
@@ -282,8 +302,8 @@ class ModelRegistry:
                 mid = _slug(rel.with_suffix("").as_posix())
             except ValueError:
                 pass
-        size = self._path_size(path)
-        mmproj_size = self._path_size(mmproj_path) if mmproj_path else 0
+        size, revision = self._path_info(path)
+        mmproj_size, mmproj_revision = self._path_info(mmproj_path) if mmproj_path else (0, "")
         self._descriptors[mid] = ModelDescriptor(
             id=mid,
             name=display_name,
@@ -293,17 +313,19 @@ class ModelRegistry:
             quant=quant,
             mmproj_path=mmproj_path,
             mmproj_size_bytes=mmproj_size,
+            revision=f"{revision}:{mmproj_revision}",
         )
 
     def _add_upscaler(self) -> None:
         path = settings.upscaler_model_path
-        size = self._path_size(path) if path.exists() else 0
+        size, revision = self._path_info(path)
         self._descriptors[settings.upscaler_model_id] = ModelDescriptor(
             id=settings.upscaler_model_id,
             name=settings.upscaler_model_name,
             family=ModelFamily.UPSCALER,
             path=path,
             size_bytes=size,
+            revision=revision,
         )
 
     def _add_lora(self, path: Path) -> None:
@@ -344,9 +366,10 @@ class ModelRegistry:
         return self._loras[lora_id]
 
     def get_backend(self, model_id: str) -> GpuBackend:
-        if model_id in self._backends:
-            return self._backends[model_id]
         desc = self.get_descriptor(model_id)
+        cached = self._backends.get(model_id)
+        if cached is not None and cached.descriptor == desc:
+            return cached
         backend: GpuBackend
         if desc.family is ModelFamily.GGUF:
             backend = LlamaCppBackend(desc)
@@ -362,7 +385,8 @@ class ModelRegistry:
         return backend
 
     def peek_backend(self, model_id: str) -> GpuBackend | None:
-        return self._backends.get(model_id)
+        backend = self._backends.get(model_id)
+        return backend if backend is not None and backend.descriptor == self._descriptors.get(model_id) else None
 
     def loaded_backends(self) -> list[GpuBackend]:
         return [b for b in self._backends.values() if b.loaded]

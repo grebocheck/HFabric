@@ -421,10 +421,10 @@ class GpuArbiter:
                 await self._publish_status()
 
     @asynccontextmanager
-    async def gpu_lane(self, lane_id: str, label: str):
+    async def gpu_lane(self, lane_id: str, label: str, *, exclusive: bool = False):
         """Scope a short-lived GPU lane (TTS/transcribe) so it is always released,
         even if the work raises."""
-        await self.activate_lane(lane_id, label)
+        await self.activate_lane(lane_id, label, exclusive=exclusive, unload_resident=exclusive)
         try:
             yield
         finally:

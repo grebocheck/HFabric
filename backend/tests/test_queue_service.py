@@ -39,9 +39,11 @@ async def test_queue_crud_filters_priority_cancel_and_clear(queue_db):
         assert (await queue_service.get_job(s, high.id)).model_id == "llm"
         assert await queue_service.get_job(s, "missing") is None
 
-        cancelled = await queue_service.cancel_job(s, low.id)
+        cancelled, changed = await queue_service.cancel_job(s, low.id)
         assert cancelled.status == JobStatus.CANCELLED
-        assert await queue_service.cancel_job(s, "missing") is None
+        assert changed
+        assert (await queue_service.cancel_job(s, low.id))[1] is False
+        assert await queue_service.cancel_job(s, "missing") == (None, False)
 
         changed = await queue_service.set_priority(s, high.id, 9)
         assert changed.priority == 9

@@ -12,7 +12,7 @@ import wave
 from ...config import settings
 from . import assets as asset_discovery
 from . import dsp, slots
-from .f0 import F0_DETECTORS, SUPPORTED_DETECTORS
+from .f0 import F0_DETECTORS, SUPPORTED_DETECTORS, clear_f0_cache
 
 INPUT_DENOISE_MODES = {"off", "dtln"}
 VOICE_SETTINGS_FILE = "voice-settings.json"
@@ -397,6 +397,7 @@ class VoiceEngine:
             self._loaded_model = None
             self._loaded_model_id = None
             self._denoiser = None
+            clear_f0_cache()
             if not settings.stub_mode:
                 try:
                     import torch  # noqa: PLC0415

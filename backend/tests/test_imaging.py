@@ -39,7 +39,7 @@ def test_save_png_removes_partial_bundle_when_commit_fails(tmp_path, monkeypatch
     assert list(tmp_path.iterdir()) == []
 
 
-def test_remove_image_records_stays_inside_outputs_root(tmp_path):
+def test_remove_media_records_stays_inside_outputs_root(tmp_path):
     outputs = tmp_path / "outputs"
     output = outputs / "day" / "image.png"
     output.parent.mkdir(parents=True)
@@ -48,7 +48,7 @@ def test_remove_image_records_stays_inside_outputs_root(tmp_path):
     outside = tmp_path / "outside.png"
     outside.write_bytes(b"keep")
 
-    imaging.remove_image_records(
+    imaging.remove_media_records(
         [{"path": str(output)}, {"path": str(outside)}],
         outputs,
     )

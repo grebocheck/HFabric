@@ -11,9 +11,12 @@ from __future__ import annotations
 import asyncio
 import gc
 import json
+import os
 from pathlib import Path
 import random
+import tempfile
 from typing import Any
+from uuid import uuid4
 
 from PIL import Image as PILImage
 
@@ -477,17 +480,37 @@ class DiffusersVideoBackend(VideoBackend):
         return self._i2v_pipe
 
     def _persist(self, frames: list[Any], meta: dict[str, Any]) -> dict[str, Any]:
-        import imageio.v2 as imageio  # foundation dependency; no Diffusers import in STUB
-        import numpy as np  # noqa: PLC0415
-
         pil_frames = [self._to_pil(frame) for frame in frames]
         if not pil_frames:
             raise RuntimeError("video pipeline returned no frames")
         out_dir = imaging.day_dir(settings.outputs_dir)
-        stem = f"video_{meta['seed']}_{random.randint(1000, 9999)}"
+        stem = f"video_{meta['seed']}_{uuid4().hex}"
         video_path = out_dir / f"{stem}.mp4"
         poster_path = out_dir / f"{stem}.poster.webp"
         thumb_path = out_dir / f"{stem}.thumb.webp"
+        record = {
+            "path": str(video_path), "poster_path": str(poster_path), "thumb_path": str(thumb_path),
+            **{key: meta[key] for key in ("seed", "width", "height", "frames", "fps", "duration_s", "family")},
+            "params": meta,
+        }
+        # Hidden staging is excluded from startup recovery. Publish the JSON
+        # last: it is the completion marker for a recoverable video bundle.
+        final_paths = (video_path, poster_path, thumb_path, video_path.with_suffix(".json"))
+        with tempfile.TemporaryDirectory(prefix=".video-", dir=out_dir) as staging:
+            staged_paths = tuple(Path(staging) / path.name for path in final_paths)
+            self._write_bundle(pil_frames, meta, *staged_paths[:3])
+            try:
+                for source, destination in zip(staged_paths, final_paths, strict=True):
+                    os.replace(source, destination)
+            except BaseException:
+                imaging.remove_media_records([record], settings.outputs_dir)
+                raise
+        return record
+
+    @staticmethod
+    def _write_bundle(pil_frames, meta, video_path, poster_path, thumb_path) -> None:
+        import imageio.v2 as imageio  # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
 
         with imageio.get_writer(
             video_path,
@@ -523,19 +546,6 @@ class DiffusersVideoBackend(VideoBackend):
         video_path.with_suffix(".json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        return {
-            "path": str(video_path),
-            "poster_path": str(poster_path),
-            "thumb_path": str(thumb_path),
-            "seed": meta["seed"],
-            "width": meta["width"],
-            "height": meta["height"],
-            "frames": meta["frames"],
-            "fps": meta["fps"],
-            "duration_s": meta["duration_s"],
-            "family": meta["family"],
-            "params": meta,
-        }
 
     def _metadata(self, params: dict[str, Any], **resolved: Any) -> dict[str, Any]:
         public = {key: value for key, value in params.items() if not key.startswith("_")}

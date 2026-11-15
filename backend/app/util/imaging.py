@@ -9,12 +9,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
 import uuid
 
 from PIL import Image, ImageDraw, PngImagePlugin
+
+logger = logging.getLogger("hfabric")
 
 
 def day_dir(outputs_dir: Path) -> Path:
@@ -56,11 +59,11 @@ def make_thumbnail(img: Image.Image, path: Path, size: int = 384) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def remove_image_records(records: list[dict[str, Any]], outputs_dir: Path) -> None:
-    """Best-effort cleanup for image bundles that were never committed to DB."""
+def remove_media_records(records: list[dict[str, Any]], outputs_dir: Path) -> None:
+    """Best-effort cleanup for uncommitted image/video bundles inside outputs."""
     root = outputs_dir.resolve()
     for record in records:
-        for key in ("path", "thumb_path"):
+        for key in ("path", "poster_path", "thumb_path"):
             raw = record.get(key)
             if not isinstance(raw, str) or not raw:
                 continue
@@ -69,9 +72,12 @@ def remove_image_records(records: list[dict[str, Any]], outputs_dir: Path) -> No
                 path.relative_to(root)
             except ValueError:
                 continue
-            path.unlink(missing_ok=True)
-            if key == "path":
-                path.with_suffix(".json").unlink(missing_ok=True)
+            paths = (path, path.with_suffix(".json")) if key == "path" else (path,)
+            for candidate in paths:
+                try:
+                    candidate.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("event=media.cleanup.failed path=%s", candidate, exc_info=True)
 
 
 def _temporary_sibling(path: Path) -> Path:

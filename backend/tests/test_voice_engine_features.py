@@ -1,11 +1,39 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+from types import SimpleNamespace
+import weakref
 
 import numpy as np
 import pytest
 
 from app.services.voice_engine.features import ContentVec
+
+
+async def test_engine_unload_releases_pitch_model_caches(monkeypatch, tmp_path):
+    from app.services.voice_engine import f0
+    from app.services.voice_engine.engine import VoiceEngine
+
+    class Model:
+        pass
+
+    extractor = f0.F0Extractor("fcpe", tmp_path / "f0.pt", "cuda")
+    extractor._impl = Model()
+    model_reference = weakref.ref(extractor._impl)
+    infer = SimpleNamespace(model=Model(), capacity="tiny")
+    crepe_reference = weakref.ref(infer.model)
+    monkeypatch.setattr(f0, "_EXTRACTOR_CACHE", {("fcpe", "f0.pt", "cuda"): extractor})
+    monkeypatch.setitem(sys.modules, "torchcrepe", SimpleNamespace(infer=infer))
+
+    await VoiceEngine().unload()
+
+    assert not f0._EXTRACTOR_CACHE
+    assert extractor._impl is None
+    assert model_reference() is None
+    assert crepe_reference() is None
+    assert not hasattr(infer, "model")
+    assert not hasattr(infer, "capacity")
 
 
 class FakeSession:

@@ -87,7 +87,10 @@ class JobResultService:
 
     async def discard_images(self, records: list[dict[str, Any]]) -> None:
         """Remove generated files that will not receive durable gallery rows."""
-        await asyncio.to_thread(imaging.remove_image_records, records, settings.outputs_dir)
+        await asyncio.to_thread(imaging.remove_media_records, records, settings.outputs_dir)
+
+    async def discard_video(self, record: dict[str, Any]) -> None:
+        await asyncio.to_thread(imaging.remove_media_records, [record], settings.outputs_dir)
 
     async def finish_image(
         self,

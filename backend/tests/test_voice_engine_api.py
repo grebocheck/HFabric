@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import math
@@ -11,6 +12,7 @@ import pytest
 
 from app.config import settings
 from app.main import app
+from app.services import task_ownership
 from app.services.voice_engine import engine as engine_mod
 
 
@@ -53,6 +55,60 @@ def _add_fake_pretrain() -> None:
     settings.voice_pretrain_dir.mkdir(parents=True, exist_ok=True)
     (settings.voice_pretrain_dir / "content_vec_500.onnx").write_bytes(b"onnx")
     (settings.voice_pretrain_dir / "rmvpe.pt").write_bytes(b"pt")
+
+
+@pytest.mark.parametrize("abandon", ["timeout", "cancel"])
+async def test_offline_conversion_owns_gpu_and_input_until_native_work_finishes(client, monkeypatch, abandon):
+    from unittest.mock import AsyncMock
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    paths = []
+    engine = engine_mod.get_engine()
+    monkeypatch.setattr(engine, "device", "cuda")
+    monkeypatch.setattr(settings, "voice_timeout_seconds", 0.03 if abandon == "timeout" else 60)
+    unload = AsyncMock()
+    monkeypatch.setattr(engine, "unload", unload)
+
+    async def convert(input_path, *_args, **_kwargs):
+        paths.append(input_path)
+        started.set()
+        await release.wait()
+        assert input_path.is_file()
+        return {}
+
+    monkeypatch.setattr(engine, "convert_file", convert)
+    request = asyncio.create_task(client.post("/api/voice/engine/convert", data={"model_id": "stub-voice"}, files={"file": ("voice.wav", _wav_bytes(), "audio/wav")}))
+    try:
+        await asyncio.wait_for(started.wait(), 3)
+        if abandon == "cancel":
+            request.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+        else:
+            assert (await request).status_code == 504
+        assert app.state.arbiter.exclusive_lane_active
+        assert paths[0].is_file()
+        unload.assert_not_awaited()
+        conflict = await client.post("/api/voice/engine/session/start", json={"model_id": "stub-voice"})
+        assert conflict.status_code == 409
+    finally:
+        release.set()
+        if task_ownership._TASKS:
+            await asyncio.gather(*list(task_ownership._TASKS), return_exceptions=True)
+        if not request.done():
+            await request
+    assert not app.state.arbiter.exclusive_lane_active
+    assert not paths[0].exists()
+    unload.assert_awaited_once()
+
+
+async def test_offline_conversion_rejects_an_active_live_session(client):
+    assert (await client.post("/api/voice/engine/session/start", json={"model_id": "stub-voice"})).status_code == 200
+    result = await client.post("/api/voice/engine/convert", data={"model_id": "stub-voice"}, files={"file": ("voice.wav", _wav_bytes(), "audio/wav")})
+    assert result.status_code == 409
+    assert app.state.arbiter.status()["lanes"] == [{"id": "voice", "label": "voice session"}]
+    assert (await client.post("/api/voice/engine/session/stop")).status_code == 200
 
 
 async def test_status_reports_stub_ready_and_fake_devices(client):

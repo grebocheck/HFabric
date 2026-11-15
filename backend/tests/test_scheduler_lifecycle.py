@@ -196,6 +196,9 @@ class _Results:
     async def discard_images(self, records) -> None:
         self.calls.append(("discard_images", records))
 
+    async def discard_video(self, record) -> None:
+        self.calls.append(("discard_video", record))
+
     async def finish_image(self, snap, records) -> None:
         self.calls.append(("finish_image", snap.id, records))
 
@@ -288,6 +291,9 @@ async def test_run_honours_cancellation_after_backend_returns(kind, job_type):
 
     if job_type in (JobType.IMAGE, JobType.UPSCALE):
         assert results.calls[0][0] == "discard_images"
+        assert results.calls[1][0] == "cancelled"
+    elif job_type is JobType.VIDEO:
+        assert results.calls[0][0] == "discard_video"
         assert results.calls[1][0] == "cancelled"
     else:
         assert results.calls[0][0] == "cancelled"

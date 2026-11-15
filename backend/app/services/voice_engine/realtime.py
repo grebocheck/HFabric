@@ -290,6 +290,10 @@ def _latency_warning(total_p95_ms: float | None, chunk_ms: float | None) -> str 
     )
 
 
+class VoiceStopTimeout(RuntimeError):
+    """Inference still owns its session after the bounded stop request."""
+
+
 class RealtimeSession:
     """Owns the duplex stream + worker thread for one live voice session."""
 
@@ -479,13 +483,6 @@ class RealtimeSession:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._worker is not None:
-            # ``start`` can fail after constructing the Thread but before
-            # starting it. ``Thread.join`` raises in that state and used to
-            # hide the actual PortAudio/device error from the API.
-            if self._worker.is_alive():
-                self._worker.join(timeout=5.0)
-            self._worker = None
         for stream in (self._stream, self._monitor_stream):
             if stream is not None:
                 try:
@@ -498,6 +495,16 @@ class RealtimeSession:
                     logger.debug("event=voice.realtime.stream_close_failed", exc_info=True)
         self._stream = None
         self._monitor_stream = None
+        if self._worker is not None:
+            # ``start`` can fail after constructing the Thread but before
+            # starting it. ``Thread.join`` raises in that state and used to
+            # hide the actual PortAudio/device error from the API.
+            if self._worker.is_alive():
+                self._worker.join(timeout=5.0)
+                if self._worker.is_alive():
+                    self.error = "Voice inference is still stopping; retry Stop before starting another GPU task."
+                    raise VoiceStopTimeout(self.error)
+            self._worker = None
         self._processor = None
         if not settings.stub_mode:
             try:
@@ -889,6 +896,9 @@ def start_session(engine: VoiceEngine, model_id: str) -> None:
             try:
                 session.stop()
             except Exception:  # noqa: BLE001 - preserve the startup exception
+                worker = getattr(session, "_worker", None)
+                if worker is not None and worker.is_alive():
+                    _SESSION = session
                 logger.warning(
                     "event=voice.realtime.start_cleanup_failed",
                     exc_info=True,
@@ -902,8 +912,6 @@ def stop_session() -> bool:
     with _SESSION_LOCK:
         if _SESSION is None:
             return False
-        try:
-            _SESSION.stop()
-        finally:
-            _SESSION = None
+        _SESSION.stop()
+        _SESSION = None
     return True

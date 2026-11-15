@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import UTC, datetime
+
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.enums import JobStatus, JobType
@@ -48,11 +50,16 @@ async def get_job(session: AsyncSession, job_id: str) -> Job | None:
     return await session.get(Job, job_id)
 
 
-async def cancel_job(session: AsyncSession, job_id: str) -> Job | None:
-    job = await session.get(Job, job_id)
-    if job and job.status == JobStatus.QUEUED:
-        job.status = JobStatus.CANCELLED
-    return job
+async def cancel_job(session: AsyncSession, job_id: str) -> tuple[Job | None, bool]:
+    """Cancel only a still-queued row, reporting the actual durable transition."""
+    changed = (await session.execute(
+        update(Job)
+        .where(Job.id == job_id, Job.status == JobStatus.QUEUED)
+        .values(status=JobStatus.CANCELLED, finished_at=datetime.now(UTC))
+        .returning(Job.id)
+    )).scalar_one_or_none() is not None
+    job = await session.get(Job, job_id, populate_existing=True)
+    return job, changed
 
 
 async def set_priority(session: AsyncSession, job_id: str, priority: int) -> Job | None:

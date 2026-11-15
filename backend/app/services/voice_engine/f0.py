@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -158,6 +159,21 @@ class F0Extractor:
 
 
 _EXTRACTOR_CACHE: dict[tuple[str, str, str], F0Extractor] = {}
+
+
+def clear_f0_cache() -> None:
+    """Release cached pitch models after the exclusive Voice owner stops."""
+    for extractor in _EXTRACTOR_CACHE.values():
+        extractor._impl = None
+        extractor._actual_provider = None
+    _EXTRACTOR_CACHE.clear()
+    # torchcrepe keeps its network on the infer function rather than on our
+    # extractor. Its next call reloads when either cache attribute is absent.
+    module = sys.modules.get("torchcrepe")
+    infer = getattr(module, "infer", None)
+    for key in ("model", "capacity"):
+        if infer is not None and hasattr(infer, key):
+            delattr(infer, key)
 
 
 def create_f0_extractor(detector: str, model_path: Path, device: str) -> F0Extractor:

@@ -11,7 +11,7 @@ import asyncio
 from datetime import UTC, datetime
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from ..backends.base import (
     GenerationCancelled,
@@ -311,14 +311,21 @@ class Worker:
                 (current.descriptor.job_type.value if current is not None else None),
             )
 
-            chosen.status = JobStatus.RUNNING
-            chosen.started_at = datetime.now(UTC)
+            started_at = datetime.now(UTC)
+            claimed = (await session.execute(
+                update(Job)
+                .where(Job.id == chosen.id, Job.status == JobStatus.QUEUED)
+                .values(status=JobStatus.RUNNING, started_at=started_at)
+                .returning(Job.id)
+            )).scalar_one_or_none()
+            if claimed is None:
+                return None
             created_at = chosen.created_at
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=UTC)
             queue_age_s = max(
                 0.0,
-                (chosen.started_at - created_at).total_seconds(),
+                (started_at - created_at).total_seconds(),
             )
             return JobSnapshot(
                 chosen.id,
@@ -400,6 +407,7 @@ class Worker:
                 record = await backend.generate(snap.params, progress)
                 if self._cancel_current:
                     failed = True
+                    await self._results.discard_video(record)
                     await self._results.mark_cancelled(snap)
                 else:
                     await self._results.finish_video(snap, record)

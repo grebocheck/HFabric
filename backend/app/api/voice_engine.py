@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from contextlib import nullcontext
 import logging
 from pathlib import Path
 import tempfile
@@ -20,6 +21,7 @@ from ..core.enums import EventType
 from ..core.events import EventBus
 from ..core.scheduler import Worker
 from ..services import model_download_service as downloads
+from ..services.task_ownership import run_owned
 from ..services.voice_engine import assets as asset_discovery
 from ..services.voice_engine import devices, presets, realtime, storage
 from ..services.voice_engine.engine import get_engine
@@ -70,7 +72,7 @@ async def shutdown_voice_session(
     worker: Worker,
     bus: EventBus,
 ) -> bool:
-    """Stop realtime/recording and always release the Voice GPU reservation."""
+    """Release the reservation only after realtime inference actually stops."""
     async with _voice_lifecycle_lock(arbiter):
         was_active = realtime.session_active()
         stopped = False
@@ -78,19 +80,24 @@ async def shutdown_voice_session(
             stopped = await realtime.run_audio_io(realtime.stop_session)
             return stopped
         finally:
-            # realtime.stop_session clears its singleton in its own finally. The
-            # arbiter lane must have the same guarantee if audio teardown raises.
-            await arbiter.deactivate_lane("voice")
-            if was_active or stopped:
-                bus.emit(EventType.VOICE_SESSION_STOPPED, engine="native-rvc")
-            worker.notify()
+            if not realtime.session_active():
+                await get_engine().unload()
+                await arbiter.deactivate_lane("voice")
+                if was_active or stopped:
+                    bus.emit(EventType.VOICE_SESSION_STOPPED, engine="native-rvc")
+                worker.notify()
 
 
 async def _rollback_voice_handoff(
     arbiter: GpuArbiter,
     previous: Any,
 ) -> None:
+    if realtime.session_active():
+        # Failed startup cleanup may still be waiting on native inference.
+        logger.warning("event=voice.handoff.cleanup_pending")
+        return
     try:
+        await get_engine().unload()
         await arbiter.rollback_lane("voice", previous)
     except Exception:  # noqa: BLE001 - preserve the original device/start failure
         logger.exception("event=voice.handoff.rollback_failed")
@@ -433,6 +440,8 @@ async def voice_engine_convert(
     input_formant: float | None = Form(None),
     input_denoise: str | None = Form(None),
     input_denoise_mix: float | None = Form(None),
+    arbiter: GpuArbiter = Depends(get_arbiter),
+    worker: Worker = Depends(get_worker),
 ) -> VoiceConvertOut:
     engine = get_engine()
     if await engine.get_model_async(model_id) is None:
@@ -450,34 +459,46 @@ async def voice_engine_convert(
     token = storage.new_token()
     output_path = storage.resolve_output(token)
     assert output_path is not None
-    try:
+
+    async def convert_owned():
         try:
-            result = await engine.convert_file(
-                input_path,
-                output_path,
-                model_id,
-                pitch=pitch,
-                speaker_id=speaker_id,
-                index_ratio=index_ratio,
-                protect=protect,
-                noise_scale=noise_scale,
-                f0_smoothing=f0_smoothing,
-                input_highpass_hz=input_highpass_hz,
-                input_gate_db=input_gate_db,
-                input_formant=input_formant,
-                input_denoise=input_denoise,
-                input_denoise_mix=input_denoise_mix,
-            )
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        except wave.Error as exc:
-            raise HTTPException(415, f"unsupported or corrupt WAV input: {exc}") from exc
-        except RuntimeError as exc:
-            if "missing required voice pretrain asset" in str(exc):
-                raise HTTPException(503, str(exc)) from exc
-            raise
-    finally:
-        await asyncio.to_thread(input_path.unlink, missing_ok=True)
+            lock = _voice_lifecycle_lock(arbiter)
+            if lock.locked():
+                raise HTTPException(409, "another voice operation is in progress")
+            async with lock:
+                if realtime.session_active():
+                    raise HTTPException(409, "stop the live voice session before offline conversion")
+                use_gpu = engine.device.lower() != "cpu"
+                # Even CPU conversion shares engine state with realtime startup.
+                # Keep native inference and unload inside the same owner.
+                lane = arbiter.gpu_lane("voice-offline", "voice conversion", exclusive=True) if use_gpu else nullcontext()
+                async with lane:
+                    try:
+                        return await engine.convert_file(
+                            input_path, output_path, model_id, pitch=pitch, speaker_id=speaker_id,
+                            index_ratio=index_ratio, protect=protect, noise_scale=noise_scale,
+                            f0_smoothing=f0_smoothing, input_highpass_hz=input_highpass_hz,
+                            input_gate_db=input_gate_db, input_formant=input_formant,
+                            input_denoise=input_denoise, input_denoise_mix=input_denoise_mix,
+                        )
+                    finally:
+                        await engine.unload()
+        finally:
+            await asyncio.to_thread(input_path.unlink, missing_ok=True)
+            worker.notify()
+
+    try:
+        result = await run_owned(convert_owned(), name="hfabric-voice-convert", timeout=settings.voice_timeout_seconds)
+    except TimeoutError as exc:
+        raise HTTPException(504, "voice conversion timed out; native work is still finishing") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except wave.Error as exc:
+        raise HTTPException(415, f"unsupported or corrupt WAV input: {exc}") from exc
+    except RuntimeError as exc:
+        if "missing required voice pretrain asset" in str(exc):
+            raise HTTPException(503, str(exc)) from exc
+        raise
 
     return {
         "token": token,
@@ -495,7 +516,10 @@ async def voice_engine_session_start(
     bus: EventBus = Depends(get_bus),
 ) -> VoiceEngineStatusOut:
     """Atomically hand the GPU from the arbiter to a live Voice session."""
-    async with _voice_lifecycle_lock(arbiter):
+    lock = _voice_lifecycle_lock(arbiter)
+    if lock.locked():
+        raise HTTPException(409, "another voice operation is in progress")
+    async with lock:
         engine = get_engine()
         if await engine.get_model_async(body.model_id) is None:
             raise HTTPException(404, "voice model not found")
@@ -515,8 +539,16 @@ async def voice_engine_session_start(
             idle_guard=_voice_idle_guard(worker),
         )
         try:
-            await realtime.run_audio_io(realtime.start_session, engine, body.model_id)
+            startup = asyncio.create_task(realtime.run_audio_io(realtime.start_session, engine, body.model_id))
+            await asyncio.shield(startup)
         except asyncio.CancelledError:
+            # Joining the startup owner prevents rollback racing a still-loading
+            # model or a session that has not published its singleton yet.
+            try:
+                await asyncio.shield(startup)
+                await realtime.run_audio_io(realtime.stop_session)
+            except Exception:
+                logger.warning("event=voice.start.cancel_cleanup_failed", exc_info=True)
             await _rollback_voice_handoff(arbiter, previous)
             worker.notify()
             raise
@@ -545,6 +577,8 @@ async def voice_engine_session_stop(
 ) -> VoiceEngineStatusOut:
     try:
         await shutdown_voice_session(arbiter, worker, bus)
+    except realtime.VoiceStopTimeout as exc:
+        raise HTTPException(409, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - lane cleanup already completed
         raise HTTPException(500, f"could not stop the voice session: {exc}") from exc
     return await _status_payload()

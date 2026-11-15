@@ -40,6 +40,8 @@ class ModelDescriptor:
     quant: str | None = None
     mmproj_path: Path | None = None
     mmproj_size_bytes: int = 0
+    # Metadata fingerprint; rescans detect changed weights/configs without reading weights.
+    revision: str = ""
 
     @property
     def job_type(self) -> JobType:

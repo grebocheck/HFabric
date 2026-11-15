@@ -232,7 +232,7 @@ class DiffusersImageBackend(
                     rec = await self._generate_real(params, width, height, steps, seed, i, batch, progress)
                 results.append(rec)
         except BaseException:
-            imaging.remove_image_records(results, settings.outputs_dir)
+            imaging.remove_media_records(results, settings.outputs_dir)
             raise
         return results
 
@@ -426,7 +426,7 @@ class DiffusersImageBackend(
             imaging.save_png(img, png_path, meta)
             imaging.make_thumbnail(img, thumb_path)
         except BaseException:
-            imaging.remove_image_records(
+            imaging.remove_media_records(
                 [{"path": str(png_path), "thumb_path": str(thumb_path)}],
                 settings.outputs_dir,
             )
