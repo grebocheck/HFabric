@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  chatSampling,
+  conversationSettings,
+  createChatSettings,
+  DEFAULTS_KEY,
+  loadDefaults,
   loadPromptHistory,
   modelTitle,
   numOrUndef,
   parseImportBundle,
   parseStop,
   pickImageModel,
+  personaSettings,
   PROMPT_HISTORY_KEY,
 } from "./chatHelpers";
 import type { Model } from "../types";
@@ -30,6 +36,8 @@ describe("sampling field coercion", () => {
     expect(numOrUndef("")).toBeUndefined();
     expect(numOrUndef(0)).toBe(0);
     expect(numOrUndef(0.7)).toBe(0.7);
+    expect(numOrUndef(Number.NaN)).toBeUndefined();
+    expect(numOrUndef(Infinity)).toBeUndefined();
   });
 
   it("parseStop splits on commas/newlines and trims, else undefined", () => {
@@ -39,10 +47,95 @@ describe("sampling field coercion", () => {
   });
 });
 
+describe("chat settings drafts", () => {
+  afterEach(() => localStorage.clear());
+
+  it.each(["null", "[]", '"text"', "42", "{invalid"])(
+    "recovers safe defaults from %s in browser storage",
+    (raw) => {
+      localStorage.setItem(DEFAULTS_KEY, raw);
+      expect(createChatSettings()).toMatchObject({
+        modelId: "",
+        temperature: 0.8,
+        maxTokens: 4096,
+        imageTool: false,
+      });
+    },
+  );
+
+  it("filters invalid saved fields while keeping valid preferences", () => {
+    localStorage.setItem(
+      DEFAULTS_KEY,
+      JSON.stringify({
+        model_id: 4,
+        temperature: "hot",
+        max_tokens: 2048,
+        image_tool: "false",
+        document_tool: true,
+        rag_top_k: null,
+      }),
+    );
+    expect(loadDefaults()).toMatchObject({ max_tokens: 2048, document_tool: true });
+    expect(createChatSettings()).toMatchObject({
+      modelId: "",
+      temperature: 0.8,
+      maxTokens: 2048,
+      imageTool: false,
+      documentTool: true,
+      ragTopK: 5,
+    });
+  });
+
+  it("restores conversation-specific advanced settings without inheriting the previous seed", () => {
+    const current = { ...createChatSettings(), seed: 91, topP: 0.7, stop: "previous" };
+    const next = conversationSettings(current, {
+      id: "next",
+      title: "Next",
+      model_id: "llm",
+      system: "System",
+      params: { top_k: 12, stop: ["END", 7], document_tool: true },
+      created_at: "",
+      updated_at: "",
+    });
+    expect(next).toMatchObject({
+      modelId: "llm",
+      system: "System",
+      seed: "",
+      topP: "",
+      topK: 12,
+      stop: "END",
+      imageTool: false,
+      documentTool: true,
+    });
+    expect(chatSampling(next).seed).toBeUndefined();
+  });
+
+  it("round-trips persona sampling, including a zero seed, without changing model or tool choices", () => {
+    const original = {
+      ...createChatSettings(),
+      modelId: "chosen",
+      system: "  concise  ",
+      seed: 0,
+      topP: 0.9,
+      topK: 15,
+      minP: 0.05,
+      repeatPenalty: 1.1,
+      stop: "END, STOP",
+      imageTool: true,
+    };
+    const payload = chatSampling(original);
+    const restored = personaSettings({ ...createChatSettings(), modelId: "other", imageTool: true }, payload);
+    expect(chatSampling(restored)).toEqual(payload);
+    expect(restored).toMatchObject({ modelId: "other", seed: 0, imageTool: true });
+    expect(personaSettings(restored, {}).seed).toBe("");
+  });
+});
+
 describe("model labelling", () => {
   it("modelTitle appends quant / vram / state hints", () => {
-    expect(modelTitle(model({ name: "SDXL", quant: "fp16", estimated_vram_gb: 11, loaded: true })))
-      .toBe("SDXL | fp16 / ~11.0 GB / loaded");
+    expect(modelTitle(model({ name: "SDXL", quant: "fp16", estimated_vram_gb: 11, loaded: true }))).toBe(
+      "SDXL | fp16 / ~11.0 GB / loaded",
+    );
     expect(modelTitle(model({ name: "Bare" }))).toBe("Bare");
   });
 

@@ -10,6 +10,8 @@ const field = "ui-field w-full rounded-md px-2.5 py-1.5 text-sm";
 export function ChatWorkspace({ controller }: { controller: ChatPanelController }) {
   const {
     activeId,
+    settings,
+    updateSettings,
     applyImagePromptSnippet,
     applyPersona,
     approxTokens,
@@ -22,16 +24,13 @@ export function ChatWorkspace({ controller }: { controller: ChatPanelController 
     convs,
     convsLoading,
     deleteConversation,
-    documentTool,
     editText,
     editingId,
     filteredConvs,
-    imageTool,
     input,
     inputRef,
     libraryOpen,
     messages,
-    modelId,
     modelsLoading,
     newChat,
     onKeyDown,
@@ -54,7 +53,6 @@ export function ChatWorkspace({ controller }: { controller: ChatPanelController 
     setEditingId,
     setInput,
     setLibraryOpen,
-    setModelId,
     startEdit,
     stats,
     stopGeneration,
@@ -62,6 +60,7 @@ export function ChatWorkspace({ controller }: { controller: ChatPanelController 
     uploadAttachments,
     visiblePromptHistory,
   } = controller;
+  const { documentTool, imageTool, modelId } = settings;
 
   return (
     <div className="flex h-full min-w-0 gap-3 max-[1000px]:block max-[1000px]:overflow-x-hidden max-[1000px]:overflow-y-auto">
@@ -162,7 +161,7 @@ export function ChatWorkspace({ controller }: { controller: ChatPanelController 
           quickModels={quickModels}
           quickPersonas={quickPersonas}
           selectedModel={selectedModel}
-          setModelId={setModelId}
+          setModelId={(modelId) => updateSettings({ modelId })}
           setPromptFromHistory={(prompt) => {
             setInput(prompt);
             inputRef.current?.focus();

@@ -48,7 +48,7 @@ one deterministic coverage pass and one shuffled pass; frontend and Windows
 smoke remain independent jobs.
 
 The separate **Dependencies** workflow runs on every push/PR, weekly, and on
-demand. Lock reproduction, foundation audit, development audit, and GPU audit
+demand. Lock reproduction, foundation audit, and development audit
 run independently, so one finding does not prevent other results or application
 tests. Audit JSON is retained on failure. **Release requires both CI and
 Dependencies**; a green CI alone does not approve dependencies for release.
@@ -112,7 +112,12 @@ Flow tests cover the high-value screens: ChatPanel (send → streamed reply →
 thinking split), Gallery (filter chips + bulk select), QueuePanel (job states +
 cancel), plus the Select control and model-picker helpers.
 
-## Voice settings
+## Workspace settings
+
+Chat owns one `ChatSettingsDraft` and updates it with `updateSettings(patch)`.
+`chatHelpers` contains the shared conversation/persona sampling conversion and
+send serializer. Browser defaults are validated once when the draft is created;
+conversation selection replaces advanced overrides, including the seed.
 
 Voice settings are owned by `useVoiceSettings`: one editable draft, one
 confirmed server snapshot, and one queue for writes and session commands.
@@ -122,7 +127,6 @@ Use `refresh` for polling so a late read cannot replace a completed mutation.
 Preset definitions and offline-file conversion retain their own lifecycles.
 
 ## Dependency profiles and locks
-
 
 `backend/dependency-profiles.json` is the single source for Python 3.12,
 resolver version, torch versions, platform targets and lock outputs. The
@@ -145,8 +149,14 @@ omits that trio so it cannot replace the accelerator wheels.
 `resolver.exclude_newer` freezes the ordinary dependency graph. Use
 `resolver.exclude_newer_packages` for deliberate security updates to individual
 packages, then regenerate all locks and run the audits. This keeps unrelated ML
-versions stable while updating security fixes. Exceptions in
-`backend/audit-allowlist.json` still expire and fail the GPU audit.
+versions stable while updating security fixes. GPU dependency audits run
+manually as part of profile upgrades; see the current
+[known findings](../KNOWN_ISSUES.md#gpu-dependency-audit). Use the standard tool
+with the lock under review:
+
+```powershell
+python -m pip_audit -r backend/requirements-gpu.lock --no-deps --disable-pip
+```
 
 ## Real-GPU validation
 

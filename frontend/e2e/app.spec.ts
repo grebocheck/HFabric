@@ -444,3 +444,43 @@ test("chat shares the app socket and restores a reply completed while disconnect
   await expect(page.getByText("Recovered browser reply", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeHidden();
 });
+
+test("chat recovers malformed defaults and keeps sampling scoped to the selected conversation", async ({ page }) => {
+  const conversations = [
+    { id: "seeded", title: "Seeded chat", model_id: "llm-e2e", system: null, params: { seed: 41, top_p: 0.9 }, created_at: "2026-11-16T08:00:00Z", updated_at: "2026-11-16T08:00:00Z" },
+    { id: "plain", title: "Plain chat", model_id: "llm-e2e", system: null, params: {}, created_at: "2026-11-16T08:00:00Z", updated_at: "2026-11-16T08:00:00Z" },
+  ];
+  await installApiStub(page, { welcomeSeen: true, fakeWebSocket: true, routes: {
+    "/api/models": { body: [{ id: "llm-e2e", name: "LLM E2E", family: "gguf", job_type: "llm", size_bytes: 1, loaded: false, available: true }] },
+    "/api/chat/conversations": { body: conversations },
+    "/api/llm/config": { body: { ctx: 8192, backend: "default", backends: [], context_type: "f16", context_types: [], loaded: false, stub: true } },
+    "/api/llm/server": { body: { enabled: false, available: false, loaded: false, pinned: false } },
+    "/api/jobs/chat-job": { body: { id: "chat-job", status: "running", result: {} } },
+  } });
+  await page.addInitScript(() => localStorage.setItem("hfabric.chat.defaults", "null"));
+  await page.route(/\/api\/chat\/conversations\/(seeded|plain)$/, (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").at(-1);
+    return route.fulfill({ json: { ...conversations.find((conversation) => conversation.id === id), messages: [] } });
+  });
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/chat/conversations/plain/messages", (route) => {
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ json: {
+      job_id: "chat-job", conversation: conversations[1],
+      user_message: { id: "user", role: "user", content: "Hello", attachments: [] },
+      assistant_message: { id: "assistant", role: "assistant", content: "", job_id: "chat-job", attachments: [] },
+    } });
+  });
+  await page.goto("/");
+  await page.getByRole("tablist", { name: "Workspaces" }).getByRole("tab", { name: "LLM", exact: true }).click();
+  await page.getByRole("button", { name: "Advanced sampling" }).click();
+  await expect(page.getByLabel("seed", { exact: true })).toHaveValue("41");
+  await page.getByText("Plain chat", { exact: true }).click();
+  await expect(page.getByLabel("seed", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("top_p", { exact: true })).toHaveValue("");
+  await page.getByLabel("seed", { exact: true }).fill("0");
+  await page.getByPlaceholder(/Message/).fill("Hello");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => submitted?.seed).toBe(0);
+  expect(submitted).not.toHaveProperty("top_p");
+});

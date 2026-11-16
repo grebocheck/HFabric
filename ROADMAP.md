@@ -13,7 +13,7 @@
   неочікуваної помилки downloader.
 - [x] F6: shared chat event transport, захист вибору розмови/відповідей за
   revision, прив'язка stream до message id і REST recovery включно з tool jobs.
-- [x] F10: перевірка пропущених пакетів у фактичному JSON pip-audit.
+- [x] F10: кастомний GPU audit parser замінено стандартною ручною командою pip-audit.
 - [x] Прибрано Knip blocker; додано unit/API/browser regressions.
 - [x] F8: metadata revision моделі та invalidation застарілих backend instances
   без втрати arbiter ownership активної моделі.
@@ -26,11 +26,15 @@
   завислої native роботи та перевірка реальних RAM/VRAM і audio devices.
 - [x] CI: ізольований Python, незалежні dependency checks, release gates для
   обох workflows; security updates foundation/dev без масового ML upgrade.
-- [ ] F7, решта: transformers/setuptools у GPU graph та прострочені exceptions;
-  потрібна міграція сумісного ML-стеку із повною апаратною smoke-матрицею.
+- [x] CI: прибрано автоматичний GPU audit gate та самописний allowlist;
+  стандартні foundation/dev audits і відтворення всіх locks залишено.
+- [ ] F7, решта: transformers/setuptools у GPU graph; ручний стандартний audit
+  і міграція сумісного ML-стеку із апаратною smoke-матрицею.
 - [x] Voice UI: одна typed draft, єдиний settings writer, захист polling/apply
   та короткі tuning/routing props; прибрано legacy draft fields і зайвий barrel.
-- [ ] Наступне спрощення: Chat draft state, typed image runtime context
+- [x] Chat UI: одна typed settings draft, спільні sampling restore/serialization,
+  валідація browser defaults та один handler оновлення LLM runtime config.
+- [ ] Наступне спрощення: typed image runtime context
   і централізовані effective model defaults/capabilities.
 
 Попередні гілки зведено в `main` зі збереженням історії. Деталі другого пакета

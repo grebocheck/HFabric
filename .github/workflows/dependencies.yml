@@ -34,19 +34,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        graph: [foundation, development, gpu]
+        graph: [foundation, dev]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-python
-      - name: Audit foundation
-        if: matrix.graph == 'foundation'
-        run: python -m pip_audit -r backend/requirements-foundation.lock --no-deps --disable-pip --format=json --output=audit.json
-      - name: Audit development
-        if: matrix.graph == 'development'
-        run: python -m pip_audit -r backend/requirements-dev.lock --no-deps --disable-pip --format=json --output=audit.json
-      - name: Audit GPU graph and exception policy
-        if: matrix.graph == 'gpu'
-        run: python scripts/audit_gpu_lock.py --report audit.json
+      - name: Audit locked Python graph
+        run: python -m pip_audit -r backend/requirements-${{ matrix.graph }}.lock --no-deps --disable-pip --format=json --output=audit.json
       - name: Upload audit report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

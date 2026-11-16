@@ -12,6 +12,8 @@ const label = "text-xs uppercase tracking-wide text-ui-subtle";
 export function ChatSettingsPanel({ controller }: { controller: ChatPanelController }) {
   const {
     activeBackend,
+    settings,
+    updateSettings,
     applyBackend,
     applyContextType,
     applyCtx,
@@ -20,57 +22,46 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
     cfgNote,
     copyLlmServerUrl,
     ctxDraft,
-    ctxTypeBusy,
+    configBusy,
     ctxTypeOptions,
     deletePersona,
-    documentTool,
     exportChat,
     exportJson,
-    imageTool,
     importInputRef,
     importJson,
     importNote,
     llmModels,
     llmServer,
-    maxTokens,
     messages,
-    minP,
-    modelId,
     models,
     modelsLoading,
     personaId,
     personaName,
     personas,
     personasLoading,
-    ragTopK,
-    repeatPenalty,
     savePersona,
-    seed,
     serverBusy,
     setCtxDraft,
-    setDocumentTool,
-    setImageTool,
-    setMaxTokens,
-    setMinP,
-    setModelId,
     setPersonaName,
-    setRagTopK,
-    setRepeatPenalty,
-    setSeed,
     setShowAdvanced,
-    setStop,
-    setSystem,
-    setTemperature,
-    setTopK,
-    setTopP,
     showAdvanced,
-    stop,
+    toggleLlmServer,
+  } = controller;
+  const {
+    modelId,
     system,
     temperature,
-    toggleLlmServer,
-    topK,
+    maxTokens,
     topP,
-  } = controller;
+    topK,
+    minP,
+    repeatPenalty,
+    seed,
+    stop,
+    imageTool,
+    documentTool,
+    ragTopK,
+  } = settings;
 
   return (
     <aside className="flex w-72 shrink-0 flex-col gap-4 overflow-y-auto rounded-lg border border-line bg-surface p-4 max-[1000px]:w-full max-[1000px]:overflow-visible">
@@ -119,7 +110,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
             <ModelPicker
               models={llmModels}
               value={modelId}
-              onChange={setModelId}
+              onChange={(modelId) => updateSettings({ modelId })}
               placeholder="no LLM models"
             />
           </div>
@@ -175,7 +166,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
         <Toggle
           checked={imageTool}
           disabled={!pickImageModel(models)}
-          onChange={setImageTool}
+          onChange={(imageTool) => updateSettings({ imageTool })}
           ariaLabel="Enable image generation tool"
         />
       </div>
@@ -186,7 +177,11 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
             <span className="block text-sm font-medium text-ui">Document tool</span>
             <span className="block text-xs text-ui-subtle">model-driven RAG search</span>
           </span>
-          <Toggle checked={documentTool} onChange={setDocumentTool} ariaLabel="Enable document tool" />
+          <Toggle
+            checked={documentTool}
+            onChange={(documentTool) => updateSettings({ documentTool })}
+            ariaLabel="Enable document tool"
+          />
         </div>
         {documentTool && (
           <label className="mt-2 block">
@@ -196,7 +191,9 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
               min={1}
               max={20}
               value={ragTopK}
-              onChange={(e) => setRagTopK(Math.max(1, Math.min(20, Number(e.target.value) || 5)))}
+              onChange={(e) =>
+                updateSettings({ ragTopK: Math.max(1, Math.min(20, Number(e.target.value) || 5)) })
+              }
               className={`${numField} mt-1`}
             />
           </label>
@@ -216,7 +213,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
           />
           <button
             onClick={() => void applyCtx()}
-            disabled={ctxDraft == null || ctxDraft === cfg?.ctx}
+            disabled={configBusy || ctxDraft == null || ctxDraft === cfg?.ctx}
             className="ui-button shrink-0 rounded-md px-2.5 py-1 text-xs disabled:opacity-30"
           >
             Apply
@@ -235,7 +232,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
         <div className={label}>Llama backend</div>
         <select
           value={cfg?.backend ?? "default"}
-          disabled={!cfg || ctxTypeBusy}
+          disabled={!cfg || configBusy}
           onChange={(e) => applyBackend(e.target.value)}
           className={`${numField} mt-1 disabled:opacity-40`}
         >
@@ -258,7 +255,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
         <div className={label}>Context type (KV cache)</div>
         <select
           value={cfg?.context_type ?? "f16"}
-          disabled={!cfg || ctxTypeBusy}
+          disabled={!cfg || configBusy}
           onChange={(e) => applyContextType(e.target.value)}
           className={`${numField} mt-1 disabled:opacity-40`}
         >
@@ -289,7 +286,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
           max={2}
           step={0.05}
           value={temperature}
-          onChange={(e) => setTemperature(Number(e.target.value))}
+          onChange={(e) => updateSettings({ temperature: Number(e.target.value) })}
           className="mt-2 w-full accent-emerald-500"
         />
       </label>
@@ -302,7 +299,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
           max={16384}
           step={64}
           value={maxTokens}
-          onChange={(e) => setMaxTokens(Number(e.target.value))}
+          onChange={(e) => updateSettings({ maxTokens: Number(e.target.value) })}
           className={`${numField} mt-1`}
         />
       </label>
@@ -318,16 +315,21 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
         </button>
         {showAdvanced && (
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <NumOpt label="top_p" v={topP} set={setTopP} step={0.05} />
-            <NumOpt label="top_k" v={topK} set={setTopK} step={1} />
-            <NumOpt label="min_p" v={minP} set={setMinP} step={0.01} />
-            <NumOpt label="repeat_pen" v={repeatPenalty} set={setRepeatPenalty} step={0.05} />
-            <NumOpt label="seed" v={seed} set={setSeed} step={1} />
+            <NumOpt label="top_p" v={topP} set={(topP) => updateSettings({ topP })} step={0.05} />
+            <NumOpt label="top_k" v={topK} set={(topK) => updateSettings({ topK })} step={1} />
+            <NumOpt label="min_p" v={minP} set={(minP) => updateSettings({ minP })} step={0.01} />
+            <NumOpt
+              label="repeat_pen"
+              v={repeatPenalty}
+              set={(repeatPenalty) => updateSettings({ repeatPenalty })}
+              step={0.05}
+            />
+            <NumOpt label="seed" v={seed} set={(seed) => updateSettings({ seed })} step={1} />
             <label className="col-span-2">
               <div className={label}>stop (comma-sep)</div>
               <input
                 value={stop}
-                onChange={(e) => setStop(e.target.value)}
+                onChange={(e) => updateSettings({ stop: e.target.value })}
                 placeholder="empty = none"
                 className={`${numField} mt-1`}
               />
@@ -382,7 +384,7 @@ export function ChatSettingsPanel({ controller }: { controller: ChatPanelControl
         <div className={label}>System prompt</div>
         <textarea
           value={system}
-          onChange={(e) => setSystem(e.target.value)}
+          onChange={(e) => updateSettings({ system: e.target.value })}
           placeholder="optional — sets the assistant's behavior"
           className={`${field} mt-1 min-h-24 flex-1 resize-none`}
         />

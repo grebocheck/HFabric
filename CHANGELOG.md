@@ -17,6 +17,9 @@ include breaking changes — this is pre-release software.
 
 ### Changed
 
+- Chat keeps model/sampling/tool settings in one typed draft. Conversation and
+  persona loading share sampling coercion; sends and persona saves share one
+  serializer. LLM context, backend and cache-type updates share one handler.
 - Voice settings use one typed draft and a single serialized write path for
   Apply, presets, routing, bypass and push-to-talk. Tuning/routing panels accept
   a draft and a patch callback instead of separate setters for every field.
@@ -42,8 +45,14 @@ include breaking changes — this is pre-release software.
 
 ### Removed
 
+- The mandatory GPU audit job, expired allowlist and custom scanner-policy
+  wrapper. CI still audits foundation/development and reproduces all platform
+  locks; accelerator audits use the standard `pip-audit` command manually.
 ### Fixed
 
+- Chat restores each conversation's seed and clears missing advanced overrides.
+  Persona saves retain the selected seed, including zero. Invalid browser
+  defaults no longer break the settings panel or supply wrong field types.
 - Voice polling and partial settings updates preserve unsaved edits. A late
   Apply response cannot overwrite newer edits, including a value reverted while
   saving. Failed routing changes remain editable without a retry loop.
@@ -59,8 +68,6 @@ include breaking changes — this is pre-release software.
   workers; unexpected downloader failures release admission and report an error.
 - Slow conversation/send responses and old stream tokens cannot replace the
   currently selected chat. Tool-child jobs retain their assistant-message link.
-- The GPU dependency audit now checks unaudited packages in the scanner's
-  dependency entries and reports scanner/policy failures explicitly.
 - Removed an unused editor type export that failed the Knip check.
 - Queued cancellation and worker claiming use conditional database transitions;
   repeated cancellation preserves terminal results and emits no duplicate event.
@@ -74,6 +81,8 @@ include breaking changes — this is pre-release software.
 
 ### Security
 
+- GPU dependency findings remain documented in `KNOWN_ISSUES.md`; the removal
+  of the automatic GPU gate does not resolve those vulnerabilities.
 ## [0.4.0] — 2026-07-23
 
 ### Added

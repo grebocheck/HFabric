@@ -2,9 +2,31 @@
 // import-bundle parsing.
 
 import { storage } from "../lib/storage";
-import type { ChatConversationImport, ChatImportMessage, Model, PresetImportItem } from "../types";
+import type {
+  ChatConversation,
+  ChatConversationImport,
+  ChatImportMessage,
+  ChatSendBody,
+  Model,
+  PresetImportItem,
+} from "../types";
 
 export type NumOrEmpty = number | "";
+export type ChatSettingsDraft = {
+  modelId: string;
+  system: string;
+  temperature: number;
+  maxTokens: number;
+  topP: NumOrEmpty;
+  topK: NumOrEmpty;
+  minP: NumOrEmpty;
+  repeatPenalty: NumOrEmpty;
+  seed: NumOrEmpty;
+  stop: string;
+  imageTool: boolean;
+  documentTool: boolean;
+  ragTopK: number;
+};
 export type ImportBundle = { conversations: ChatConversationImport[]; presets: PresetImportItem[] };
 
 export const DEFAULTS_KEY = "hfabric.chat.defaults";
@@ -20,7 +42,15 @@ export function loadDefaults(): {
   rag_top_k?: number;
 } {
   try {
-    return JSON.parse(storage.get(DEFAULTS_KEY) ?? "{}");
+    const value = asRecord(JSON.parse(storage.get(DEFAULTS_KEY) ?? "{}"));
+    return {
+      model_id: typeof value.model_id === "string" ? value.model_id : undefined,
+      temperature: numOrUndef(value.temperature),
+      max_tokens: numOrUndef(value.max_tokens),
+      image_tool: typeof value.image_tool === "boolean" ? value.image_tool : undefined,
+      document_tool: typeof value.document_tool === "boolean" ? value.document_tool : undefined,
+      rag_top_k: numOrUndef(value.rag_top_k),
+    };
   } catch {
     return {};
   }
@@ -37,7 +67,9 @@ export function loadPromptHistory(): string[] {
   }
 }
 
-export const numOrUndef = (v: NumOrEmpty): number | undefined => (v === "" ? undefined : Number(v));
+export function numOrUndef(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
 
 export const parseStop = (s: string): string[] | undefined => {
   const items = s
@@ -46,6 +78,84 @@ export const parseStop = (s: string): string[] | undefined => {
     .filter(Boolean);
   return items.length ? items : undefined;
 };
+
+export function createChatSettings(): ChatSettingsDraft {
+  const saved = loadDefaults();
+  return {
+    modelId: saved.model_id ?? "",
+    system: "",
+    temperature: saved.temperature ?? 0.8,
+    maxTokens: saved.max_tokens ?? 4096,
+    topP: "",
+    topK: "",
+    minP: "",
+    repeatPenalty: "",
+    seed: "",
+    stop: "",
+    imageTool: saved.image_tool ?? false,
+    documentTool: saved.document_tool ?? false,
+    ragTopK: saved.rag_top_k ?? 5,
+  };
+}
+
+function samplingDraft(
+  current: ChatSettingsDraft,
+  params: Record<string, unknown>,
+): Omit<ChatSettingsDraft, "modelId" | "system" | "imageTool" | "documentTool" | "ragTopK"> {
+  return {
+    temperature: numOrUndef(params.temperature) ?? current.temperature,
+    maxTokens: numOrUndef(params.max_tokens) ?? current.maxTokens,
+    topP: numOrUndef(params.top_p) ?? "",
+    topK: numOrUndef(params.top_k) ?? "",
+    minP: numOrUndef(params.min_p) ?? "",
+    repeatPenalty: numOrUndef(params.repeat_penalty) ?? "",
+    seed: numOrUndef(params.seed) ?? "",
+    stop: Array.isArray(params.stop)
+      ? params.stop.filter((item): item is string => typeof item === "string").join(", ")
+      : "",
+  };
+}
+
+export function conversationSettings(
+  current: ChatSettingsDraft,
+  conversation: ChatConversation,
+): ChatSettingsDraft {
+  const params = conversation.params ?? {};
+  return {
+    ...current,
+    ...samplingDraft(current, params),
+    modelId: conversation.model_id || current.modelId,
+    system: conversation.system ?? "",
+    imageTool: Boolean(params.image_tool),
+    documentTool: Boolean(params.document_tool),
+    ragTopK: numOrUndef(params.rag_top_k) ?? 5,
+  };
+}
+
+export function personaSettings(
+  current: ChatSettingsDraft,
+  params: Record<string, unknown>,
+): ChatSettingsDraft {
+  return {
+    ...current,
+    ...samplingDraft(current, params),
+    system: typeof params.system === "string" ? params.system : "",
+  };
+}
+
+export function chatSampling(settings: ChatSettingsDraft): Omit<ChatSendBody, "content" | "model_id"> {
+  return {
+    system: settings.system.trim() || undefined,
+    temperature: settings.temperature,
+    max_tokens: settings.maxTokens,
+    top_p: numOrUndef(settings.topP),
+    top_k: numOrUndef(settings.topK),
+    min_p: numOrUndef(settings.minP),
+    repeat_penalty: numOrUndef(settings.repeatPenalty),
+    seed: numOrUndef(settings.seed),
+    stop: parseStop(settings.stop),
+  };
+}
 
 function modelHint(model: Model): string | undefined {
   const tags = [

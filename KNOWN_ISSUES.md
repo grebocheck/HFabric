@@ -43,10 +43,18 @@ completed engineering work and the remaining validation matrix live in
   token fails closed unless the operator explicitly enables the insecure-LAN
   escape hatch; that escape hatch is not suitable for an untrusted network.
 
-## Temporary dependency exceptions
+## GPU dependency audit
 
-The GPU graph currently retains versions needed by the validated
-PyTorch/Nunchaku/Diffusers combination. Any known advisory must appear in
-`backend/audit-allowlist.json` with a reason and expiry; CI rejects new, stale or
-expired entries. These exceptions must be re-evaluated with the next real-GPU
-profile upgrade.
+The GPU graph retains the PyTorch/Nunchaku/Diffusers combination used by the
+current loaders. The 2026-11-16 audit reported 12 findings in transformers
+4.57.6 and setuptools 81.0.0. These remain unresolved; removing the automatic
+GPU audit gate does not fix them. GPU audit is now a manual profile-upgrade
+check alongside the [hardware smoke matrix](docs/gpu-smoke.md).
+
+CI audits the foundation and development graphs and reproduces every platform
+lock. Run the standard scanner for any accelerator lock when reviewing an
+upgrade; no application-specific allowlist changes its result:
+
+```powershell
+python -m pip_audit -r backend/requirements-gpu.lock --no-deps --disable-pip
+```

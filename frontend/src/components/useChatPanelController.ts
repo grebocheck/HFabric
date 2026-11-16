@@ -2,27 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { appQueryCache } from "../api/queryCache";
 import { storage } from "../lib/storage";
-import type {
-  ChatAttachment,
-  ChatMessage,
-  ChatSendBody,
-  LlmApiServerStatus,
-  LlmConfig,
-  Model,
-  Preset,
-} from "../types";
+import type { ChatAttachment, ChatMessage, LlmApiServerStatus, LlmConfig, Model, Preset } from "../types";
 import {
   DEFAULTS_KEY,
+  chatSampling,
+  conversationSettings,
+  createChatSettings,
+  personaSettings,
+  type ChatSettingsDraft,
   downloadJson,
   hasActiveSelection,
-  loadDefaults,
   loadPromptHistory,
-  numOrUndef,
   parseImportBundle,
-  parseStop,
   PROMPT_HISTORY_KEY,
   promptHistoryLimit,
-  type NumOrEmpty,
 } from "./chatHelpers";
 import { useChatActions, useConversation } from "./ChatPanelHooks";
 import { useChatStream } from "./useChatStream";
@@ -44,8 +37,7 @@ export function useChatPanelController({
   draft,
   setDraft,
 }: ChatPanelProps) {
-  const llmModels = models.filter((m) => m.job_type === "llm");
-  const saved = loadDefaults();
+  const llmModels = useMemo(() => models.filter((model) => model.job_type === "llm"), [models]);
 
   const { convs, convsLoading, refreshConvs, setConvs } = useConversation();
   const [activeId, setActiveIdState] = useState<string | null>(null);
@@ -66,21 +58,11 @@ export function useChatPanelController({
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [attachmentNote, setAttachmentNote] = useState("");
 
-  // settings (per conversation)
-  const [modelId, setModelId] = useState(saved.model_id ?? "");
-  const [system, setSystem] = useState("");
-  const [temperature, setTemperature] = useState(saved.temperature ?? 0.8);
-  const [maxTokens, setMaxTokens] = useState(saved.max_tokens ?? 4096);
-  // advanced sampling ("" = unset -> use model default)
-  const [topP, setTopP] = useState<NumOrEmpty>("");
-  const [topK, setTopK] = useState<NumOrEmpty>("");
-  const [minP, setMinP] = useState<NumOrEmpty>("");
-  const [repeatPenalty, setRepeatPenalty] = useState<NumOrEmpty>("");
-  const [seed, setSeed] = useState<NumOrEmpty>("");
-  const [stop, setStop] = useState("");
-  const [imageTool, setImageTool] = useState(Boolean(saved.image_tool));
-  const [documentTool, setDocumentTool] = useState(Boolean(saved.document_tool));
-  const [ragTopK, setRagTopK] = useState(saved.rag_top_k ?? 5);
+  const [settings, setSettings] = useState(createChatSettings);
+  const updateSettings = useCallback((patch: Partial<ChatSettingsDraft>) => {
+    setSettings((current) => ({ ...current, ...patch }));
+  }, []);
+  const { modelId, system, temperature, maxTokens, imageTool, documentTool, ragTopK } = settings;
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // personas (stored as llm presets)
@@ -92,7 +74,7 @@ export function useChatPanelController({
   const [cfg, setCfg] = useState<LlmConfig | null>(null);
   const [llmServer, setLlmServer] = useState<LlmApiServerStatus | null>(null);
   const [ctxDraft, setCtxDraft] = useState<number | null>(null);
-  const [ctxTypeBusy, setCtxTypeBusy] = useState(false);
+  const [configBusy, setConfigBusy] = useState(false);
   const [serverBusy, setServerBusy] = useState(false);
   const [cfgNote, setCfgNote] = useState("");
   const [importNote, setImportNote] = useState("");
@@ -101,22 +83,37 @@ export function useChatPanelController({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const stickToBottom = useRef(true);
-  const { activeJob, beginStream, isCurrentStream, reconcile, resetStream, restoreStream, setActiveJob, stats } = useChatStream({
+  const {
+    activeJob,
+    beginStream,
+    isCurrentStream,
+    reconcile,
+    resetStream,
+    restoreStream,
+    setActiveJob,
+    stats,
+  } = useChatStream({
     activeConversation,
     refreshConvs,
     setBusy,
     setMessages,
   });
-  const setActiveId = useCallback((id: string | null) => {
-    selectionRevision.current += 1;
-    activeConversation.current = id;
-    resetStream();
-    setActiveIdState(id);
-  }, [resetStream]);
-  useEffect(() => () => {
-    selectionRevision.current += 1;
-    activeConversation.current = null;
-  }, []);
+  const setActiveId = useCallback(
+    (id: string | null) => {
+      selectionRevision.current += 1;
+      activeConversation.current = id;
+      resetStream();
+      setActiveIdState(id);
+    },
+    [resetStream],
+  );
+  useEffect(
+    () => () => {
+      selectionRevision.current += 1;
+      activeConversation.current = null;
+    },
+    [],
+  );
   const refreshPersonas = useCallback(async () => {
     setPersonasLoading(true);
     try {
@@ -175,8 +172,8 @@ export function useChatPanelController({
   }, [refreshConvs, refreshPersonas]);
 
   useEffect(() => {
-    if (!modelId && llmModels[0]) setModelId(llmModels[0].id);
-  }, [llmModels, modelId]);
+    if (!modelId && llmModels[0]) updateSettings({ modelId: llmModels[0].id });
+  }, [llmModels, modelId, updateSettings]);
 
   useEffect(() => {
     storage.set(
@@ -235,23 +232,13 @@ export function useChatPanelController({
         setMessages(d.messages);
         restoreStream(d.messages, jobHint);
         if (jobHint || d.messages.some((message) => message.job_id)) {
-          void reconcile().catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Could not synchronize chat"));
+          void reconcile().catch((error: unknown) =>
+            toast.error(error instanceof Error ? error.message : "Could not synchronize chat"),
+          );
         }
         setAttachments([]);
         setAttachmentNote("");
-        if (d.model_id) setModelId(d.model_id);
-        setSystem(d.system ?? "");
-        const pr = d.params ?? {};
-        if (typeof pr.temperature === "number") setTemperature(pr.temperature);
-        if (typeof pr.max_tokens === "number") setMaxTokens(pr.max_tokens);
-        setTopP(typeof pr.top_p === "number" ? pr.top_p : "");
-        setTopK(typeof pr.top_k === "number" ? pr.top_k : "");
-        setMinP(typeof pr.min_p === "number" ? pr.min_p : "");
-        setRepeatPenalty(typeof pr.repeat_penalty === "number" ? pr.repeat_penalty : "");
-        setStop(Array.isArray(pr.stop) ? (pr.stop as string[]).join(", ") : "");
-        setImageTool(Boolean(pr.image_tool));
-        setDocumentTool(Boolean(pr.document_tool));
-        setRagTopK(typeof pr.rag_top_k === "number" ? pr.rag_top_k : 5);
+        setSettings((current) => conversationSettings(current, d));
       } catch (error) {
         if (selectionRevision.current !== revision) return;
         setMessages([]);
@@ -303,20 +290,7 @@ export function useChatPanelController({
     [setActiveId, setConvs],
   );
 
-  const sampling = useCallback(
-    (): Omit<ChatSendBody, "content" | "model_id"> => ({
-      system: system.trim() || undefined,
-      temperature,
-      max_tokens: maxTokens,
-      top_p: numOrUndef(topP),
-      top_k: numOrUndef(topK),
-      min_p: numOrUndef(minP),
-      repeat_penalty: numOrUndef(repeatPenalty),
-      seed: numOrUndef(seed),
-      stop: parseStop(stop),
-    }),
-    [system, temperature, maxTokens, topP, topK, minP, repeatPenalty, seed, stop],
-  );
+  const sampling = useCallback(() => chatSampling(settings), [settings]);
 
   const {
     applyImagePromptSnippet,
@@ -371,27 +345,13 @@ export function useChatPanelController({
     }
   };
 
-  const applyCtx = async () => {
-    if (ctxDraft == null) return;
+  const applyLlmConfig = async (body: Parameters<typeof api.setLlmConfig>[0]) => {
     setCfgNote("");
-    try {
-      const next = await api.setLlmConfig({ ctx: ctxDraft });
-      setCfg(next);
-      setCtxDraft(next.ctx);
-      setCfgNote(
-        next.reloaded ? "applied — model reloaded" : next.changed ? "applied (next load)" : "no change",
-      );
-    } catch (err) {
-      setCfgNote(err instanceof Error ? err.message : "could not update");
-    }
-  };
-
-  const applyLlmConfig = async (body: { backend?: string; context_type?: string }) => {
-    setCfgNote("");
-    setCtxTypeBusy(true);
+    setConfigBusy(true);
     try {
       const next = await api.setLlmConfig(body);
       setCfg(next);
+      if (body.ctx != null) setCtxDraft(next.ctx);
       const base = next.reloaded
         ? "applied — model reloaded"
         : next.changed
@@ -401,8 +361,11 @@ export function useChatPanelController({
     } catch (err) {
       setCfgNote(err instanceof Error ? err.message : "could not update");
     } finally {
-      setCtxTypeBusy(false);
+      setConfigBusy(false);
     }
+  };
+  const applyCtx = async () => {
+    if (ctxDraft != null) await applyLlmConfig({ ctx: ctxDraft });
   };
   const applyBackend = (backend: string) => void applyLlmConfig({ backend });
   const applyContextType = (context_type: string) => void applyLlmConfig({ context_type });
@@ -451,32 +414,14 @@ export function useChatPanelController({
     setPersonaId(id);
     const p = personas.find((x) => x.id === id);
     if (!p) return;
-    const pr = p.params ?? {};
-    setSystem(typeof pr.system === "string" ? pr.system : "");
-    if (typeof pr.temperature === "number") setTemperature(pr.temperature);
-    if (typeof pr.max_tokens === "number") setMaxTokens(pr.max_tokens);
-    setTopP(typeof pr.top_p === "number" ? pr.top_p : "");
-    setTopK(typeof pr.top_k === "number" ? pr.top_k : "");
-    setMinP(typeof pr.min_p === "number" ? pr.min_p : "");
-    setRepeatPenalty(typeof pr.repeat_penalty === "number" ? pr.repeat_penalty : "");
-    setStop(Array.isArray(pr.stop) ? (pr.stop as string[]).join(", ") : "");
+    setSettings((current) => personaSettings(current, p.params ?? {}));
   };
 
   const savePersona = async () => {
     const name = personaName.trim();
     if (!name) return;
-    const s = sampling();
     try {
-      await api.createPreset(name, "llm", {
-        system: system.trim(),
-        temperature,
-        max_tokens: maxTokens,
-        ...(s.top_p !== undefined ? { top_p: s.top_p } : {}),
-        ...(s.top_k !== undefined ? { top_k: s.top_k } : {}),
-        ...(s.min_p !== undefined ? { min_p: s.min_p } : {}),
-        ...(s.repeat_penalty !== undefined ? { repeat_penalty: s.repeat_penalty } : {}),
-        ...(s.stop ? { stop: s.stop } : {}),
-      });
+      await api.createPreset(name, "llm", { ...sampling(), system: system.trim() });
       setPersonaName("");
       refreshPersonas();
     } catch (error) {
@@ -617,17 +562,15 @@ export function useChatPanelController({
     convsLoading,
     copyLlmServerUrl,
     ctxDraft,
-    ctxTypeBusy,
+    configBusy,
     ctxTypeOptions,
     deleteConversation,
     deletePersona,
-    documentTool,
     editText,
     editingId,
     exportChat,
     exportJson,
     filteredConvs,
-    imageTool,
     importInputRef,
     importJson,
     importNote,
@@ -636,12 +579,11 @@ export function useChatPanelController({
     libraryOpen,
     llmModels,
     llmServer,
-    maxTokens,
     messages,
-    minP,
-    modelId,
     models,
     modelsLoading,
+    settings,
+    updateSettings,
     newChat,
     onKeyDown,
     onPaste,
@@ -652,13 +594,10 @@ export function useChatPanelController({
     personasLoading,
     quickModels,
     quickPersonas,
-    ragTopK,
     regenerate,
-    repeatPenalty,
     saveEdit,
     savePersona,
     scrollRef,
-    seed,
     selectedModel,
     selectConversation,
     send,
@@ -666,35 +605,17 @@ export function useChatPanelController({
     setAttachments,
     setConvQuery,
     setCtxDraft,
-    setDocumentTool,
     setEditText,
     setEditingId,
-    setImageTool,
     setInput,
     setLibraryOpen,
-    setMaxTokens,
-    setMinP,
-    setModelId,
     setPersonaName,
-    setRagTopK,
-    setRepeatPenalty,
-    setSeed,
     setShowAdvanced,
-    setStop,
-    setSystem,
-    setTemperature,
-    setTopK,
-    setTopP,
     showAdvanced,
     startEdit,
     stats,
-    stop,
     stopGeneration,
-    system,
-    temperature,
     toggleLlmServer,
-    topK,
-    topP,
     updateScrollStickiness,
     uploadAttachments,
     visiblePromptHistory,
