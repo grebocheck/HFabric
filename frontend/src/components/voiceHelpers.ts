@@ -33,10 +33,8 @@ export const stableVoicePreset = {
   inputDenoise: "off" as const,
   inputDenoiseMix: 0,
   inputHighpassHz: 80,
-  inputGateDb: -90,
   silenceThresholdDb: -54,
   silenceHoldMs: 200,
-  formantShift: 0,
   indexRatio: 0.35,
   protect: 0.33,
   noiseScale: 0.35,
@@ -52,10 +50,8 @@ export const lowLatencyVoicePreset = {
   inputDenoise: "off" as const,
   inputDenoiseMix: 0,
   inputHighpassHz: 80,
-  inputGateDb: -90,
   silenceThresholdDb: -52,
   silenceHoldMs: 150,
-  formantShift: 0,
   indexRatio: 0.25,
   protect: 0.33,
   noiseScale: 0.3,
@@ -71,10 +67,8 @@ export const qualityVoicePreset = {
   inputDenoise: "off" as const,
   inputDenoiseMix: 0,
   inputHighpassHz: 80,
-  inputGateDb: -90,
   silenceThresholdDb: -56,
   silenceHoldMs: 250,
-  formantShift: 0,
   indexRatio: 0.35,
   protect: 0.3,
   noiseScale: 0.35,
@@ -91,7 +85,6 @@ export const qualityVoicePreset = {
 // octave flips at the higher register.
 export const feminineVoicePreset = {
   pitch: 10,
-  formantShift: 0,
   inputDenoise: "off" as const,
   inputDenoiseMix: 0,
   inputHighpassHz: 80,
@@ -100,7 +93,6 @@ export const feminineVoicePreset = {
   noiseScale: 0.3,
   f0Smoothing: 0.25,
   f0Detector: "fcpe",
-  inputGateDb: -90,
   silenceThresholdDb: -54,
   silenceHoldMs: 200,
   readChunkSize: 90,
@@ -114,8 +106,6 @@ export const waveformSlots = 64;
 export type VoiceControlState = {
   pitch: number;
   speakerId: number;
-  formantShift: number;
-  inputGateDb: number;
   inputHighpassHz: number;
   inputDenoise: "off" | "dtln";
   inputDenoiseMix: number;
@@ -153,18 +143,70 @@ export type VoiceRoutingState = Pick<
   | "monitorGain"
 >;
 
+export type VoiceTuningState = Omit<VoiceControlState, keyof VoiceRoutingState>;
+
+const voiceSettingKeys = {
+  pitch: "pitch",
+  speakerId: "speaker_id",
+  inputHighpassHz: "input_highpass_hz",
+  inputDenoise: "input_denoise",
+  inputDenoiseMix: "input_denoise_mix",
+  silenceThresholdDb: "silence_threshold_db",
+  silenceHoldMs: "silence_hold_ms",
+  indexRatio: "index_ratio",
+  protect: "protect",
+  noiseScale: "noise_scale",
+  f0Smoothing: "f0_smoothing",
+  f0Detector: "f0_detector",
+  passThrough: "pass_through",
+  inputDeviceId: "server_input_device_id",
+  outputDeviceId: "server_output_device_id",
+  monitorDeviceId: "server_monitor_device_id",
+  sampleRate: "server_audio_sample_rate",
+  readChunkSize: "server_read_chunk_size",
+  crossFadeOverlap: "cross_fade_overlap_size",
+  extraConvert: "extra_convert_size",
+  inputGain: "server_input_gain",
+  outputGain: "server_output_gain",
+  monitorGain: "server_monitor_gain",
+} as const satisfies Record<keyof VoiceControlState, keyof VoiceEngineSettingsUpdate>;
+
+export function voiceStateToNativePatch(patch: Partial<VoiceControlState>): VoiceEngineSettingsUpdate {
+  return Object.fromEntries(
+    (Object.keys(patch) as Array<keyof VoiceControlState>).map((key) => [
+      voiceSettingKeys[key],
+      (key === "inputDeviceId" || key === "outputDeviceId") && Number(patch[key]) < 0 ? null : patch[key],
+    ]),
+  );
+}
+
+export function nativeSettingsToVoicePatch(patch: VoiceEngineSettingsUpdate): Partial<VoiceControlState> {
+  const values = nativeSettingsToVoiceState(patch);
+  return Object.fromEntries(
+    (Object.keys(voiceSettingKeys) as Array<keyof VoiceControlState>)
+      .filter((key) => {
+        const value = patch[voiceSettingKeys[key]];
+        return (
+          value !== undefined &&
+          (value !== null || key === "inputDeviceId" || key === "outputDeviceId" || key === "monitorDeviceId")
+        );
+      })
+      .map((key) => [key, values[key]]),
+  );
+}
+
 export function num(value: unknown, fallback: number): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
-export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceEngineSettings, unknown>>): VoiceControlState {
+export function nativeSettingsToVoiceState(
+  settings: Partial<Record<keyof VoiceEngineSettings, unknown>>,
+): VoiceControlState {
   const f0 = String(settings.f0_detector ?? "fcpe");
   return {
     pitch: num(settings.pitch, 0),
     speakerId: num(settings.speaker_id, 0),
-    formantShift: 0,
-    inputGateDb: -90,
     inputHighpassHz: num(settings.input_highpass_hz, 80),
     inputDenoise: settings.input_denoise === "dtln" ? "dtln" : "off",
     inputDenoiseMix: num(settings.input_denoise_mix, 0.75),
@@ -178,7 +220,8 @@ export function nativeSettingsToVoiceState(settings: Partial<Record<keyof VoiceE
     passThrough: Boolean(settings.pass_through),
     inputDeviceId: settings.server_input_device_id == null ? -1 : num(settings.server_input_device_id, -1),
     outputDeviceId: settings.server_output_device_id == null ? -1 : num(settings.server_output_device_id, -1),
-    monitorDeviceId: settings.server_monitor_device_id == null ? -1 : num(settings.server_monitor_device_id, -1),
+    monitorDeviceId:
+      settings.server_monitor_device_id == null ? -1 : num(settings.server_monitor_device_id, -1),
     sampleRate: num(settings.server_audio_sample_rate, 48000),
     readChunkSize: num(settings.server_read_chunk_size, 90),
     crossFadeOverlap: num(settings.cross_fade_overlap_size, 0.03),
@@ -204,24 +247,7 @@ export function nativeRoutingSettingsPatch(state: VoiceRoutingState): VoiceEngin
   };
 }
 
-export function nativeTuningSettingsPatch(state: Pick<
-  VoiceControlState,
-  | "pitch"
-  | "speakerId"
-  | "formantShift"
-  | "inputGateDb"
-  | "inputHighpassHz"
-  | "inputDenoise"
-  | "inputDenoiseMix"
-  | "silenceThresholdDb"
-  | "silenceHoldMs"
-  | "indexRatio"
-  | "protect"
-  | "noiseScale"
-  | "f0Smoothing"
-  | "f0Detector"
-  | "passThrough"
->): VoiceEngineSettingsUpdate {
+export function nativeTuningSettingsPatch(state: VoiceTuningState): VoiceEngineSettingsUpdate {
   return {
     pitch: state.pitch,
     speaker_id: state.speakerId,
@@ -241,56 +267,23 @@ export function nativeTuningSettingsPatch(state: Pick<
   };
 }
 
-export function nativeVoicePresetSettingsPatch(state: Pick<
-  VoiceControlState,
-  | "pitch"
-  | "speakerId"
-  | "formantShift"
-  | "inputGateDb"
-  | "inputHighpassHz"
-  | "inputDenoise"
-  | "inputDenoiseMix"
-  | "silenceThresholdDb"
-  | "silenceHoldMs"
-  | "indexRatio"
-  | "protect"
-  | "noiseScale"
-  | "f0Smoothing"
-  | "f0Detector"
-  | "sampleRate"
-  | "readChunkSize"
-  | "crossFadeOverlap"
-  | "extraConvert"
-  | "inputGain"
-  | "outputGain"
-  | "monitorGain"
->): VoiceEngineSettingsUpdate {
-  return {
-    pitch: state.pitch,
-    speaker_id: state.speakerId,
-    input_formant: 0,
-    input_gate_db: -90,
-    input_highpass_hz: state.inputHighpassHz,
-    input_denoise: state.inputDenoise,
-    input_denoise_mix: state.inputDenoiseMix,
-    silence_threshold_db: state.silenceThresholdDb,
-    silence_hold_ms: state.silenceHoldMs,
-    index_ratio: state.indexRatio,
-    protect: state.protect,
-    noise_scale: state.noiseScale,
-    f0_smoothing: state.f0Smoothing,
-    f0_detector: state.f0Detector,
-    server_audio_sample_rate: state.sampleRate,
-    server_read_chunk_size: state.readChunkSize,
-    cross_fade_overlap_size: state.crossFadeOverlap,
-    extra_convert_size: state.extraConvert,
-    server_input_gain: state.inputGain,
-    server_output_gain: state.outputGain,
-    server_monitor_gain: state.monitorGain,
-  };
+export function nativeVoicePresetSettingsPatch(
+  state: Omit<VoiceControlState, "passThrough" | "inputDeviceId" | "outputDeviceId" | "monitorDeviceId">,
+): VoiceEngineSettingsUpdate {
+  const patch = voiceStateToNativePatch(state);
+  // Presets travel between machines; device selection and bypass stay local.
+  delete patch.server_input_device_id;
+  delete patch.server_output_device_id;
+  delete patch.server_monitor_device_id;
+  delete patch.pass_through;
+  return { ...patch, input_formant: 0, input_gate_db: -90 };
 }
 
-export function selectedNativeModelId(models: VoiceModel[], current: string, loaded: string | null | undefined): string {
+export function selectedNativeModelId(
+  models: VoiceModel[],
+  current: string,
+  loaded: string | null | undefined,
+): string {
   if (current && models.some((m) => m.id === current)) return current;
   if (loaded && models.some((m) => m.id === loaded)) return loaded;
   return models[0]?.id ?? "";
@@ -324,11 +317,18 @@ export function deviceNumericId(device: Pick<VoiceAudioDevice, "id" | "index">):
   return num(device.id, device.index);
 }
 
-function findDevice(devices: Pick<VoiceAudioDevice, "id" | "index">[], id: number): Pick<VoiceAudioDevice, "id" | "index"> | undefined {
+function findDevice(
+  devices: Pick<VoiceAudioDevice, "id" | "index">[],
+  id: number,
+): Pick<VoiceAudioDevice, "id" | "index"> | undefined {
   return devices.find((device) => deviceNumericId(device) === id);
 }
 
-export function deviceName(devices: Pick<VoiceAudioDevice, "id" | "index" | "name">[], id: number, fallback = "Not selected"): string {
+export function deviceName(
+  devices: Pick<VoiceAudioDevice, "id" | "index" | "name">[],
+  id: number,
+  fallback = "Not selected",
+): string {
   return devices.find((device) => deviceNumericId(device) === id)?.name ?? fallback;
 }
 
@@ -338,7 +338,8 @@ export function resolveMonitorDeviceId(
   outputDevices: Pick<VoiceAudioDevice, "id" | "index">[],
 ): number {
   if (currentMonitorDeviceId >= 0) return currentMonitorDeviceId;
-  if (selectedOutputDeviceId >= 0 && findDevice(outputDevices, selectedOutputDeviceId)) return selectedOutputDeviceId;
+  if (selectedOutputDeviceId >= 0 && findDevice(outputDevices, selectedOutputDeviceId))
+    return selectedOutputDeviceId;
   return outputDevices[0] ? deviceNumericId(outputDevices[0]) : -1;
 }
 

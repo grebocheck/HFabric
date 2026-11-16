@@ -1,91 +1,61 @@
 import { Select } from "./Select";
 import { Toggle } from "./Toggle";
 import { Button, LabeledSlider, Panel, SignedControl, field, nativeF0Options } from "./VoicePanelControls";
-import { denoiseOptions, inputHighpassOptions } from "./voiceHelpers";
+import { denoiseOptions, inputHighpassOptions, type VoiceTuningState } from "./voiceHelpers";
 
 type VoiceTuningPanelProps = {
   busy: string;
   canApply: boolean;
-  f0Detector: string;
-  f0Smoothing: number;
-  indexRatio: number;
+  draft: VoiceTuningState;
+  onChange: (patch: Partial<VoiceTuningState>) => void;
   indexRisk: boolean;
-  inputDenoise: "off" | "dtln";
-  inputDenoiseMix: number;
-  inputHighpassHz: number;
-  markTuning: () => void;
   onBypass: (next: boolean) => void;
   onFeminine: () => void;
   onLowLatency: () => void;
   onPtt: (next: boolean) => void;
   onQuality: () => void;
   onStable: () => void;
-  passThrough: boolean;
-  pitch: number;
-  protect: number;
   protectRisk: boolean;
   ptt: boolean;
   selectedHasIndex: boolean;
   selectedName: string;
   selectedSupportsPitch: boolean;
-  setDraftPitch: (value: number) => void;
-  setDraftSpeakerId: (value: number) => void;
-  setF0Detector: (value: string) => void;
-  setF0Smoothing: (value: number) => void;
-  setIndexRatio: (value: number) => void;
-  setInputDenoise: (value: "off" | "dtln") => void;
-  setInputDenoiseMix: (value: number) => void;
-  setInputHighpassHz: (value: number) => void;
-  setProtect: (value: number) => void;
-  setSilenceHoldMs: (value: number) => void;
-  setSilenceThresholdDb: (value: number) => void;
-  silenceHoldMs: number;
-  silenceThresholdDb: number;
-  speakerId: number;
   statusLoaded: boolean;
 };
 
 export function VoiceTuningPanel({
   busy,
   canApply,
-  f0Detector,
-  f0Smoothing,
-  indexRatio,
+  draft,
+  onChange,
   indexRisk,
-  inputDenoise,
-  inputDenoiseMix,
-  inputHighpassHz,
-  markTuning,
   onBypass,
   onFeminine,
   onLowLatency,
   onPtt,
   onQuality,
   onStable,
-  passThrough,
-  pitch,
-  protect,
   protectRisk,
   ptt,
   selectedHasIndex,
   selectedName,
   selectedSupportsPitch,
-  setDraftPitch,
-  setDraftSpeakerId,
-  setF0Detector,
-  setF0Smoothing,
-  setIndexRatio,
-  setInputDenoise,
-  setInputDenoiseMix,
-  setInputHighpassHz,
-  setProtect,
-  setSilenceHoldMs,
-  setSilenceThresholdDb,
-  silenceHoldMs,
-  silenceThresholdDb,
-  speakerId,
   statusLoaded,
 }: VoiceTuningPanelProps) {
+  const {
+    f0Detector,
+    f0Smoothing,
+    indexRatio,
+    inputDenoise,
+    inputDenoiseMix,
+    inputHighpassHz,
+    passThrough,
+    pitch,
+    protect,
+    silenceHoldMs,
+    silenceThresholdDb,
+    speakerId,
+  } = draft;
   return (
     <Panel
       title="Tuning"
@@ -114,7 +84,7 @@ export function VoiceTuningPanel({
           min={-24}
           max={24}
           step={1}
-          onChange={setDraftPitch}
+          onChange={(pitch) => onChange({ pitch })}
           unit=" st"
           quick={[-12, -7, 0, 7, 12]}
           note={selectedSupportsPitch ? "f0 model" : "no-f0 model"}
@@ -128,8 +98,7 @@ export function VoiceTuningPanel({
             ariaLabel="F0 detector"
             value={f0Detector}
             onChange={(value) => {
-              setF0Detector(value);
-              markTuning();
+              onChange({ f0Detector: value });
             }}
             options={nativeF0Options}
           />
@@ -142,7 +111,7 @@ export function VoiceTuningPanel({
             max={255}
             step={1}
             value={speakerId}
-            onChange={(event) => setDraftSpeakerId(Number(event.target.value))}
+            onChange={(event) => onChange({ speakerId: Number(event.target.value) })}
             className={field}
           />
         </div>
@@ -153,9 +122,10 @@ export function VoiceTuningPanel({
             value={inputDenoise}
             onChange={(value) => {
               const nextDenoise = value === "dtln" ? "dtln" : "off";
-              setInputDenoise(nextDenoise);
-              if (nextDenoise === "dtln" && inputDenoiseMix <= 0) setInputDenoiseMix(0.75);
-              markTuning();
+              onChange({
+                inputDenoise: nextDenoise,
+                inputDenoiseMix: nextDenoise === "dtln" && inputDenoiseMix <= 0 ? 0.75 : inputDenoiseMix,
+              });
             }}
             options={denoiseOptions}
           />
@@ -167,8 +137,7 @@ export function VoiceTuningPanel({
               max={1}
               step={0.01}
               onChange={(value) => {
-                setInputDenoiseMix(value);
-                markTuning();
+                onChange({ inputDenoiseMix: value });
               }}
               valueLabel={inputDenoise === "dtln" ? inputDenoiseMix.toFixed(2) : "off"}
               disabled={inputDenoise !== "dtln"}
@@ -181,8 +150,7 @@ export function VoiceTuningPanel({
             ariaLabel="Input high-pass"
             value={String(inputHighpassHz)}
             onChange={(value) => {
-              setInputHighpassHz(Number(value));
-              markTuning();
+              onChange({ inputHighpassHz: Number(value) });
             }}
             options={inputHighpassOptions}
           />
@@ -198,8 +166,7 @@ export function VoiceTuningPanel({
             max={0.6}
             step={0.01}
             onChange={(value) => {
-              setIndexRatio(value);
-              markTuning();
+              onChange({ indexRatio: value });
             }}
             valueLabel={indexRatio.toFixed(2)}
             tone={indexRisk ? "warn" : "neutral"}
@@ -217,8 +184,7 @@ export function VoiceTuningPanel({
           max={1}
           step={0.01}
           onChange={(value) => {
-            setProtect(value);
-            markTuning();
+            onChange({ protect: value });
           }}
           valueLabel={protect.toFixed(2)}
           tone={protectRisk ? "warn" : "neutral"}
@@ -231,8 +197,7 @@ export function VoiceTuningPanel({
           max={1}
           step={0.01}
           onChange={(value) => {
-            setF0Smoothing(value);
-            markTuning();
+            onChange({ f0Smoothing: value });
           }}
           valueLabel={f0Smoothing.toFixed(2)}
         />
@@ -246,8 +211,7 @@ export function VoiceTuningPanel({
           max={-20}
           step={1}
           onChange={(value) => {
-            setSilenceThresholdDb(value);
-            markTuning();
+            onChange({ silenceThresholdDb: value });
           }}
           valueLabel={silenceThresholdDb <= -90 ? "off" : `${silenceThresholdDb.toFixed(0)} dB`}
         />
@@ -258,8 +222,7 @@ export function VoiceTuningPanel({
           max={2000}
           step={50}
           onChange={(value) => {
-            setSilenceHoldMs(value);
-            markTuning();
+            onChange({ silenceHoldMs: value });
           }}
           valueLabel={`${Math.round(silenceHoldMs)} ms`}
         />

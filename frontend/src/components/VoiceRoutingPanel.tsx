@@ -7,40 +7,24 @@ import {
   RoutingApplyHint,
   type RoutingApplyState,
 } from "./VoicePanelParts";
-import { deviceNumericId, latencyPresets, sampleRates } from "./voiceHelpers";
+import { deviceNumericId, latencyPresets, sampleRates, type VoiceRoutingState } from "./voiceHelpers";
 import type { VoiceAudioDevice } from "../types";
 
 type VoiceRoutingPanelProps = {
   busy: string;
+  draft: VoiceRoutingState;
+  onChange: (patch: Partial<VoiceRoutingState>) => void;
   chunkRestartPending: boolean;
-  crossFadeOverlap: number;
   deviceMissing: { input: boolean; output: boolean; monitor: boolean };
-  extraConvert: number;
-  inputDeviceId: number;
   inputDevices: VoiceAudioDevice[];
-  inputGain: number;
   inputRestartPending: boolean;
-  monitorDeviceId: number;
   monitorRestartPending: boolean;
   onPreset: (preset: (typeof latencyPresets)[number]) => void;
-  outputDeviceId: number;
   outputDevices: VoiceAudioDevice[];
-  outputGain: number;
   outputIsVirtualCable: boolean;
   outputRestartPending: boolean;
-  readChunkSize: number;
   routingApplyState: RoutingApplyState;
-  sampleRate: number;
   sampleRateRestartPending: boolean;
-  setCrossFadeOverlap: (value: number) => void;
-  setExtraConvert: (value: number) => void;
-  setInputDeviceId: (value: number) => void;
-  setInputGain: (value: number) => void;
-  setMonitorDeviceId: (value: number) => void;
-  setOutputDeviceId: (value: number) => void;
-  setOutputGain: (value: number) => void;
-  setReadChunkSize: (value: number) => void;
-  setSampleRate: (value: number) => void;
   statusLoaded: boolean;
   statusStub: boolean;
   virtualCableDetected: boolean;
@@ -48,43 +32,40 @@ type VoiceRoutingPanelProps = {
 
 export function VoiceRoutingPanel({
   busy,
+  draft,
+  onChange,
   chunkRestartPending,
-  crossFadeOverlap,
   deviceMissing,
-  extraConvert,
-  inputDeviceId,
   inputDevices,
-  inputGain,
   inputRestartPending,
-  monitorDeviceId,
   monitorRestartPending,
   onPreset,
-  outputDeviceId,
   outputDevices,
-  outputGain,
   outputIsVirtualCable,
   outputRestartPending,
-  readChunkSize,
   routingApplyState,
-  sampleRate,
   sampleRateRestartPending,
-  setCrossFadeOverlap,
-  setExtraConvert,
-  setInputDeviceId,
-  setInputGain,
-  setMonitorDeviceId,
-  setOutputDeviceId,
-  setOutputGain,
-  setReadChunkSize,
-  setSampleRate,
   statusLoaded,
   statusStub,
   virtualCableDetected,
 }: VoiceRoutingPanelProps) {
+  const {
+    crossFadeOverlap,
+    extraConvert,
+    inputDeviceId,
+    inputGain,
+    monitorDeviceId,
+    outputDeviceId,
+    outputGain,
+    readChunkSize,
+    sampleRate,
+  } = draft;
   const selectedInput = inputDevices.find((device) => deviceNumericId(device) === inputDeviceId);
   const selectedOutput = outputDevices.find((device) => deviceNumericId(device) === outputDeviceId);
   const legacyHostApi = [selectedInput, selectedOutput].some((device) =>
-    String(device?.host_api ?? "").toLowerCase().includes("mme"),
+    String(device?.host_api ?? "")
+      .toLowerCase()
+      .includes("mme"),
   );
   return (
     <Panel
@@ -100,7 +81,7 @@ export function VoiceRoutingPanel({
             fallback="No input selected"
             missing={deviceMissing.input}
             restartPending={inputRestartPending}
-            onChange={setInputDeviceId}
+            onChange={(inputDeviceId) => onChange({ inputDeviceId })}
           />
         ) : (
           <OfflineDevice
@@ -116,7 +97,7 @@ export function VoiceRoutingPanel({
             fallback="No output selected"
             missing={deviceMissing.output}
             restartPending={outputRestartPending}
-            onChange={setOutputDeviceId}
+            onChange={(outputDeviceId) => onChange({ outputDeviceId })}
           />
         ) : (
           <OfflineDevice
@@ -130,7 +111,7 @@ export function VoiceRoutingPanel({
             devices={outputDevices}
             missing={deviceMissing.monitor}
             restartPending={monitorRestartPending}
-            onChange={setMonitorDeviceId}
+            onChange={(monitorDeviceId) => onChange({ monitorDeviceId })}
           />
         ) : (
           <OfflineDevice
@@ -192,7 +173,7 @@ export function VoiceRoutingPanel({
           <Select
             ariaLabel="Voice sample rate"
             value={String(sampleRate)}
-            onChange={(v) => setSampleRate(Number(v))}
+            onChange={(v) => onChange({ sampleRate: Number(v) })}
             options={sampleRates.map((rate) => ({ value: String(rate), label: `${rate} Hz` }))}
           />
         </div>
@@ -210,7 +191,7 @@ export function VoiceRoutingPanel({
             value={readChunkSize}
             onChange={(event) => {
               const raw = clamp(Number(event.target.value), 30, 1020);
-              setReadChunkSize(Math.round(raw / 15) * 15);
+              onChange({ readChunkSize: Math.round(raw / 15) * 15 });
             }}
             className={field}
           />
@@ -224,7 +205,7 @@ export function VoiceRoutingPanel({
           min={0}
           max={10}
           step={0.1}
-          onChange={setExtraConvert}
+          onChange={(extraConvert) => onChange({ extraConvert })}
           valueLabel={`${extraConvert.toFixed(1)} s`}
         />
         <LabeledSlider
@@ -233,7 +214,7 @@ export function VoiceRoutingPanel({
           min={0}
           max={0.2}
           step={0.01}
-          onChange={setCrossFadeOverlap}
+          onChange={(crossFadeOverlap) => onChange({ crossFadeOverlap })}
           valueLabel={`${Math.round(crossFadeOverlap * 1000)} ms`}
         />
         <LabeledSlider
@@ -242,7 +223,7 @@ export function VoiceRoutingPanel({
           min={0}
           max={2}
           step={0.01}
-          onChange={setInputGain}
+          onChange={(inputGain) => onChange({ inputGain })}
           valueLabel={inputGain.toFixed(2)}
         />
         <LabeledSlider
@@ -251,7 +232,7 @@ export function VoiceRoutingPanel({
           min={0}
           max={2}
           step={0.01}
-          onChange={setOutputGain}
+          onChange={(outputGain) => onChange({ outputGain })}
           valueLabel={outputGain.toFixed(2)}
         />
       </div>

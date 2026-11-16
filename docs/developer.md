@@ -112,7 +112,17 @@ Flow tests cover the high-value screens: ChatPanel (send → streamed reply →
 thinking split), Gallery (filter chips + bulk select), QueuePanel (job states +
 cancel), plus the Select control and model-picker helpers.
 
+## Voice settings
+
+Voice settings are owned by `useVoiceSettings`: one editable draft, one
+confirmed server snapshot, and one queue for writes and session commands.
+Panels submit typed patches through `updateDraft`; settings writes inside a
+command use its `save` callback so acknowledgements preserve newer edits.
+Use `refresh` for polling so a late read cannot replace a completed mutation.
+Preset definitions and offline-file conversion retain their own lifecycles.
+
 ## Dependency profiles and locks
+
 
 `backend/dependency-profiles.json` is the single source for Python 3.12,
 resolver version, torch versions, platform targets and lock outputs. The

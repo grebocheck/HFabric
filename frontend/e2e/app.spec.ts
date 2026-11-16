@@ -269,7 +269,7 @@ test("an in-use model cannot be deleted from the manager", async ({ page }) => {
   );
 });
 
-test("voice live controls stay gated until native assets and a model are ready", async ({ page }) => {
+test("voice keeps tuning drafts through bypass and routing updates while live stays gated", async ({ page }) => {
   const voiceStatus = {
     engine: "native-rvc",
     stub: true,
@@ -344,12 +344,34 @@ test("voice live controls stay gated until native assets and a model are ready",
       "/api/voice/engine/presets": { body: [] },
     },
   });
+  const patches: Record<string, unknown>[] = [];
+  await page.route("**/api/voice/engine/settings", async (route) => {
+    const patch = route.request().postDataJSON() as Record<string, unknown>;
+    patches.push(patch);
+    Object.assign(voiceStatus.settings, patch);
+    await route.fulfill({ json: voiceStatus });
+  });
   await page.goto("/");
   await page.getByRole("tablist", { name: "Workspaces" }).getByRole("tab", { name: "Voice" }).click();
 
   await expect(page.getByRole("button", { name: "Start Live" })).toBeDisabled();
   await expect(page.getByRole("button", { name: /Download voice assets/ })).toBeVisible();
   await expect(page.getByText("Shared voice assets needed")).toBeVisible();
+
+  await page.getByRole("button", { name: "+7 st", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Apply Changes", exact: true })).toBeVisible();
+  await page.getByRole("switch", { name: "Bypass voice conversion" }).click();
+  await expect(page.getByRole("switch", { name: "Bypass voice conversion" })).toBeChecked();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.getByText("unsaved tuning", { exact: true })).toBeVisible();
+
+  await page.getByRole("combobox", { name: "Voice sample rate" }).click();
+  await page.getByRole("option", { name: "44100 Hz", exact: true }).click();
+  await expect.poll(() => patches.some((patch) => patch.server_audio_sample_rate === 44100)).toBe(true);
+  await expect(page.getByText("unsaved tuning", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Apply Changes", exact: true }).click();
+  await expect.poll(() => patches.some((patch) => patch.pitch === 7)).toBe(true);
+  await expect(page.getByText("unsaved tuning", { exact: true })).toHaveCount(0);
 });
 
 test("WebSocket reconnect reconciles an authoritative REST snapshot", async ({ page }) => {

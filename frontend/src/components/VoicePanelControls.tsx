@@ -30,10 +30,6 @@ export function focusIsTextEntry(): boolean {
   return ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable;
 }
 
-export function routingKey(body: VoiceEngineSettingsUpdate): string {
-  return JSON.stringify(body);
-}
-
 export function parseApiError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const match = raw.match(/^(\d{3})\s+([\s\S]*)$/);

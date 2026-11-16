@@ -1,16 +1,18 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { api } from "../api/client";
-import type { VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceEngineStatus, VoiceModel } from "../types";
+import type { VoiceEnginePreset, VoiceEngineSettingsUpdate, VoiceModel } from "../types";
+import type { VoiceOperation } from "./useVoiceSettings";
+import { nativeSettingsToVoicePatch, type VoiceControlState } from "./voiceHelpers";
 
 type VoicePresetControllerOptions = {
-  execute: (label: string, operation: () => Promise<VoiceEngineStatus | null | void>) => Promise<void>;
+  execute: (label: string, operation: VoiceOperation) => Promise<boolean>;
   modelId: string;
   models: VoiceModel[];
   presetSettings: () => VoiceEngineSettingsUpdate;
   setModelId: (modelId: string) => void;
   setOfflineModelId: (modelId: string) => void;
-  setTuningDirty: (dirty: boolean) => void;
+  updateDraft: (patch: Partial<VoiceControlState>) => void;
 };
 
 export function useVoicePresets({
@@ -20,7 +22,7 @@ export function useVoicePresets({
   presetSettings,
   setModelId,
   setOfflineModelId,
-  setTuningDirty,
+  updateDraft,
 }: VoicePresetControllerOptions) {
   const [voicePresets, setVoicePresets] = useState<VoiceEnginePreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState("");
@@ -61,18 +63,18 @@ export function useVoicePresets({
       return null;
     });
 
-  const applyVoicePreset = (preset: VoiceEnginePreset) =>
-    execute("preset-apply", async () => {
+  const applyVoicePreset = (preset: VoiceEnginePreset) => {
+    updateDraft(nativeSettingsToVoicePatch(preset.settings));
+    return execute("preset-apply", async (save) => {
       setSelectedPresetId(preset.id);
       setPresetName(preset.name);
       if (preset.model_id && models.some((model) => model.id === preset.model_id)) {
         setModelId(preset.model_id);
         setOfflineModelId(preset.model_id);
       }
-      const next = await api.voiceEngineSettings(preset.settings);
-      setTuningDirty(false);
-      return next;
+      return save(preset.settings);
     });
+  };
 
   const onUpdateVoicePreset = () =>
     execute("preset-update", async () => {
@@ -85,7 +87,6 @@ export function useVoicePresets({
       setVoicePresets(await api.voiceEnginePresets());
       setSelectedPresetId(updated.id);
       setPresetName(updated.name);
-      setTuningDirty(false);
       return null;
     });
 

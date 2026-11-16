@@ -12,6 +12,7 @@ import {
   meter,
   nativeRoutingSettingsPatch,
   nativeSettingsToVoiceState,
+  nativeSettingsToVoicePatch,
   nativeTuningSettingsPatch,
   nativeVoicePresetSettingsPatch,
   num,
@@ -19,6 +20,7 @@ import {
   resolveMonitorDeviceId,
   selectedNativeModelId,
   stableVoicePreset,
+  voiceStateToNativePatch,
 } from "./voiceHelpers";
 import type { VoiceAudioDevice, VoiceModel } from "../types";
 
@@ -51,36 +53,66 @@ function model(over: Partial<VoiceModel> = {}): VoiceModel {
 }
 
 describe("settings coercion", () => {
-  it("maps native snake_case settings and preserves unselected input/output devices as null patches", () => {
-    expect(nativeSettingsToVoiceState({
-      pitch: "2",
-      input_formant: "1.25",
-      input_gate_db: "-55",
-      input_highpass_hz: "120",
-      input_denoise: "dtln",
-      input_denoise_mix: "0.65",
-      silence_threshold_db: "-48",
-      silence_hold_ms: "400",
-      index_ratio: "0.25",
-      protect: "0.4",
-      noise_scale: "0.33",
-      f0_smoothing: "0.2",
-      f0_detector: "rmvpe",
-      pass_through: true,
+  it("maps only submitted fields, leaving legacy compatibility at the wire boundary", () => {
+    expect(
+      nativeSettingsToVoicePatch({
+        pitch: 4,
+        server_input_device_id: null,
+        input_formant: 3,
+        input_gate_db: -40,
+      }),
+    ).toEqual({ pitch: 4, inputDeviceId: -1 });
+    expect(voiceStateToNativePatch({ pitch: 4, inputDeviceId: -1, monitorDeviceId: -1 })).toEqual({
+      pitch: 4,
       server_input_device_id: null,
-      server_output_device_id: 5,
       server_monitor_device_id: -1,
-      server_audio_sample_rate: 48000,
-      server_read_chunk_size: 192,
-      cross_fade_overlap_size: 0.08,
-      extra_convert_size: 2,
-      server_input_gain: 1.1,
-      server_output_gain: 0.8,
-      server_monitor_gain: 0.6,
-    })).toMatchObject({
+    });
+  });
+
+  it("excludes device ids and bypass even when a full draft is passed to preset serialization", () => {
+    const draft = nativeSettingsToVoiceState({
+      server_input_device_id: 3,
+      server_output_device_id: 4,
+      pass_through: true,
+    });
+    const patch = nativeVoicePresetSettingsPatch(draft);
+    expect(patch).not.toHaveProperty("server_input_device_id");
+    expect(patch).not.toHaveProperty("server_output_device_id");
+    expect(patch).not.toHaveProperty("server_monitor_device_id");
+    expect(patch).not.toHaveProperty("pass_through");
+    expect(patch).toMatchObject({ input_formant: 0, input_gate_db: -90 });
+  });
+
+  it("maps native snake_case settings and preserves unselected input/output devices as null patches", () => {
+    expect(
+      nativeSettingsToVoiceState({
+        pitch: "2",
+        input_formant: "1.25",
+        input_gate_db: "-55",
+        input_highpass_hz: "120",
+        input_denoise: "dtln",
+        input_denoise_mix: "0.65",
+        silence_threshold_db: "-48",
+        silence_hold_ms: "400",
+        index_ratio: "0.25",
+        protect: "0.4",
+        noise_scale: "0.33",
+        f0_smoothing: "0.2",
+        f0_detector: "rmvpe",
+        pass_through: true,
+        server_input_device_id: null,
+        server_output_device_id: 5,
+        server_monitor_device_id: -1,
+        server_audio_sample_rate: 48000,
+        server_read_chunk_size: 192,
+        cross_fade_overlap_size: 0.08,
+        extra_convert_size: 2,
+        server_input_gain: 1.1,
+        server_output_gain: 0.8,
+        server_monitor_gain: 0.6,
+      }),
+    ).toMatchObject({
       pitch: 2,
-      formantShift: 0,
-      inputGateDb: -90,
       inputHighpassHz: 120,
       inputDenoise: "dtln",
       inputDenoiseMix: 0.65,
@@ -99,18 +131,20 @@ describe("settings coercion", () => {
       extraConvert: 2,
     });
 
-    expect(nativeRoutingSettingsPatch({
-      inputDeviceId: -1,
-      outputDeviceId: -1,
-      monitorDeviceId: -1,
-      sampleRate: 48000,
-      readChunkSize: 133,
-      crossFadeOverlap: 0.05,
-      extraConvert: 2,
-      inputGain: 1,
-      outputGain: 1,
-      monitorGain: 0.5,
-    })).toEqual({
+    expect(
+      nativeRoutingSettingsPatch({
+        inputDeviceId: -1,
+        outputDeviceId: -1,
+        monitorDeviceId: -1,
+        sampleRate: 48000,
+        readChunkSize: 133,
+        crossFadeOverlap: 0.05,
+        extraConvert: 2,
+        inputGain: 1,
+        outputGain: 1,
+        monitorGain: 0.5,
+      }),
+    ).toEqual({
       server_input_device_id: null,
       server_output_device_id: null,
       server_monitor_device_id: -1,
@@ -125,22 +159,22 @@ describe("settings coercion", () => {
   });
 
   it("builds a native tuning settings patch", () => {
-    expect(nativeTuningSettingsPatch({
-      pitch: -3,
-      formantShift: 0.5,
-      inputGateDb: -70,
-      inputHighpassHz: 80,
-      inputDenoise: "dtln",
-      inputDenoiseMix: 0.75,
-      silenceThresholdDb: -52,
-      silenceHoldMs: 250,
-      indexRatio: 0.4,
-      protect: 0.2,
-      noiseScale: 0.5,
-      f0Smoothing: 0.1,
-      f0Detector: "rmvpe",
-      passThrough: false,
-    })).toEqual({
+    expect(
+      nativeTuningSettingsPatch({
+        pitch: -3,
+        inputHighpassHz: 80,
+        inputDenoise: "dtln",
+        inputDenoiseMix: 0.75,
+        silenceThresholdDb: -52,
+        silenceHoldMs: 250,
+        indexRatio: 0.4,
+        protect: 0.2,
+        noiseScale: 0.5,
+        f0Smoothing: 0.1,
+        f0Detector: "rmvpe",
+        passThrough: false,
+      }),
+    ).toEqual({
       pitch: -3,
       input_formant: 0,
       input_gate_db: -90,
@@ -159,29 +193,29 @@ describe("settings coercion", () => {
   });
 
   it("builds a voice preset settings patch without device ids", () => {
-    expect(nativeVoicePresetSettingsPatch({
-      pitch: 12,
-      speakerId: 0,
-      formantShift: 0,
-      inputGateDb: -90,
-      inputHighpassHz: 80,
-      inputDenoise: "off",
-      inputDenoiseMix: 0,
-      silenceThresholdDb: -72,
-      silenceHoldMs: 250,
-      indexRatio: 0.33,
-      protect: 0.5,
-      noiseScale: 0.66666,
-      f0Smoothing: 0,
-      f0Detector: "rmvpe",
-      sampleRate: 48000,
-      readChunkSize: 192,
-      crossFadeOverlap: 0.05,
-      extraConvert: 5,
-      inputGain: 1,
-      outputGain: 1,
-      monitorGain: 0.5,
-    })).toEqual({
+    expect(
+      nativeVoicePresetSettingsPatch({
+        pitch: 12,
+        speakerId: 0,
+        inputHighpassHz: 80,
+        inputDenoise: "off",
+        inputDenoiseMix: 0,
+        silenceThresholdDb: -72,
+        silenceHoldMs: 250,
+        indexRatio: 0.33,
+        protect: 0.5,
+        noiseScale: 0.66666,
+        f0Smoothing: 0,
+        f0Detector: "rmvpe",
+        sampleRate: 48000,
+        readChunkSize: 192,
+        crossFadeOverlap: 0.05,
+        extraConvert: 5,
+        inputGain: 1,
+        outputGain: 1,
+        monitorGain: 0.5,
+      }),
+    ).toEqual({
       pitch: 12,
       speaker_id: 0,
       input_formant: 0,
@@ -225,7 +259,9 @@ describe("device helpers", () => {
     expect(hostApiTag("Windows WASAPI").label).toBe("WASAPI");
     expect(hostApiTag("Windows WDM-KS").label).toBe("WDM-KS");
     // distinct colours so a mismatched input/output pair stands out
-    const colors = ["MME", "Windows DirectSound", "Windows WASAPI", "Windows WDM-KS"].map((a) => hostApiTag(a).color);
+    const colors = ["MME", "Windows DirectSound", "Windows WASAPI", "Windows WDM-KS"].map(
+      (a) => hostApiTag(a).color,
+    );
     expect(new Set(colors).size).toBe(4);
     // unknown keeps the raw name, empty produces no tag
     expect(hostApiTag("Jack").label).toBe("Jack");
@@ -274,7 +310,6 @@ describe("formatters and constants", () => {
     expect(stableVoicePreset).toMatchObject({
       inputDenoise: "off",
       inputDenoiseMix: 0,
-      inputGateDb: -90,
       silenceThresholdDb: -54,
       silenceHoldMs: 200,
       indexRatio: 0.35,
@@ -298,7 +333,6 @@ describe("formatters and constants", () => {
   it("keeps the feminine preset deterministic and grid-aligned", () => {
     expect(feminineVoicePreset).toMatchObject({
       pitch: 10,
-      formantShift: 0,
       indexRatio: 0.25,
       noiseScale: 0.3,
       protect: 0.33,

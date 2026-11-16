@@ -1,12 +1,10 @@
 import { Badge } from "./Badge";
-import {
-  VoiceDiagnosticsPanel,
-  VoiceLiveConsolePanel,
-  VoiceOfflineConvertPanel,
-  VoicePresetsPanel,
-  VoiceRoutingPanel,
-  VoiceTuningPanel,
-} from "./VoicePanelSections";
+import { VoiceDiagnosticsPanel } from "./VoiceDiagnosticsPanel";
+import { VoiceLiveConsolePanel } from "./VoiceLiveConsolePanel";
+import { VoiceOfflineConvertPanel } from "./VoiceOfflineConvertPanel";
+import { VoicePresetsPanel } from "./VoicePresetsPanel";
+import { VoiceRoutingPanel } from "./VoiceRoutingPanel";
+import { VoiceTuningPanel } from "./VoiceTuningPanel";
 import { Button } from "./VoicePanelControls";
 import { VoiceEnginePanel } from "./VoiceEnginePanel";
 import { useVoiceSessionController } from "./useVoiceSessionController";

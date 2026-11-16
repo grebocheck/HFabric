@@ -17,6 +17,12 @@ include breaking changes — this is pre-release software.
 
 ### Changed
 
+- Voice settings use one typed draft and a single serialized write path for
+  Apply, presets, routing, bypass and push-to-talk. Tuning/routing panels accept
+  a draft and a patch callback instead of separate setters for every field.
+- Removed unused legacy Voice controls from the frontend draft and the
+  single-consumer Voice panel export barrel; legacy API compatibility remains
+  at serialization boundaries.
 - CI Python jobs install into isolated virtual environments. Dependency audits
   and lock reproduction have an independent workflow; releases require both
   application CI and dependency checks. Audit failures retain scanner JSON.
@@ -38,6 +44,11 @@ include breaking changes — this is pre-release software.
 
 ### Fixed
 
+- Voice polling and partial settings updates preserve unsaved edits. A late
+  Apply response cannot overwrite newer edits, including a value reverted while
+  saving. Failed routing changes remain editable without a retry loop.
+- Updating a saved Voice preset no longer marks unapplied engine settings as
+  saved. Routing edits wait for current operations and are debounced together.
 - Notes no longer lose drafts when navigating before autosave or when an older
   save response arrives after further edits; failed saves can be retried.
 - Transient queue/persistence errors no longer terminate the worker. Recovery

@@ -28,7 +28,9 @@
   обох workflows; security updates foundation/dev без масового ML upgrade.
 - [ ] F7, решта: transformers/setuptools у GPU graph та прострочені exceptions;
   потрібна міграція сумісного ML-стеку із повною апаратною smoke-матрицею.
-- [ ] Наступне спрощення: Chat/Voice draft reducers, typed image runtime context
+- [x] Voice UI: одна typed draft, єдиний settings writer, захист polling/apply
+  та короткі tuning/routing props; прибрано legacy draft fields і зайвий barrel.
+- [ ] Наступне спрощення: Chat draft state, typed image runtime context
   і централізовані effective model defaults/capabilities.
 
 Попередні гілки зведено в `main` зі збереженням історії. Деталі другого пакета
