@@ -234,4 +234,22 @@ describe("Voice settings ownership", () => {
     });
     expect(mocks.settings).not.toHaveBeenCalled();
   });
+
+  it("finishes already requested commands in order after navigating away", async () => {
+    const { result, unmount } = await setup();
+    const first = deferred<VoiceEngineStatus>();
+    mocks.settings.mockReturnValueOnce(first.promise).mockResolvedValueOnce(snapshot({ pass_through: true }));
+    let release!: Promise<boolean>;
+    await act(async () => {
+      void result.current.applySettings("ptt-down", { pass_through: false });
+      release = result.current.applySettings("ptt-up", { pass_through: true });
+    });
+    unmount();
+    await act(async () => {
+      first.resolve(snapshot({ pass_through: false }));
+      await release;
+    });
+    expect(mocks.settings).toHaveBeenCalledTimes(2);
+    expect(mocks.settings.mock.calls[1][0]).toEqual({ pass_through: true });
+  });
 });

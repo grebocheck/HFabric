@@ -49,6 +49,8 @@ include breaking changes — this is pre-release software.
   saving. Failed routing changes remain editable without a retry loop.
 - Updating a saved Voice preset no longer marks unapplied engine settings as
   saved. Routing edits wait for current operations and are debounced together.
+- Already requested Voice commands, including push-to-talk release, finish in
+  order after workspace navigation; unsent routing debounce is cancelled.
 - Notes no longer lose drafts when navigating before autosave or when an older
   save response arrives after further edits; failed saves can be retried.
 - Transient queue/persistence errors no longer terminate the worker. Recovery

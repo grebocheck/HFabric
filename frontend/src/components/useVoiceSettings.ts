@@ -90,9 +90,12 @@ export function useVoiceSettings() {
       ++statusVersion.current;
       const task = queue.current
         .then(async () => {
-          if (!alive.current) return false;
-          setBusy(label);
-          setError("");
+          // Explicit commands already requested by the user (especially Stop
+          // and PTT release) must finish even after leaving this workspace.
+          if (alive.current) {
+            setBusy(label);
+            setError("");
+          }
           try {
             const next = await operation(async (patch) => {
               const sent = revisions.current;
