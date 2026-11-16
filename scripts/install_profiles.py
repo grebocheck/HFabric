@@ -784,6 +784,8 @@ def compile_dependency_locks(
                 args.extend(["--python-platform", str(spec["python_platform"])])
             if spec.get("torch_backend"):
                 args.extend(["--torch-backend", str(spec["torch_backend"])])
+            for package, cutoff in sorted(resolver.get("exclude_newer_packages", {}).items()):
+                args.extend(["--exclude-newer-package", f"{package}={cutoff}"])
             for package in spec.get("omit_packages") or []:
                 args.extend(["--no-emit-package", str(package)])
 

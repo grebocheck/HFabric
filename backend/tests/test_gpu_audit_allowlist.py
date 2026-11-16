@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -61,3 +63,22 @@ def test_unaudited_dependencies_are_read_from_scanner_dependency_entries(monkeyp
         today=date(2026, 11, 15),
     )
     assert errors == ["unexpected unaudited packages: unexpected-package"]
+
+
+@pytest.mark.parametrize("expired_policy", [False, True])
+def test_failed_gpu_audit_retains_scanner_report(monkeypatch, tmp_path, expired_policy):
+    report = {"dependencies": [{"name": "pkg", "vulns": [{"id": "VULN-1"}]}]}
+    monkeypatch.setattr(
+        audit_gpu_lock.subprocess, "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout=json.dumps(report), stderr=""),
+    )
+
+    def policy(_today):
+        if expired_policy:
+            raise ValueError("expired audit exception")
+        return {}
+
+    monkeypatch.setattr(audit_gpu_lock, "_allowlist", policy)
+    destination = tmp_path / "audit.json"
+    assert audit_gpu_lock.main(["--report", str(destination)]) == (2 if expired_policy else 1)
+    assert json.loads(destination.read_text(encoding="utf-8")) == report

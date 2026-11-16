@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from datetime import date
 import json
 from pathlib import Path
@@ -56,7 +57,10 @@ def evaluate(report: dict, *, today: date) -> list[str]:
     return errors
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--report", type=Path, help="Save the scanner JSON even when policy validation fails.")
+    args = parser.parse_args(argv)
     command = [
         sys.executable,
         "-m",
@@ -77,6 +81,8 @@ def main() -> int:
     except json.JSONDecodeError:
         print(result.stderr or result.stdout or "pip-audit produced no report", file=sys.stderr)
         return 2
+    if args.report:
+        args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     try:
         errors = evaluate(report, today=date.today())
     except (KeyError, TypeError, ValueError) as exc:

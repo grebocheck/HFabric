@@ -3,9 +3,19 @@
   "python_version": "3.12",
   "resolver": {
     "tool": "uv",
-    "version": "0.11.31",
+    "version": "0.13.8",
     "command": "python scripts/install_profiles.py --compile-locks",
-    "exclude_newer": "2026-07-23T00:00:00Z"
+    "exclude_newer": "2026-07-23T00:00:00Z",
+    "exclude_newer_packages": {
+      "accelerate": "2026-11-16T00:00:00Z",
+      "certifi": "2026-11-16T00:00:00Z",
+      "filelock": "2026-11-16T00:00:00Z",
+      "msgpack": "2026-11-16T00:00:00Z",
+      "pillow": "2026-11-16T00:00:00Z",
+      "pip": "2026-11-16T00:00:00Z",
+      "urllib3": "2026-11-16T00:00:00Z",
+      "uv": "2026-11-16T00:00:00Z"
+    }
   },
   "torch": {
     "torch": "2.11.0",

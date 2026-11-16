@@ -10,8 +10,10 @@ permissions:
 jobs:
   gates:
     uses: ./.github/workflows/ci.yml
+  dependencies:
+    uses: ./.github/workflows/dependencies.yml
   release:
-    needs: gates
+    needs: [gates, dependencies]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

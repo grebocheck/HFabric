@@ -1,0 +1,55 @@
+name: Dependencies
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependencies-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  locks:
+    name: Reproduce dependency locks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-python
+      - run: python scripts/check_dependency_consistency.py
+      - run: python scripts/install_profiles.py --check-locks
+
+  audit:
+    name: Audit Python (${{ matrix.graph }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        graph: [foundation, development, gpu]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-python
+      - name: Audit foundation
+        if: matrix.graph == 'foundation'
+        run: python -m pip_audit -r backend/requirements-foundation.lock --no-deps --disable-pip --format=json --output=audit.json
+      - name: Audit development
+        if: matrix.graph == 'development'
+        run: python -m pip_audit -r backend/requirements-dev.lock --no-deps --disable-pip --format=json --output=audit.json
+      - name: Audit GPU graph and exception policy
+        if: matrix.graph == 'gpu'
+        run: python scripts/audit_gpu_lock.py --report audit.json
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: audit-${{ matrix.graph }}
+          path: audit.json

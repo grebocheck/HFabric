@@ -17,6 +17,14 @@ include breaking changes — this is pre-release software.
 
 ### Changed
 
+- CI Python jobs install into isolated virtual environments. Dependency audits
+  and lock reproduction have an independent workflow; releases require both
+  application CI and dependency checks. Audit failures retain scanner JSON.
+- Lock resolution supports per-package security update dates while preserving
+  the cutoff for the rest of the GPU stack. Updated Pillow, certifi, filelock,
+  urllib3, msgpack, pip, uv and accelerate security fixes across platform locks.
+- Backend CI runs deterministic coverage and shuffled tests, removing the
+  redundant second deterministic run. Frontend CI uses Node 24.
 - Chat subscribes to the application's existing WebSocket and reconciles its
   active conversation at the same reconnect boundary.
 - Notes keep a revisioned draft outside the workspace component, persist unsaved

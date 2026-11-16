@@ -24,7 +24,10 @@
   після HTTP timeout/cancel, захист stop/start і очищення F0 cache після unload.
 - [ ] F3/F4, решта: GPU TTS/transcription/embeddings, примусове завершення
   завислої native роботи та перевірка реальних RAM/VRAM і audio devices.
-- [ ] F7: актуалізація dependency graphs і прострочених exceptions із GPU smoke.
+- [x] CI: ізольований Python, незалежні dependency checks, release gates для
+  обох workflows; security updates foundation/dev без масового ML upgrade.
+- [ ] F7, решта: transformers/setuptools у GPU graph та прострочені exceptions;
+  потрібна міграція сумісного ML-стеку із повною апаратною smoke-матрицею.
 - [ ] Наступне спрощення: Chat/Voice draft reducers, typed image runtime context
   і централізовані effective model defaults/capabilities.
 

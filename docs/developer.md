@@ -41,6 +41,18 @@ are all testable on a plain machine. CI runs both suites on every push/PR
 (`.github/workflows/ci.yml`): ruff + pytest (with a coverage floor) on the
 backend, eslint + `tsc -b` + `npm run build` + vitest on the frontend.
 
+Python jobs use `.github/actions/setup-python` to create a fresh virtual
+environment before installing the hashed development graph. Runner-global
+packages such as Windows `pipx` cannot affect `pip check`. The backend runs
+one deterministic coverage pass and one shuffled pass; frontend and Windows
+smoke remain independent jobs.
+
+The separate **Dependencies** workflow runs on every push/PR, weekly, and on
+demand. Lock reproduction, foundation audit, development audit, and GPU audit
+run independently, so one finding does not prevent other results or application
+tests. Audit JSON is retained on failure. **Release requires both CI and
+Dependencies**; a green CI alone does not approve dependencies for release.
+
 **Backend** (pytest, stub mode — hermetic temp DB + dummy model files):
 
 ```powershell
@@ -119,6 +131,12 @@ python scripts/check_dependency_consistency.py
 Never edit a compiled lock directly. ROCm installs its pinned torch trio from
 the official ROCm index first; the hashed shared dependency lock deliberately
 omits that trio so it cannot replace the accelerator wheels.
+
+`resolver.exclude_newer` freezes the ordinary dependency graph. Use
+`resolver.exclude_newer_packages` for deliberate security updates to individual
+packages, then regenerate all locks and run the audits. This keeps unrelated ML
+versions stable while updating security fixes. Exceptions in
+`backend/audit-allowlist.json` still expire and fail the GPU audit.
 
 ## Real-GPU validation
 
