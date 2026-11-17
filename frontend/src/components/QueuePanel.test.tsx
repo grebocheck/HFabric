@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     clearFinished: vi.fn(),
     queuePlan: vi.fn(),
     setPriority: vi.fn(),
+    reorderJobs: vi.fn(),
   },
 }));
 
@@ -42,9 +43,25 @@ beforeEach(() => {
   mocks.api.clearFinished.mockResolvedValue({ removed: 0 });
   mocks.api.queuePlan.mockResolvedValue({ queued: 0, swaps: 0, current_model_id: null, current_model: null, steps: [] });
   mocks.api.setPriority.mockResolvedValue({});
+  mocks.api.reorderJobs.mockResolvedValue({ updated: 2 });
 });
 
 describe("QueuePanel", () => {
+  it("uses the scheduler's order and lets keyboard and touch users reorder it", async () => {
+    mocks.api.queuePlan.mockResolvedValue({ queued: 2, swaps: 0, current_model: null, steps: [
+      { model_id: "sdxl", model: "SDXL", type: "image", count: 2, job_ids: ["second", "first"] },
+    ] });
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+    render(<QueuePanel onChanged={onChanged} jobs={[
+      job({ id: "first", params: { prompt: "First submitted" } }),
+      job({ id: "second", params: { prompt: "Second submitted" } }),
+    ]} />);
+    await waitFor(() => expect(screen.getAllByRole("article")[0].textContent).toContain("Second submitted"));
+    await user.click(screen.getByRole("button", { name: "Move job 2 up" }));
+    await waitFor(() => expect(mocks.api.reorderJobs).toHaveBeenCalledWith(["first", "second"]));
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
   it("renders job cards per status and cancels the running job", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn();

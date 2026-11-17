@@ -1,13 +1,14 @@
+import { usePreference } from "../lib/preferences";
+import { usePreferences } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { appQueryCache } from "../api/queryCache";
 import { storage } from "../lib/storage";
 import type { ChatAttachment, ChatMessage, LlmApiServerStatus, LlmConfig, Model, Preset } from "../types";
 import {
-  DEFAULTS_KEY,
   chatSampling,
   conversationSettings,
-  createChatSettings,
   personaSettings,
   type ChatSettingsDraft,
   downloadJson,
@@ -51,24 +52,24 @@ export function useChatPanelController({
   const setInput = setDraft;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
-  const [convQuery, setConvQuery] = useState("");
+  const [convQuery, setConvQuery] = usePreference(preferences.chatUi, "convQuery");
   const [promptHistory, setPromptHistory] = useState<string[]>(() => loadPromptHistory());
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [attachmentNote, setAttachmentNote] = useState("");
 
-  const [settings, setSettings] = useState(createChatSettings);
+  const [settings, setSettings] = usePreferences(preferences.chat);
   const updateSettings = useCallback((patch: Partial<ChatSettingsDraft>) => {
     setSettings((current) => ({ ...current, ...patch }));
-  }, []);
-  const { modelId, system, temperature, maxTokens, imageTool, documentTool, ragTopK } = settings;
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  }, [setSettings]);
+  const { modelId, system, imageTool, documentTool, ragTopK } = settings;
+  const [showAdvanced, setShowAdvanced] = usePreference(preferences.chatUi, "showAdvanced");
 
   // personas (stored as llm presets)
   const [personas, setPersonas] = useState<Preset[]>([]);
   const [personasLoading, setPersonasLoading] = useState(true);
-  const [personaId, setPersonaId] = useState("");
+  const [personaId, setPersonaId] = usePreference(preferences.chatUi, "personaId");
   const [personaName, setPersonaName] = useState("");
 
   const [cfg, setCfg] = useState<LlmConfig | null>(null);
@@ -100,6 +101,7 @@ export function useChatPanelController({
   });
   const setActiveId = useCallback(
     (id: string | null) => {
+      preferences.chatUi.set((current) => ({ ...current, conversationId: id ?? "" }));
       selectionRevision.current += 1;
       activeConversation.current = id;
       resetStream();
@@ -176,20 +178,6 @@ export function useChatPanelController({
   }, [llmModels, modelId, updateSettings]);
 
   useEffect(() => {
-    storage.set(
-      DEFAULTS_KEY,
-      JSON.stringify({
-        model_id: modelId,
-        temperature,
-        max_tokens: maxTokens,
-        image_tool: imageTool,
-        document_tool: documentTool,
-        rag_top_k: ragTopK,
-      }),
-    );
-  }, [modelId, temperature, maxTokens, imageTool, documentTool, ragTopK]);
-
-  useEffect(() => {
     storage.set(PROMPT_HISTORY_KEY, JSON.stringify(promptHistory));
   }, [promptHistory]);
 
@@ -220,6 +208,7 @@ export function useChatPanelController({
 
   const selectConversation = useCallback(
     async (id: string, jobHint?: string) => {
+      const restoring = preferences.chatUi.get().conversationId === id;
       stickToBottom.current = true;
       setActiveId(id);
       const revision = selectionRevision.current;
@@ -238,7 +227,7 @@ export function useChatPanelController({
         }
         setAttachments([]);
         setAttachmentNote("");
-        setSettings((current) => conversationSettings(current, d));
+        setSettings((current) => restoring ? current : conversationSettings(current, d));
       } catch (error) {
         if (selectionRevision.current !== revision) return;
         setMessages([]);
@@ -246,11 +235,14 @@ export function useChatPanelController({
         toast.error(error instanceof Error ? error.message : "Could not load conversation");
       }
     },
-    [reconcile, restoreStream, setActiveId],
+    [reconcile, restoreStream, setActiveId, setSettings],
   );
 
   useEffect(() => {
-    if (!activeId && convs[0]) void selectConversation(convs[0].id);
+    if (!activeId && convs[0]) {
+      const saved = preferences.chatUi.get().conversationId;
+      void selectConversation(convs.find((conversation) => conversation.id === saved)?.id ?? convs[0].id);
+    }
   }, [convs, activeId, selectConversation]);
 
   useEffect(() => {

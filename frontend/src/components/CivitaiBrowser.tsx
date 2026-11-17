@@ -1,6 +1,7 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import { storage } from "../lib/storage";
 import { Select } from "./Select";
 import { toast } from "./Toast";
 import { fmtBytes } from "./format";
@@ -10,8 +11,6 @@ import type {
   CivitaiVersionFiles,
   CustomDownloadItem,
 } from "../types";
-
-const NSFW_KEY = "imagefabric.civitai.nsfw";
 
 const subtleButton = "ui-button rounded-md px-2.5 py-1 text-xs disabled:opacity-30";
 const primaryButton =
@@ -60,10 +59,10 @@ export function CivitaiBrowser({
   disabled?: boolean;
   onStarted: () => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState("downloads");
-  const [focus, setFocus] = useState("all");
-  const [nsfw, setNsfw] = useState(() => storage.get(NSFW_KEY) === "true");
+  const [query, setQuery] = usePreference(preferences.civitai, "query");
+  const [sort, setSort] = usePreference(preferences.civitai, "sort");
+  const [focus, setFocus] = usePreference(preferences.civitai, "focus");
+  const [nsfw, setNsfw] = usePreference(preferences.civitai, "nsfw");
   const [results, setResults] = useState<CivitaiSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [nextPage, setNextPage] = useState<number | null>(null);
@@ -86,7 +85,6 @@ export function CivitaiBrowser({
 
   const toggleNsfw = (on: boolean) => {
     setNsfw(on);
-    storage.set(NSFW_KEY, on ? "true" : "false");
   };
 
   const saveCredential = async (

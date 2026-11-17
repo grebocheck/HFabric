@@ -1,3 +1,5 @@
+import { usePreference } from "./lib/preferences";
+import { preferences } from "./settings/workspacePreferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiAuth } from "./api/client";
 import { appQueryCache } from "./api/queryCache";
@@ -6,7 +8,7 @@ import { useEvents } from "./api/useEvents";
 import type { ChatJump } from "./components/ChatPanel";
 import { toast } from "./components/Toast";
 import { buildComposerApply } from "./components/imageComposerHelpers";
-import { readStoredEnum, storage } from "./lib/storage";
+import { storage } from "./lib/storage";
 import type {
   AppTheme,
   ArbiterNote,
@@ -25,24 +27,18 @@ import type {
   VideoItem,
 } from "./types";
 import { prefetchWorkspace } from "./workspaceLoaders";
-import { VIEW_IDS, WORKSPACES, type View } from "./workspaces";
+import { WORKSPACES, type View } from "./workspaces";
 
 const MEM_HISTORY_MAX = 90;
-const THEME_KEY = "hfabric.theme";
 const SECURITY_WARNING_KEY = "hfabric.securityWarning.dismissed";
 const WELCOME_KEY = "hfabric.welcome.seen";
 const STUB_BANNER_KEY = "hfabric.stubBanner.dismissed";
-const VIEW_KEY = "hfabric.view";
 const THEMES: AppTheme[] = ["dark", "dim", "light"];
 const THEME_META: Record<AppTheme, string> = {
   dark: "#000000",
   dim: "#12151b",
   light: "#eef2f7",
 };
-
-function readTheme(): AppTheme {
-  return readStoredEnum(THEME_KEY, THEMES, "dark");
-}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -78,8 +74,8 @@ export function useAppController() {
   useEffect(() => {
     gpuRef.current = gpu;
   }, [gpu]);
-  const [view, setView] = useState<View>(() => readStoredEnum(VIEW_KEY, VIEW_IDS, "images"));
-  const [theme, setTheme] = useState<AppTheme>(() => readTheme());
+  const [view, setView] = usePreference(preferences.app, "view");
+  const [theme, setTheme] = usePreference(preferences.app, "theme");
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [securityWarningDismissed, setSecurityWarningDismissed] = useState(
     () => storage.get(SECURITY_WARNING_KEY) === "1",
@@ -94,10 +90,10 @@ export function useAppController() {
   const tabIdsRef = useRef<View[]>([]);
   const [chatJump, setChatJump] = useState<ChatJump | null>(null);
 
-  const [promptDraft, setPromptDraft] = useState("");
+  const [promptDraft, setPromptDraft] = usePreference(preferences.app, "promptDraft");
   // LLM composer draft, lifted so it survives tab switches (ChatPanel unmounts
   // when you leave the LLM tab).
-  const [chatDraft, setChatDraft] = useState("");
+  const [chatDraft, setChatDraft] = usePreference(preferences.app, "chatDraft");
   // History self-fetches; bump this to make it reload after a new image lands.
   const [imageEpoch, setImageEpoch] = useState(0);
   // A "reproduce from History" request handed to the image composer.
@@ -105,8 +101,8 @@ export function useAppController() {
   const [editApply, setEditApply] = useState<EditApply | null>(null);
   // The Images tab hosts both plain generation and the edit workspace, toggled
   // in-place instead of living on a separate top-level tab.
-  const [imageMode, setImageMode] = useState<"generate" | "edit">("generate");
-  const [historyMode, setHistoryMode] = useState<"images" | "videos">("images");
+  const [imageMode, setImageMode] = usePreference(preferences.app, "imageMode");
+  const [historyMode, setHistoryMode] = usePreference(preferences.app, "historyMode");
   const postureToastShown = useRef(false);
   const catalogScanRevision = useRef<number | null>(null);
 
@@ -367,7 +363,7 @@ export function useAppController() {
           break;
       }
     },
-    [refreshJobs, refreshImages, refreshVideos],
+    [refreshJobs, refreshImages, refreshVideos, setView, setHistoryMode],
   );
 
   const reconcileSnapshot = useCallback(async () => {
@@ -464,7 +460,7 @@ export function useAppController() {
   }, []);
   const cycleTheme = useCallback(() => {
     setTheme((current) => THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]);
-  }, []);
+  }, [setTheme]);
 
   // Reproduce a History image in the composer. The stored snapshot keys the
   // model by *name*; resolve it back to a live model id when one matches.
@@ -474,7 +470,7 @@ export function useAppController() {
       setView("images");
       toast.success(opts.keepSeed ? "Loaded into composer" : "Loaded as variation (new seed)");
     },
-    [models],
+    [models, setView],
   );
 
   const onEdit = useCallback(
@@ -491,7 +487,7 @@ export function useAppController() {
       setView("images");
       toast.success("Loaded into Edit");
     },
-    [models],
+    [models, setImageMode, setView],
   );
 
   const onUpscale = useCallback(
@@ -514,15 +510,10 @@ export function useAppController() {
     [models, refreshJobs],
   );
 
-  // remember the last active tab
-  useEffect(() => {
-    storage.set(VIEW_KEY, view);
-  }, [view]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle("dark", theme !== "light");
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_META[theme]);
-    storage.set(THEME_KEY, theme);
   }, [theme]);
 
   useEffect(() => {
@@ -550,7 +541,7 @@ export function useAppController() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [setView]);
 
   const imageJobs = jobs.filter((j) => j.type === "image" || j.type === "upscale");
   const videoJobs = jobs.filter((j) => j.type === "video");

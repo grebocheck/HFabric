@@ -19,47 +19,51 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json"
   },
   "dependencies": {
-    "highlight.js": "^11.11.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "highlight.js": "^11.12.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.12.1",
-    "@eslint/js": "^9.18.0",
-    "@playwright/test": "^1.61.1",
-    "@tailwindcss/vite": "^4.0.0",
-    "@testing-library/react": "^16.1.0",
-    "@testing-library/user-event": "^14.5.2",
-    "@types/node": "^26.1.1",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^4.1.9",
-    "axe-core": "^4.10.2",
-    "eslint": "^9.18.0",
+    "@axe-core/playwright": "^4.14.0",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.65.1",
+    "@tailwindcss/vite": "^4.3.5",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.12",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "axe-core": "^4.14.1",
+    "eslint": "^9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
-    "eslint-plugin-react-hooks": "^5.1.0",
-    "jsdom": "^25.0.1",
-    "knip": "^6.29.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^31.0.1",
+    "knip": "^6.45.1",
     "openapi-typescript": "^7.13.0",
-    "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.2",
-    "typescript-eslint": "^8.20.0",
-    "vite": "^6.0.5",
-    "vitest": "^4.1.9"
+    "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.73.0",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
   },
   "overrides": {
-    "brace-expansion@1": "1.1.16",
-    "brace-expansion@2": "2.1.2",
-    "brace-expansion@5": "5.0.7",
-    "js-yaml": "4.3.0"
+    "brace-expansion@1": "1.1.22",
+    "brace-expansion@2": "2.1.8",
+    "brace-expansion@5": "5.0.13",
+    "minimatch@10": "10.2.6",
+    "js-yaml": "4.3.2"
   },
   "knip": {
     "ignore": [
       "src/types.generated.ts"
     ]
+  },
+  "engines": {
+    "node": "^24.17.0 || >=26.0.0"
   }
 }

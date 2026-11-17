@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { MeterSample } from "./VoiceMeters";
@@ -49,9 +51,9 @@ export function useVoiceSessionController() {
     run,
     applySettings,
   } = useVoiceSettings();
-  const [modelId, setModelId] = useState("");
+  const [modelId, setModelId] = usePreference(preferences.voiceUi, "modelId");
   const [ptt, setPtt] = useState(false);
-  const [voicesOpen, setVoicesOpen] = useState(false);
+  const [voicesOpen, setVoicesOpen] = usePreference(preferences.voiceUi, "voicesOpen");
   const [meterHistory, setMeterHistory] = useState<MeterSample[]>([]);
   const [recordingResult, setRecordingResult] = useState<VoiceEngineRecordingResult | null>(null);
   const {
@@ -164,10 +166,7 @@ export function useVoiceSessionController() {
     setOfflineModelId(
       (previous) => selectedNativeModelId(status.models, previous || next, status.loaded_model) || previous,
     );
-  }, [modelId, setOfflineModelId, status]);
-  useEffect(() => {
-    setOfflinePitch(pitch);
-  }, [pitch, setOfflinePitch]);
+  }, [modelId, setModelId, setOfflineModelId, status]);
   useEffect(() => {
     if (!status) return;
     const sample = {

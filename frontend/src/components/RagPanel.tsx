@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
@@ -34,14 +36,14 @@ export function RagPanel({
   const [status, setStatus] = useState<RagStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [docs, setDocs] = useState<RagDocument[]>([]);
-  const [docQuery, setDocQuery] = useState("");
-  const [embedModelId, setEmbedModelId] = useState("");
-  const [llmModelId, setLlmModelId] = useState("");
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [docQuery, setDocQuery] = usePreference(preferences.rag, "docQuery");
+  const [embedModelId, setEmbedModelId] = usePreference(preferences.rag, "embedModelId");
+  const [llmModelId, setLlmModelId] = usePreference(preferences.rag, "llmModelId");
+  const [title, setTitle] = usePreference(preferences.rag, "title");
+  const [content, setContent] = usePreference(preferences.rag, "content");
   const [upload, setUpload] = useState<File | null>(null);
-  const [query, setQuery] = useState("");
-  const [topK, setTopK] = useState(5);
+  const [query, setQuery] = usePreference(preferences.rag, "query");
+  const [topK, setTopK] = usePreference(preferences.rag, "topK");
   const [search, setSearch] = useState<RagSearchResponse | null>(null);
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
@@ -60,7 +62,7 @@ export function RagPanel({
 
   useEffect(() => {
     if (!llmModelId && llmModels[0]) setLlmModelId(llmModels[0].id);
-  }, [llmModelId, llmModels]);
+  }, [llmModelId, llmModels, setLlmModelId]);
 
   useEffect(() => {
     const h = window.setTimeout(() => {

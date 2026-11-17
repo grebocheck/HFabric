@@ -160,6 +160,8 @@ def _static_ram_need_gb(
         # (fp4 *and* int4 variants ~10.5 GB), so gb + 3 tracks the real peak.
         return gb + 3.0
     if family is ModelFamily.FLUX2:
+        if not quant or not quant.startswith("bnb-"):
+            return gb * 0.8 + 3.0
         # klein loaded in bnb 4-bit with low_cpu_mem_usage: diffusers streams the
         # bf16 shards and quantizes each to ~4-bit on the fly, so the full bf16
         # repo (size_bytes ~32 GB) never lands in RAM at once. Measured peak RSS

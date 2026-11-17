@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Dialog } from "./Dialog";
@@ -25,7 +27,7 @@ export function PromptLibrary({
   onApply: (body: string, negative: string | null) => void;
 }) {
   const [items, setItems] = useState<PromptSnippet[]>([]);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePreference(preferences.promptLibrary, "query");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);

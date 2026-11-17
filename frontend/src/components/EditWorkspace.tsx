@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
@@ -19,7 +21,6 @@ import {
 } from "./imageComposerHelpers";
 import {
   buildEditJobParams,
-  DEFAULT_EDIT_DRAFT,
   editDraftPatchFromParams,
   EDIT_MODE_LABELS,
   round64,
@@ -68,25 +69,26 @@ export function EditWorkspace({
   onQueued: () => void;
   onGetModels: () => void;
 }) {
-  const [draft, setDraft] = useState<EditDraft>(DEFAULT_EDIT_DRAFT);
-  const [modelId, setModelId] = useState("");
+  const [draft, setDraft] = usePreference(preferences.edit, "draft");
+  const [modelId, setModelId] = usePreference(preferences.edit, "modelId");
   const [source, setSource] = useState<Source | null>(null);
   const [maskDraft, setMaskDraft] = useState<File | null>(null);
-  const [presetId, setPresetId] = useState("");
+  const [presetId, setPresetId] = usePreference(preferences.edit, "presetId");
   const [uploading, setUploading] = useState(false);
   const [queueing, setQueueing] = useState(false);
   const [queuedJobId, setQueuedJobId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("source");
+  const [viewMode, setViewMode] = usePreference(preferences.edit, "viewMode");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const appliedNonce = useRef<number | null>(null);
   const skipModelDefaults = useRef(false);
+  const defaultsForModel = useRef(modelId);
   const imageDefaults = useImageDefaultSettings();
   const patchDraft = useCallback((patch: Partial<EditDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
-  }, []);
+  }, [setDraft]);
   const setDraftField = useCallback(<K extends keyof EditDraft,>(key: K, value: EditDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
-  }, []);
+  }, [setDraft]);
   const {
     mode,
     prompt,
@@ -124,11 +126,13 @@ export function EditWorkspace({
   const activeRatio = ratios.find((ratio) => Math.abs(width / height - ratio.w / ratio.h) < 0.02)?.label ?? "custom";
 
   useEffect(() => {
+    if (modelsLoading) return;
     if (!selectedModel) setModelId(eligibleModels[0]?.id ?? "");
-  }, [eligibleModels, selectedModel]);
+  }, [eligibleModels, modelsLoading, selectedModel, setModelId]);
 
   useEffect(() => {
-    if (!selectedModel) return;
+    if (!selectedModel || defaultsForModel.current === selectedModel.id) return;
+    defaultsForModel.current = selectedModel.id;
     if (skipModelDefaults.current) {
       skipModelDefaults.current = false;
       return;
@@ -153,7 +157,7 @@ export function EditWorkspace({
     if (!presetsLoading && presetId && !imagePresets.some((preset) => preset.id === presetId)) {
       setPresetId("");
     }
-  }, [imagePresets, presetId, presetsLoading]);
+  }, [imagePresets, presetId, presetsLoading, setPresetId]);
 
   useEffect(() => {
     if (mode !== "outpaint" || !source) return;
@@ -182,7 +186,7 @@ export function EditWorkspace({
     } finally {
       setUploading(false);
     }
-  }, [patchDraft]);
+  }, [patchDraft, setViewMode]);
 
   useEffect(() => {
     if (!apply || apply.nonce === appliedNonce.current) return;
@@ -202,11 +206,11 @@ export function EditWorkspace({
         .then((blob) => uploadSource(new File([blob], `${apply.image_id ?? "history"}.png`, { type: blob.type || "image/png" })))
         .catch(() => toast.error("Could not load the history image into Edit"));
     }
-  }, [apply, models, patchDraft, uploadSource]);
+  }, [apply, models, patchDraft, setModelId, uploadSource]);
 
   useEffect(() => {
     if (result) setViewMode("result");
-  }, [result]);
+  }, [result, setViewMode]);
 
   const onMaskChange = useCallback((file: File | null) => setMaskDraft(file), []);
 

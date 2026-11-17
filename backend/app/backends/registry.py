@@ -365,8 +365,12 @@ class ModelRegistry:
             raise KeyError(f"unknown lora id: {lora_id}")
         return self._loras[lora_id]
 
-    def get_backend(self, model_id: str) -> GpuBackend:
+    def get_backend(self, model_id: str, *, image_quant: str | None = None) -> GpuBackend:
         desc = self.get_descriptor(model_id)
+        if image_quant is not None:
+            from ..services.image_quantization import image_quant_descriptor  # noqa: PLC0415
+
+            desc = image_quant_descriptor(desc, image_quant)
         cached = self._backends.get(model_id)
         if cached is not None and cached.descriptor == desc:
             return cached

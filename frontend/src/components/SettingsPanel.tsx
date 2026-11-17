@@ -1,3 +1,6 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
+import { acknowledgeRuntimeDraft, restoreRuntimeDraft, runtimeDraft } from "../settings/runtimeDraft";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import { LlamaRuntime } from "./LlamaRuntime";
@@ -19,6 +22,12 @@ const subtleButton =
 const primaryButton =
   "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ui-inverse transition hover:bg-accent-hover disabled:opacity-35";
 
+const imagePrecisionKeys = new Set(["flux2_quant", "qwen_image_quant", "qwen_image_edit_quant", "flux_kontext_quant", "z_image_quant"]);
+const imageFamilies = [
+  ["anima_", "Anima"], ["flux2_", "FLUX.2"], ["qwen_image_edit_", "Qwen Image Edit"],
+  ["qwen_image_", "Qwen Image"], ["flux_kontext_", "FLUX Kontext"], ["z_image_", "Z-Image"],
+];
+
 export function SettingsPanel() {
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [overrides, setOverrides] = useState<{
@@ -29,8 +38,8 @@ export function SettingsPanel() {
   } | null>(null);
   const [saved, setSaved] = useState<SettingsOverrideValues | null>(null);
   const [draft, setDraft] = useState<SettingsOverrideValues | null>(null);
-  const [activeGroup, setActiveGroup] = useState("");
-  const [query, setQuery] = useState("");
+  const [activeGroup, setActiveGroup] = usePreference(preferences.settings, "activeGroup");
+  const [query, setQuery] = usePreference(preferences.settings, "query");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -46,18 +55,18 @@ export function SettingsPanel() {
         path: writable.path,
       });
       setSaved(writable.values);
-      setDraft(writable.values);
+      setDraft(restoreRuntimeDraft(writable.values, writable.schema));
       setActiveGroup((current) => current || writable.groups[0]?.id || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load settings");
     }
-  }, []);
+  }, [setActiveGroup]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const specs = useMemo(() => overrides?.schema ?? [], [overrides?.schema]);
+  const specs = useMemo(() => (overrides?.schema ?? []).filter((spec) => !imagePrecisionKeys.has(spec.key)), [overrides?.schema]);
   const groups = useMemo(() => overrides?.groups ?? [], [overrides?.groups]);
   const cleanQuery = query.trim().toLowerCase();
   const visibleSpecs = useMemo(
@@ -76,7 +85,7 @@ export function SettingsPanel() {
       const next = groups.find((group) => !cleanQuery || groupCounts[group.id])?.id;
       if (next) setActiveGroup(next);
     }
-  }, [activeGroup, cleanQuery, groupCounts, groups]);
+  }, [activeGroup, cleanQuery, groupCounts, groups, setActiveGroup]);
 
   const changedKeys = useMemo(() => {
     if (!draft || !saved) return [];
@@ -91,17 +100,27 @@ export function SettingsPanel() {
   );
   const activeSpecs = visibleSpecs.filter((spec) => spec.group === activeGroup);
   const activeMeta = groups.find((group) => group.id === activeGroup);
+  const sections = activeGroup === "family_defaults"
+    ? imageFamilies.map(([prefix, title]) => ({ title, fields: activeSpecs.filter((spec) => {
+      const family = imageFamilies.find(([candidate]) => spec.key.startsWith(candidate));
+      return family?.[0] === prefix;
+    }) })).filter(({ fields }) => fields.length)
+    : [{ title: "", fields: activeSpecs }];
 
   const updateDraft = useCallback((key: string, value: SettingsValue) => {
+    runtimeDraft.set(({ edits }) => ({ edits: { ...edits, [key]: value } }));
     setDraft((current) => ({ ...(current ?? {}), [key]: value } as SettingsOverrideValues));
   }, []);
 
   const save = async () => {
     if (!draft || !changedKeys.length) return;
+    const submitted = { ...draft };
+    const patch = Object.fromEntries(changedKeys.map((key) => [key, submitted[key]])) as SettingsOverrideValues;
     setSaving(true);
     setError("");
     try {
-      const next = await api.saveSettingsOverrides(draft);
+      const next = await api.saveSettingsOverrides(patch);
+      acknowledgeRuntimeDraft(patch);
       setOverrides({
         values: next.values,
         groups: next.groups,
@@ -109,8 +128,14 @@ export function SettingsPanel() {
         path: next.path,
       });
       setSaved(next.values);
-      setDraft(next.values);
-      setSettings(await api.runtimeSettings());
+      setDraft((current) => {
+        const merged = { ...next.values };
+        for (const spec of specs) {
+          if (current && !sameValue(current[spec.key], submitted[spec.key])) merged[spec.key] = current[spec.key];
+        }
+        return merged;
+      });
+      void api.runtimeSettings().then(setSettings).catch(() => undefined);
       window.dispatchEvent(new CustomEvent("hfabric:settings-overrides"));
       toast.success("Settings saved");
     } catch (err) {
@@ -121,18 +146,19 @@ export function SettingsPanel() {
   };
 
   const revert = () => {
+    runtimeDraft.set({ edits: {} });
     if (saved) setDraft(saved);
     setError("");
   };
 
   return (
-    <div className="flex h-full w-full flex-col gap-4 overflow-hidden">
+    <div className="flex h-full min-w-0 w-full flex-col gap-4 overflow-hidden max-[860px]:overflow-y-auto">
       <WorkspaceHeader
         title="Settings"
         subtitle="Persistent local defaults for generation, model runtime, memory policy, and tool placement."
         actions={
           <>
-            <button onClick={() => void load()} className={subtleButton} disabled={saving}>
+            <button onClick={() => void load()} className={subtleButton} disabled={saving || changedKeys.length > 0}>
               Refresh
             </button>
             <button onClick={revert} className={subtleButton} disabled={!changedKeys.length || saving}>
@@ -154,18 +180,19 @@ export function SettingsPanel() {
         <div className="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-sm text-error-fg">{error}</div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_300px] gap-4 max-[1180px]:grid-cols-[230px_minmax(0,1fr)] max-[860px]:block max-[860px]:overflow-y-auto">
-        <Panel className="min-h-0 overflow-hidden max-[860px]:mb-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_300px] gap-4 max-[1180px]:grid-cols-[230px_minmax(0,1fr)] max-[1180px]:grid-rows-[minmax(0,1fr)_200px] max-[860px]:block max-[860px]:overflow-y-auto">
+        <Panel className="flex min-h-0 flex-col overflow-hidden max-[860px]:mb-4 max-[860px]:max-h-72">
           <SectionTitle title="Groups" subtitle={changedKeys.length ? `${changedKeys.length} pending changes` : "No pending changes"} />
           <div className="border-b border-line p-3">
             <input
+              aria-label="Search settings"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className={control}
               placeholder="Search settings"
             />
           </div>
-          <nav className="min-h-0 overflow-y-auto p-2">
+          <nav aria-label="Settings groups" className="min-h-0 flex-1 overflow-y-auto p-2">
             {groups.map((group) => {
               const count = groupCounts[group.id] ?? 0;
               if (cleanQuery && !count) return null;
@@ -190,17 +217,21 @@ export function SettingsPanel() {
           </nav>
         </Panel>
 
-        <Panel className="min-h-0 overflow-hidden max-[860px]:mb-4">
+        <Panel className="flex min-h-0 flex-col overflow-hidden max-[860px]:mb-4 max-[860px]:max-h-[70vh]">
           <SectionTitle
             title={activeMeta?.label ?? "Settings"}
             subtitle={activeMeta?.description}
             actions={restartChanged.some((spec) => spec.group === activeGroup) ? <StatusPill label="restart pending" tone="warn" /> : null}
           />
-          <div className="min-h-0 overflow-y-auto p-4">
+          <div role="region" aria-label="Setting fields" className="min-h-0 flex-1 overflow-y-auto p-4">
+            {activeGroup === "family_defaults" ? <p className="mb-4 text-xs leading-5 text-ui-subtle">Choose weight precision alongside the model on the Images page. These defaults control sampling and memory placement.</p> : null}
             {!draft && !error ? <SkeletonRows rows={8} /> : null}
             {draft && activeSpecs.length ? (
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-                {activeSpecs.map((spec) => (
+              <div className="space-y-5">
+                {sections.map(({ title, fields }) => <fieldset key={title} className="min-w-0">
+                  {title ? <legend className="mb-2 text-sm font-semibold text-ui-strong">{title}</legend> : null}
+                  <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {fields.map((spec) => (
                   <SettingField
                     key={spec.key}
                     spec={spec}
@@ -209,6 +240,8 @@ export function SettingsPanel() {
                     onChange={(value) => updateDraft(spec.key, value)}
                   />
                 ))}
+                  </div>
+                </fieldset>)}
               </div>
             ) : null}
             {draft && !activeSpecs.length ? (
@@ -267,7 +300,7 @@ function SettingField({
       <div className="mb-2 flex min-h-6 items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-ui" title={spec.label}>{spec.label}</div>
-          {spec.description ? <div className="mt-0.5 max-h-8 overflow-hidden text-xs leading-4 text-ui-subtle">{spec.description}</div> : null}
+          {spec.description ? <div className="mt-0.5 text-xs leading-4 text-ui-subtle">{spec.description}</div> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {dirty ? <MiniPill tone="warn">edited</MiniPill> : null}

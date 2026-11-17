@@ -13,4 +13,4 @@
 
 # Native voice engine / audio stack. ContentVec runs through CPU ONNX Runtime
 # on the ROCm profile until a tested ROCm EP path is added.
-onnxruntime>=1.20
+onnxruntime>=1.32

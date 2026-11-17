@@ -168,7 +168,7 @@ export interface MemPoint {
 
 type QueuePlanStep = Pick<
   Api["QueuePlanStepOut"],
-  "count" | "model" | "model_id"
+  "count" | "model" | "model_id" | "job_ids"
 > & {
   type: JobType;
 };

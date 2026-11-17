@@ -1,17 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { storage } from "../lib/storage";
+import { usePreference } from "../lib/preferences";
+import { imagePreferences } from "../settings/imagePreferences";
 import type { SelectOption } from "./Select";
 import type { ComposerApply, Lora, Model, Preset } from "../types";
 import {
-  DEFAULT_GUIDANCE,
-  DEFAULT_SIZE,
-  DEFAULT_STEPS,
   boundedNumberParam,
   imageDimensionGrid,
   imageFamilyDefaults,
   imageModelRank,
-  inferTouched,
   isLoraCompatible,
   isModelAvailable,
   loadPromptHistory,
@@ -22,11 +20,6 @@ import {
   pickDefaultImageModel,
   PROMPT_HISTORY_KEY,
   promptHistoryLimit,
-  readSaved,
-  STORE_KEY,
-  type LoraSelection,
-  type SavedComposer,
-  type TouchedFields,
 } from "./imageComposerHelpers";
 import { toast } from "./Toast";
 import { useImageDefaultSettings } from "./useImageDefaultSettings";
@@ -68,18 +61,18 @@ export function useImageComposerController({
     .filter((m) => m.job_type === "image" && m.family !== "qwen-image-edit" && m.family !== "flux-kontext")
     .sort((a, b) => imageModelRank(a) - imageModelRank(b) || a.name.localeCompare(b.name));
 
-  const saved = useMemo(readSaved, []);
-  const [imgModel, setImgModel] = useState(saved.imgModel ?? "");
-  const [negative, setNegative] = useState(saved.negative ?? "");
-  const [steps, setSteps] = useState(saved.steps ?? DEFAULT_STEPS);
-  const [guidance, setGuidance] = useState(saved.guidance ?? DEFAULT_GUIDANCE);
-  const [width, setWidth] = useState(saved.width ?? DEFAULT_SIZE);
-  const [height, setHeight] = useState(saved.height ?? DEFAULT_SIZE);
-  const [seed, setSeed] = useState(saved.seed ?? -1);
-  const [batch, setBatch] = useState(saved.batch ?? 1);
-  const [selectedLoras, setSelectedLoras] = useState<LoraSelection[]>(saved.selectedLoras ?? []);
-  const [count, setCount] = useState(saved.count ?? 1);
-  const [presetId, setPresetId] = useState(saved.presetId ?? "");
+  const [imgModel, setImgModel] = usePreference(imagePreferences, "imgModel");
+  const [quantByModel, setQuantByModel] = usePreference(imagePreferences, "quantByModel");
+  const [negative, setNegative] = usePreference(imagePreferences, "negative");
+  const [steps, setSteps] = usePreference(imagePreferences, "steps");
+  const [guidance, setGuidance] = usePreference(imagePreferences, "guidance");
+  const [width, setWidth] = usePreference(imagePreferences, "width");
+  const [height, setHeight] = usePreference(imagePreferences, "height");
+  const [seed, setSeed] = usePreference(imagePreferences, "seed");
+  const [batch, setBatch] = usePreference(imagePreferences, "batch");
+  const [selectedLoras, setSelectedLoras] = usePreference(imagePreferences, "selectedLoras");
+  const [count, setCount] = usePreference(imagePreferences, "count");
+  const [presetId, setPresetId] = usePreference(imagePreferences, "presetId");
   const [presetName, setPresetName] = useState("");
   const [presetError, setPresetError] = useState("");
   const [presetBusy, setPresetBusy] = useState(false);
@@ -90,11 +83,14 @@ export function useImageComposerController({
   const promptHistoryRef = useRef<HTMLDivElement>(null);
   // Which numeric fields the user has explicitly edited. Untouched fields track
   // family/server defaults; touched ones survive tab switches and family changes.
-  const [touched, setTouched] = useState<TouchedFields>(() => inferTouched(saved));
+  const [touched, setTouched] = usePreference(imagePreferences, "touched");
   const serverDefaults = useImageDefaultSettings();
 
   const selectedImgModel = imgModels.find((m) => m.id === imgModel);
   const selectedFamily = selectedImgModel?.family;
+  const quantOptions = selectedImgModel?.quant_options ?? [];
+  const savedQuant = quantByModel[imgModel];
+  const imageQuant = quantOptions.includes(savedQuant) ? savedQuant : "";
   const imagePresets = presets.filter((p) => p.type === "image");
   const compatibleLoras = loras
     .filter((lora) => isLoraCompatible(lora, selectedImgModel))
@@ -106,42 +102,7 @@ export function useImageComposerController({
       const preferred = pickDefaultImageModel(imgModels);
       if (preferred && preferred.id !== imgModel) setImgModel(preferred.id);
     }
-  }, [imgModels, imgModel, selectedImgModel]);
-
-  useEffect(() => {
-    const data: SavedComposer = {
-      imgModel,
-      negative,
-      steps,
-      guidance,
-      width,
-      height,
-      seed,
-      batch,
-      count,
-      selectedLoras,
-      presetId,
-      touched,
-    };
-    try {
-      storage.set(STORE_KEY, JSON.stringify(data));
-    } catch {
-      // Private-mode or quota errors should not break generation.
-    }
-  }, [
-    imgModel,
-    negative,
-    steps,
-    guidance,
-    width,
-    height,
-    seed,
-    batch,
-    count,
-    selectedLoras,
-    presetId,
-    touched,
-  ]);
+  }, [imgModels, imgModel, selectedImgModel, setImgModel]);
 
   useEffect(() => {
     if (lorasLoading || modelsLoading) return;
@@ -151,13 +112,13 @@ export function useImageComposerController({
         return lora ? isLoraCompatible(lora, selectedImgModel) : false;
       }),
     );
-  }, [loras, lorasLoading, modelsLoading, selectedImgModel]);
+  }, [loras, lorasLoading, modelsLoading, selectedImgModel, setSelectedLoras]);
 
   useEffect(() => {
     if (!presetsLoading && presetId && !imagePresets.some((preset) => preset.id === presetId)) {
       setPresetId("");
     }
-  }, [imagePresets, presetId, presetsLoading]);
+  }, [imagePresets, presetId, presetsLoading, setPresetId]);
 
   // Untouched numeric fields follow the best default for the current selection:
   // the family-specific default (flux2/qwen/z-image) when there is one, else the
@@ -175,40 +136,40 @@ export function useImageComposerController({
     if (!touched.guidance) setGuidance(effective.guidance);
     if (!touched.width) setWidth(effective.width);
     if (!touched.height) setHeight(effective.height);
-  }, [selectedFamily, selectedImgModel, serverDefaults, touched]);
+  }, [selectedFamily, selectedImgModel, serverDefaults, setGuidance, setHeight, setSteps, setWidth, touched]);
 
   // Field editors that record the user's intent. Editing a field marks it
   // touched so it stops tracking defaults and survives the next remount.
-  const clearActivePreset = useCallback(() => setPresetId(""), []);
+  const clearActivePreset = useCallback(() => setPresetId(""), [setPresetId]);
   const editSteps = useCallback((v: number) => {
     setSteps(v);
     setTouched((t) => ({ ...t, steps: true }));
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setSteps, setTouched]);
   const editGuidance = useCallback((v: number) => {
     setGuidance(v);
     setTouched((t) => ({ ...t, guidance: true }));
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setGuidance, setTouched]);
   const editWidth = useCallback((v: number) => {
     setWidth(v);
     setTouched((t) => ({ ...t, width: true }));
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setTouched, setWidth]);
   const editHeight = useCallback((v: number) => {
     setHeight(v);
     setTouched((t) => ({ ...t, height: true }));
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setHeight, setTouched]);
 
   const editImgModel = useCallback((value: string) => {
     setImgModel(value);
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setImgModel]);
   const editNegative = useCallback((value: string) => {
     setNegative(value);
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setNegative]);
   const editPromptDraft = useCallback((value: string) => {
     setPromptDraft(value);
     clearActivePreset();
@@ -216,16 +177,22 @@ export function useImageComposerController({
   const editSeed = useCallback((value: number) => {
     setSeed(value);
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setSeed]);
   const editBatch = useCallback((value: number) => {
     setBatch(value);
     clearActivePreset();
-  }, [clearActivePreset]);
+  }, [clearActivePreset, setBatch]);
 
-  const imageParams = () => normalizeImageRequest(
+  const imageParams = () => ({ ...normalizeImageRequest(
     { prompt: promptDraft, negative, steps, guidance, width, height, seed, batch, loras: selectedLoras },
     selectedFamily,
-  );
+  ), ...(quantOptions.length ? { image_quant: imageQuant || selectedImgModel?.quant || "none" } : {}) });
+
+  const editImageQuant = (value: string) => {
+    if (value && !quantOptions.includes(value)) return;
+    setQuantByModel((current) => ({ ...current, [imgModel]: value }));
+    clearActivePreset();
+  };
 
   const rememberPrompt = useCallback((content: string) => {
     const text = content.trim();
@@ -312,6 +279,14 @@ export function useImageComposerController({
       return false;
     }
     if (model && isModelAvailable(model)) setImgModel(model.id);
+    const targetModel = model ?? selectedImgModel;
+    if (targetModel) {
+      const requestedQuant = typeof params.image_quant === "string" ? params.image_quant : "";
+      setQuantByModel((current) => ({
+        ...current,
+        [targetModel.id]: targetModel.quant_options?.includes(requestedQuant) ? requestedQuant : "",
+      }));
+    }
     const parsedLoras = parseLoraSelections(params.loras, loras, model ?? selectedImgModel);
     const normalized = normalizeImageRequest({
       prompt: typeof params.prompt === "string" ? params.prompt : promptDraft,
@@ -411,6 +386,9 @@ export function useImageComposerController({
   const visiblePromptHistory = promptHistory.filter((item) => item !== promptDraft.trim()).slice(0, 8);
 
   return {
+    imageQuant,
+    quantOptions,
+    setImageQuant: editImageQuant,
     activeRatio,
     applyPreset,
     applyRatio,

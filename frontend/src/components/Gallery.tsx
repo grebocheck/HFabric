@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { usePreferences } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { Select, type SelectOption } from "./Select";
 import { ResilientImage } from "./ResilientImage";
 import { toast } from "./Toast";
@@ -73,8 +75,8 @@ export function Gallery({
   onUpscale: (image: ImageItem, scale: 2 | 4) => void;
 }) {
   // `applied` is what actually drives fetching; `query` is the live input box.
-  const [query, setQuery] = useState("");
-  const [applied, setApplied] = useState({ q: "", model: "", family: "", size: "", lora: "", favorite: false, tag: "", range: "all" });
+  const [applied, setApplied] = usePreferences(preferences.gallery);
+  const [query, setQuery] = useState(applied.q);
   const [items, setItems] = useState<ImageItem[]>([]);
   const [stats, setStats] = useState<ImageStats | null>(null);
   const [loading, setLoading] = useState(false);

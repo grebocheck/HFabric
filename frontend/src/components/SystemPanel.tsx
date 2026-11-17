@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { SetupDoctor } from "./SetupDoctor";
@@ -432,7 +434,7 @@ function SwapPlan({ plan }: { plan: QueuePlan | null }) {
 function MemoryTimeline({ history }: { history: MemPoint[] }) {
   const W = 100;
   const H = 32;
-  const [showRss, setShowRss] = useState(false);
+  const [showRss, setShowRss] = usePreference(preferences.system, "showRss");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const points = history.filter((p) => p.ram || p.vram);
 

@@ -18,7 +18,7 @@ class Flux2LoaderMixin:
         from diffusers import Flux2KleinPipeline  # noqa: PLC0415
 
         path = self.descriptor.path
-        quant = settings.flux2_quant.lower().strip()
+        quant = (self.descriptor.quant or settings.flux2_quant).lower().strip()
         if quant not in ("bnb-nf4", "bnb-fp4", "", "none", "bf16"):
             raise ValueError(
                 "HFAB_FLUX2_QUANT must be one of: bnb-nf4, bnb-fp4, none "

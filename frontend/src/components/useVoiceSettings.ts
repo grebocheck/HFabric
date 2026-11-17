@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
+import { usePreferences } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import type { VoiceEngineSettingsUpdate, VoiceEngineStatus } from "../types";
 import { parseApiError } from "./VoicePanelControls";
 import type { RoutingApplyState } from "./VoicePanelParts";
@@ -17,10 +19,8 @@ type Revisions = Partial<Record<keyof VoiceControlState, number>>;
 export type VoiceOperation = (save: SaveSettings) => Promise<VoiceEngineStatus | null | void>;
 
 export function useVoiceSettings() {
-  const [state, setState] = useState(() => {
-    const draft = nativeSettingsToVoiceState({});
-    return { status: null as VoiceEngineStatus | null, draft, confirmed: draft, revisions: {} as Revisions };
-  });
+  const [{ draft, confirmed }, setValues] = usePreferences(preferences.voice);
+  const [status, setStatus] = useState<VoiceEngineStatus | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [routingApplyState, setRoutingApplyState] = useState<RoutingApplyState>("idle");
@@ -43,17 +43,18 @@ export function useVoiceSettings() {
     const next = { ...revisions.current };
     for (const key of Object.keys(patch) as Array<keyof VoiceControlState>) next[key] = (next[key] ?? 0) + 1;
     revisions.current = next;
-    setState((current) => ({ ...current, draft: { ...current.draft, ...patch }, revisions: next }));
-  }, []);
+    setValues((current) => ({ ...current, draft: { ...current.draft, ...patch } }));
+  }, [setValues]);
 
   const receive = useCallback(
     (status: VoiceEngineStatus, submitted: Partial<VoiceControlState> = {}, sent: Revisions = {}) => {
       if (!alive.current) return;
-      setState((current) => {
+      setStatus(status);
+      setValues((current) => {
         const confirmed = nativeSettingsToVoiceState(status.settings);
         const draft = { ...confirmed };
         for (const key of Object.keys(draft) as Array<keyof VoiceControlState>) {
-          const changedSinceSend = key in submitted && current.revisions[key] !== sent[key];
+          const changedSinceSend = key in submitted && revisions.current[key] !== sent[key];
           const edited = changedSinceSend || current.draft[key] !== current.confirmed[key];
           const acknowledged = key in submitted && !changedSinceSend && current.draft[key] === submitted[key];
           if (edited && !acknowledged) Object.assign(draft, { [key]: current.draft[key] });
@@ -62,10 +63,10 @@ export function useVoiceSettings() {
         const unchanged = (Object.keys(draft) as Array<keyof VoiceControlState>).every(
           (key) => draft[key] === current.draft[key],
         );
-        return { ...current, status, confirmed, draft: unchanged ? current.draft : draft };
+        return { confirmed, draft: unchanged ? current.draft : draft };
       });
     },
-    [],
+    [setValues],
   );
 
   const refresh = useCallback(async () => {
@@ -125,7 +126,6 @@ export function useVoiceSettings() {
     [run],
   );
 
-  const { status, draft, confirmed } = state;
   const statusLoaded = Boolean(status);
   const routingPatch = useMemo(() => nativeRoutingSettingsPatch(draft), [draft]);
   const currentRoutingKey = JSON.stringify(routingPatch);

@@ -25,14 +25,14 @@ class QwenZLoaderMixin:
                 pass
         kwargs = self._quantized_repo_kwargs(
             torch,
-            settings.qwen_image_edit_quant,
+            self.descriptor.quant or settings.qwen_image_edit_quant,
             "HFAB_QWEN_IMAGE_EDIT_QUANT",
             ["transformer", "text_encoder"],
         )
         pipe = cls.from_pretrained(str(self.descriptor.path), **kwargs)
         if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
             pipe.vae.enable_tiling()
-        quant = settings.qwen_image_edit_quant.lower().strip()
+        quant = (self.descriptor.quant or settings.qwen_image_edit_quant).lower().strip()
         if quant in ("bnb-nf4", "bnb-fp4"):
             if hasattr(getattr(pipe, "vae", None), "to"):
                 self._runtime().move(pipe.vae)
@@ -45,7 +45,7 @@ class QwenZLoaderMixin:
             )
             placement = settings.qwen_image_edit_offload
         self._active_features["qwen_image_edit"] = {
-            "quant": settings.qwen_image_edit_quant,
+            "quant": quant,
             "placement": placement,
             "instruction_edit": True,
         }
@@ -69,14 +69,14 @@ class QwenZLoaderMixin:
 
         kwargs = self._quantized_repo_kwargs(
             torch,
-            settings.qwen_image_quant,
+            self.descriptor.quant or settings.qwen_image_quant,
             "HFAB_QWEN_IMAGE_QUANT",
             ["transformer", "text_encoder"],
         )
         pipe = QwenImagePipeline.from_pretrained(str(self.descriptor.path), **kwargs)
         if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
             pipe.vae.enable_tiling()
-        quant = settings.qwen_image_quant.lower().strip()
+        quant = (self.descriptor.quant or settings.qwen_image_quant).lower().strip()
         if quant in ("bnb-nf4", "bnb-fp4"):
             if hasattr(getattr(pipe, "vae", None), "to"):
                 self._runtime().move(pipe.vae)
@@ -85,7 +85,7 @@ class QwenZLoaderMixin:
             self._place_repo_pipeline(pipe, settings.qwen_image_offload, "HFAB_QWEN_IMAGE_OFFLOAD")
             placement = settings.qwen_image_offload
         self._active_features["qwen_image"] = {
-            "quant": settings.qwen_image_quant,
+            "quant": quant,
             "offload": settings.qwen_image_offload,
             "placement": placement,
             "guidance_arg": "true_cfg_scale",
@@ -286,11 +286,11 @@ class QwenZLoaderMixin:
 
         kwargs = self._quantized_repo_kwargs(
             torch,
-            settings.z_image_quant,
+            self.descriptor.quant or settings.z_image_quant,
             "HFAB_Z_IMAGE_QUANT",
             ["transformer", "text_encoder"],
         )
-        quant = settings.z_image_quant.lower().strip()
+        quant = (self.descriptor.quant or settings.z_image_quant).lower().strip()
         if quant not in ("bnb-nf4", "bnb-fp4"):
             kwargs["low_cpu_mem_usage"] = False
         pipe = ZImagePipeline.from_pretrained(str(self.descriptor.path), **kwargs)
@@ -305,7 +305,7 @@ class QwenZLoaderMixin:
             placement = settings.z_image_offload
         self._active_features["z_image"] = {
             "variant": "turbo" if self._is_z_image_turbo() else "base",
-            "quant": settings.z_image_quant,
+            "quant": quant,
             "offload": settings.z_image_offload,
             "placement": placement,
             "default_steps": self._z_image_default_steps(),

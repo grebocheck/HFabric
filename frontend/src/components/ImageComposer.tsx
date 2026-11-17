@@ -35,6 +35,9 @@ export function ImageComposer(props: ImageComposerProps) {
     imagePresets,
     imgModel,
     imgModels,
+    imageQuant,
+    quantOptions,
+    setImageQuant,
     libraryOpen,
     lorasLoading,
     modelsLoading,
@@ -198,6 +201,31 @@ export function ImageComposer(props: ImageComposerProps) {
               Raw FLUX fp8 is slow and high-memory on 16 GB VRAM. Prefer a nunchaku FLUX entry when available.
             </Notice>
           ) : null}
+          {selectedImgModel ? (
+            <div className="mt-3">
+              <div className={label}>Weight precision</div>
+              {quantOptions.length ? (
+                <select
+                  aria-label="Weight precision"
+                  value={imageQuant}
+                  onChange={(event) => setImageQuant(event.target.value)}
+                  className={`${field} mt-1.5`}
+                >
+                  <option value="">Model default ({precisionLabel(selectedImgModel.quant ?? "none")})</option>
+                  {quantOptions.map((quant) => <option key={quant} value={quant}>{precisionLabel(quant)}</option>)}
+                </select>
+              ) : (
+                <div className="mt-1.5 rounded-md border border-line bg-control px-2.5 py-2 text-xs text-ui-muted">
+                  {isNunchaku(selectedImgModel) ? `${precisionLabel(selectedImgModel.quant ?? "")} · checkpoint` : "Original weights · no added quantization"}
+                </div>
+              )}
+              <p className="mt-1.5 text-[11px] leading-4 text-ui-subtle">
+                {quantOptions.length
+                  ? "Use original precision when memory allows. 4-bit modes reduce memory use. Saved separately for each model."
+                  : isNunchaku(selectedImgModel) ? "Choose a different checkpoint to change its precision." : "This model keeps its original precision."}
+              </p>
+            </div>
+          ) : null}
           {selectedUnavailableReason ? <Notice tone="amber">{selectedUnavailableReason}</Notice> : null}
           {selectedImgModel?.compatibility_warnings?.length ? (
             <Notice tone="sky">{selectedImgModel.compatibility_warnings[0]}</Notice>
@@ -212,7 +240,7 @@ export function ImageComposer(props: ImageComposerProps) {
           ) : selectedFamily === "qwen-image" ? (
             <Notice tone="sky">
               Qwen-Image server default: {familyDefaults?.width}x{familyDefaults?.height}, {familyDefaults?.steps}
-              steps, true CFG {familyDefaults?.guidance}. The backend defaults to bnb-nf4.
+              steps, true CFG {familyDefaults?.guidance}.
             </Notice>
           ) : selectedFamily === "z-image" && isZImageTurbo(selectedImgModel) ? (
             <Notice tone="sky">
@@ -222,7 +250,7 @@ export function ImageComposer(props: ImageComposerProps) {
           ) : selectedFamily === "z-image" ? (
             <Notice tone="sky">
               Z-Image base server default: {familyDefaults?.width}x{familyDefaults?.height}, {familyDefaults?.steps}
-              steps, guidance {familyDefaults?.guidance}. The backend defaults to bnb-fp4.
+              steps, guidance {familyDefaults?.guidance}.
             </Notice>
           ) : null}
         </section>
@@ -354,4 +382,12 @@ export function ImageComposer(props: ImageComposerProps) {
       </div>
     </section>
   );
+}
+
+function precisionLabel(quant: string): string {
+  if (quant === "none") return "BF16 · no quantization";
+  if (quant === "bnb-nf4") return "NF4 · 4-bit (bitsandbytes)";
+  if (quant === "bnb-fp4") return "FP4 · 4-bit (bitsandbytes)";
+  if (quant === "nunchaku-fp4") return "NVFP4 · Nunchaku";
+  return quant;
 }

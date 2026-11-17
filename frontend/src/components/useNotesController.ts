@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "../api/client";
 import type { Note } from "../types";
@@ -7,7 +9,7 @@ import { toast } from "./Toast";
 export function useNotesController() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selected, setSelected] = useState<Note | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePreference(preferences.notes, "query");
   const [loadError, setLoadError] = useState("");
   const requestRevision = useRef(0);
   useSyncExternalStore(noteDrafts.subscribe, noteDrafts.snapshot);
@@ -18,7 +20,9 @@ export function useNotesController() {
       const rows = await api.listNotes(q);
       if (revision !== requestRevision.current) return;
       setNotes(rows);
-      setSelected((current) => current ? rows.find((note) => note.id === current.id) ?? current : rows[0] ?? null);
+      const savedId = preferences.notes.get().selectedId;
+      setSelected((current) => current ? rows.find((note) => note.id === current.id) ?? current
+        : rows.find((note) => note.id === savedId) ?? rows[0] ?? null);
       setLoadError("");
       for (const note of rows) {
         if (noteDrafts.status(note.id) === "unsaved") void noteDrafts.flush(note.id);
@@ -47,6 +51,7 @@ export function useNotesController() {
   }, []);
 
   const select = (note: Note) => {
+    preferences.notes.set((current) => ({ ...current, selectedId: note.id }));
     if (selected) void noteDrafts.flush(selected.id);
     setSelected(note);
   };

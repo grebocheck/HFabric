@@ -44,6 +44,7 @@ export default defineConfig(({ mode }) => {
     test: {
       // Component tests run in a DOM; pure-logic tests ignore it harmlessly.
       environment: "jsdom",
+      setupFiles: ["src/testSetup.ts"],
       include: ["src/**/*.test.{ts,tsx}"],
       maxWorkers: 4,
       restoreMocks: true,
@@ -54,6 +55,7 @@ export default defineConfig(({ mode }) => {
           "src/**/*.test.{ts,tsx}",
           "src/**/*.d.ts",
           "src/main.tsx",
+          "src/testSetup.ts",
           "src/types.ts",
           "src/types.generated.ts",
         ],

@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useMemo, useState } from "react";
 
 import { api } from "../api/client";
@@ -25,7 +27,7 @@ export function useVoicePresets({
   updateDraft,
 }: VoicePresetControllerOptions) {
   const [voicePresets, setVoicePresets] = useState<VoiceEnginePreset[]>([]);
-  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = usePreference(preferences.voiceUi, "selectedPresetId");
   const [presetName, setPresetName] = useState("");
   const selectedPreset = useMemo(
     () => voicePresets.find((preset) => preset.id === selectedPresetId) ?? null,
@@ -42,7 +44,7 @@ export function useVoicePresets({
     } catch {
       setVoicePresets([]);
     }
-  }, []);
+  }, [setSelectedPresetId]);
 
   const selectVoicePreset = (presetId: string) => {
     setSelectedPresetId(presetId);

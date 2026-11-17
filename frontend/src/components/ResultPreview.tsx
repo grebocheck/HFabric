@@ -9,6 +9,7 @@ const actionBtn = "ui-button rounded-md px-2.5 py-1.5 text-xs";
 
 export function ResultPreview({
   images,
+  focusImage,
   onOpenHistory,
   onReproduce,
   onEdit,
@@ -19,6 +20,7 @@ export function ResultPreview({
   onGetModels,
 }: {
   images: ImageItem[];
+  focusImage?: { id: string; revision: number } | null;
   onOpenHistory: () => void;
   onReproduce?: (image: ImageItem, opts: { keepSeed: boolean }) => void;
   onEdit?: (image: ImageItem) => void;
@@ -33,6 +35,10 @@ export function ResultPreview({
   const [note, setNote] = useState("");
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLatest = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (focusImage) setSelectedId(focusImage.id);
+  }, [focusImage]);
 
   const selected = useMemo(
     () => images.find((img) => img.id === selectedId) ?? images[0] ?? null,

@@ -24,6 +24,7 @@ from ..services import (
     settings_overrides,
 )
 from ..services import model_profile_service as mps
+from ..services.image_quantization import default_image_quant, image_quant_options
 from ..util import sysmon
 from .contracts import (
     ERROR_RESPONSES,
@@ -156,7 +157,8 @@ async def list_models(
                 size_bytes=d.size_bytes,
                 loaded=loaded,
                 warm=warm,
-                quant=d.quant,
+                quant=default_image_quant(d) if image_quant_options(d) else d.quant,
+                quant_options=list(image_quant_options(d)),
                 multimodal=d.multimodal,
                 mmproj_path=str(d.mmproj_path) if d.mmproj_path else None,
                 mmproj_size_bytes=d.mmproj_size_bytes,

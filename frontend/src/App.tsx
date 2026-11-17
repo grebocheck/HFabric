@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, type ReactNode } from "react";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { Dialog } from "./components/Dialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -50,6 +50,7 @@ const VideoHistory = lazy(() => loadVideo().then((module) => ({ default: module.
 const VideoResult = lazy(() => loadVideo().then((module) => ({ default: module.VideoResult })));
 
 export default function App() {
+  const [queueImage, setQueueImage] = useState<{ id: string; revision: number } | null>(null);
   const {
     arbiterNote,
     authLocked,
@@ -160,6 +161,7 @@ export default function App() {
             />
             <ResultPreview
               images={images}
+              focusImage={queueImage}
               onOpenHistory={() => setView("history")}
               onReproduce={onReproduce}
               onEdit={onEdit}
@@ -169,7 +171,9 @@ export default function App() {
               modelsLoading={modelsLoading}
               onGetModels={() => setView("models")}
             />
-            <QueuePanel jobs={imageJobs} onChanged={refreshJobs} note={arbiterNote} />
+            <QueuePanel jobs={imageJobs} models={models} images={images}
+              onSelectImage={(id) => setQueueImage((current) => ({ id, revision: (current?.revision ?? 0) + 1 }))}
+              onChanged={refreshJobs} note={arbiterNote} />
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -207,7 +211,7 @@ export default function App() {
               setView("history");
             }}
           />
-          <QueuePanel jobs={videoJobs} onChanged={refreshJobs} note={arbiterNote} />
+          <QueuePanel jobs={videoJobs} models={models} onChanged={refreshJobs} note={arbiterNote} />
         </div>
       </main>
     ),

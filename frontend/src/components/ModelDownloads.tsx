@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { SNAPSHOT_REFRESH_EVENT } from "../api/sync";
@@ -40,7 +42,7 @@ function errMsg(err: unknown, fallback: string): string {
 export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => void }) {
   const [data, setData] = useState<ModelDownloadState | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = usePreference(preferences.downloads, "showAdvanced");
   const [busy, setBusy] = useState(false);
   const [rescanning, setRescanning] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -114,11 +116,11 @@ export function ModelDownloads({ onModelsChanged }: { onModelsChanged?: () => vo
   };
 
   // --- custom (any-source) download: Hugging Face catalog (HfBrowser) or direct URL ---
-  const [installedOpen, setInstalledOpen] = useState(false);
-  const [source, setSource] = useState<"hf" | "civitai" | "url">("hf");
-  const [kind, setKind] = useState("llm");
-  const [filename, setFilename] = useState("");
-  const [url, setUrl] = useState("");
+  const [installedOpen, setInstalledOpen] = usePreference(preferences.downloads, "installedOpen");
+  const [source, setSource] = usePreference(preferences.downloads, "source");
+  const [kind, setKind] = usePreference(preferences.downloads, "kind");
+  const [filename, setFilename] = usePreference(preferences.downloads, "filename");
+  const [url, setUrl] = usePreference(preferences.downloads, "url");
 
   const addCustom = async () => {
     const trimmed = url.trim();

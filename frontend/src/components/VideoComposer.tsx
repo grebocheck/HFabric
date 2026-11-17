@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
@@ -10,11 +12,9 @@ export { VideoResult } from "./video/VideoResult";
 
 import {
   CLIP_PRESETS,
-  DEFAULT_PRESET,
   FAMILY_DEFAULT_PRESET,
   RESOLUTION_PRESETS,
   applyClipSettings,
-  type VideoMode,
 } from "./video/videoPresets";
 
 export function VideoComposer({
@@ -30,24 +30,24 @@ export function VideoComposer({
 }) {
   const videoModels = useMemo(() => models.filter((model) => model.job_type === "video"), [models]);
   const available = useMemo(() => videoModels.filter((model) => model.available !== false), [videoModels]);
-  const [modelId, setModelId] = useState("");
-  const [mode, setMode] = useState<VideoMode>("t2v");
-  const [prompt, setPrompt] = useState("");
-  const [negative, setNegative] = useState("");
-  const [presetId, setPresetId] = useState(DEFAULT_PRESET.id);
-  const [width, setWidth] = useState(DEFAULT_PRESET.width);
-  const [height, setHeight] = useState(DEFAULT_PRESET.height);
-  const [frames, setFrames] = useState(DEFAULT_PRESET.frames);
-  const [fps, setFps] = useState(DEFAULT_PRESET.fps);
-  const [steps, setSteps] = useState(DEFAULT_PRESET.steps);
-  const [guidance, setGuidance] = useState(DEFAULT_PRESET.guidance);
-  const [seed, setSeed] = useState(-1);
+  const [modelId, setModelId] = usePreference(preferences.video, "modelId");
+  const [mode, setMode] = usePreference(preferences.video, "mode");
+  const [prompt, setPrompt] = usePreference(preferences.video, "prompt");
+  const [negative, setNegative] = usePreference(preferences.video, "negative");
+  const [presetId, setPresetId] = usePreference(preferences.video, "presetId");
+  const [width, setWidth] = usePreference(preferences.video, "width");
+  const [height, setHeight] = usePreference(preferences.video, "height");
+  const [frames, setFrames] = usePreference(preferences.video, "frames");
+  const [fps, setFps] = usePreference(preferences.video, "fps");
+  const [steps, setSteps] = usePreference(preferences.video, "steps");
+  const [guidance, setGuidance] = usePreference(preferences.video, "guidance");
+  const [seed, setSeed] = usePreference(preferences.video, "seed");
   const [source, setSource] = useState<{ token: string; url: string; name: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const setters = useMemo(() => ({ setWidth, setHeight, setFrames, setFps, setSteps, setGuidance }), []);
+  const setters = useMemo(() => ({ setWidth, setHeight, setFrames, setFps, setSteps, setGuidance }), [setFps, setFrames, setGuidance, setHeight, setSteps, setWidth]);
 
   const applyPreset = useCallback(
     (id: string) => {
@@ -56,7 +56,7 @@ export function VideoComposer({
       setPresetId(id);
       applyClipSettings(preset, setters);
     },
-    [setters],
+    [setPresetId, setters],
   );
 
   const applyFamilyDefaults = useCallback(
@@ -73,7 +73,7 @@ export function VideoComposer({
       setModelId(preferred.id);
       applyFamilyDefaults(preferred.family);
     }
-  }, [available, modelId, applyFamilyDefaults]);
+  }, [available, modelId, applyFamilyDefaults, setModelId]);
 
   const selected = videoModels.find((model) => model.id === modelId);
   const framepackSelected = selected?.family === "hunyuan-video";
@@ -87,7 +87,7 @@ export function VideoComposer({
   useEffect(() => {
     if (framepackSelected && mode !== "i2v") setMode("i2v");
     if (textOnlySelected && mode !== "t2v") setMode("t2v");
-  }, [framepackSelected, mode, textOnlySelected]);
+  }, [framepackSelected, mode, setMode, textOnlySelected]);
 
   const chooseModel = (id: string) => {
     setModelId(id);

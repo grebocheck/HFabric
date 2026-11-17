@@ -54,6 +54,17 @@ afterEach(() => {
 });
 
 describe("Voice settings ownership", () => {
+  it("restores unapplied tuning after remount and keeps server confirmation separate", async () => {
+    const first = await setup();
+    act(() => first.result.current.updateDraft({ pitch: 11, protect: 0.33 }));
+    first.unmount();
+    const second = await setup();
+    expect(second.result.current.draft.pitch).toBe(11);
+    expect(second.result.current.draft.protect).toBe(0.33);
+    expect(second.result.current.tuningDirty).toBe(true);
+    expect(mocks.settings).not.toHaveBeenCalled();
+  });
+
   it("keeps unsaved tuning when bypass or a status poll changes another field", async () => {
     const { result } = await setup();
     act(() => result.current.updateDraft({ pitch: 8 }));

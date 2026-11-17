@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 
 import { Slider } from "./Slider";
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 
 type Tool = "brush" | "lasso" | "erase";
 type Point = { x: number; y: number };
@@ -24,9 +26,9 @@ export function MaskEditor({
   const undoRef = useRef<ImageData[]>([]);
   const activeRef = useRef<{ tool: Tool; last: Point; points: Point[] } | null>(null);
   const [size, setSize] = useState<Point>({ x: 1, y: 1 });
-  const [tool, setTool] = useState<Tool>("brush");
-  const [brush, setBrush] = useState(36);
-  const [feather, setFeather] = useState(6);
+  const [tool, setTool] = usePreference(preferences.mask, "tool");
+  const [brush, setBrush] = usePreference(preferences.mask, "brush");
+  const [feather, setFeather] = usePreference(preferences.mask, "feather");
   const [lassoPoints, setLassoPoints] = useState<Point[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [hasMask, setHasMask] = useState(false);

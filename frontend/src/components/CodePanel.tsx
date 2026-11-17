@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
@@ -30,19 +32,19 @@ export function CodePanel({
   onOpenChat: (conversationId: string, jobId: string) => void;
 }) {
   const llmModels = useMemo(() => models.filter((m) => m.job_type === "llm"), [models]);
-  const [modelId, setModelId] = useState("");
-  const [query, setQuery] = useState("");
+  const [modelId, setModelId] = usePreference(preferences.code, "modelId");
+  const [query, setQuery] = usePreference(preferences.code, "query");
   const [files, setFiles] = useState<CodeFile[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = usePreference(preferences.code, "selected");
   const [contents, setContents] = useState<Record<string, CodeFileContent>>({});
-  const [activePath, setActivePath] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [activePath, setActivePath] = usePreference(preferences.code, "activePath");
+  const [prompt, setPrompt] = usePreference(preferences.code, "prompt");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
 
   useEffect(() => {
     if (!modelId && llmModels[0]) setModelId(llmModels[0].id);
-  }, [llmModels, modelId]);
+  }, [llmModels, modelId, setModelId]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {

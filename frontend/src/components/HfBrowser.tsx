@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
@@ -85,17 +87,17 @@ export function HfBrowser({
   autoLoad?: boolean;
   onStarted: () => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState("downloads");
-  const [focus, setFocus] = useState("all");
+  const [query, setQuery] = usePreference(preferences.hf, "query");
+  const [sort, setSort] = usePreference(preferences.hf, "sort");
+  const [focus, setFocus] = usePreference(preferences.hf, "focus");
   const [results, setResults] = useState<HfSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
 
-  const [repo, setRepo] = useState("");
+  const [repo, setRepo] = usePreference(preferences.hf, "repo");
   const [files, setFiles] = useState<HfRepoFile[] | null>(null);
   const [loadedRepo, setLoadedRepo] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [fileQuery, setFileQuery] = useState("");
+  const [fileQuery, setFileQuery] = usePreference(preferences.hf, "fileQuery");
   const [browsing, setBrowsing] = useState(false);
   const [loadingRepo, setLoadingRepo] = useState("");
   const [busy, setBusy] = useState(false);

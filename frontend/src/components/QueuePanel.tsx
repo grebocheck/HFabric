@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Badge } from "./Badge";
+import { ResilientImage } from "./ResilientImage";
 import { toast } from "./Toast";
-import type { ArbiterNote, Job, QueuePlan } from "../types";
+import type { ArbiterNote, ImageItem, Job, Model, QueuePlan } from "../types";
 
 const statusColor: Record<string, string> = {
   queued: "text-ui-muted",
@@ -21,8 +22,6 @@ const statusBorder: Record<string, string> = {
 };
 
 const order: Record<string, number> = { running: 0, queued: 1, error: 2, done: 3, cancelled: 4 };
-const previewCells = Array.from({ length: 16 });
-const cellColors = ["bg-white/45", "bg-accent/35", "bg-cyan-300/35", "bg-fuchsia-300/35"];
 
 // Only the "why is the queue blocked" reasons belong in the queue banner;
 // transient swaps are shown on the System timeline instead.
@@ -32,17 +31,26 @@ const BLOCKING_NOTE_TONES: Record<string, string> = {
   resident_pinned: "border-success-border bg-success-bg text-success-fg",
 };
 
-export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: () => void; note?: ArbiterNote | null }) {
+export function QueuePanel({ jobs, onChanged, note, models = [], images = [], onSelectImage }: {
+  jobs: Job[]; onChanged: () => void | Promise<void>; note?: ArbiterNote | null;
+  models?: Model[]; images?: ImageItem[]; onSelectImage?: (id: string) => void;
+}) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [plan, setPlan] = useState<QueuePlan | null>(null);
+  const [busy, setBusy] = useState(false);
+  const mutation = useRef(false);
   const sorted = useMemo(
-    () => [...jobs].sort(
-      (a, b) =>
-        (order[a.status] - order[b.status])
-        || (b.priority - a.priority)
-        || Date.parse(a.created_at) - Date.parse(b.created_at),
-    ),
-    [jobs],
+    () => {
+      const planned = new Map((plan?.steps.flatMap((step) => step.job_ids ?? []) ?? []).map((id, index) => [id, index]));
+      return [...jobs].sort((a, b) => {
+        const status = order[a.status] - order[b.status];
+        if (status) return status;
+        if (a.status !== "queued") return Date.parse(b.finished_at ?? b.created_at) - Date.parse(a.finished_at ?? a.created_at);
+        return (planned.get(a.id) ?? Infinity) - (planned.get(b.id) ?? Infinity)
+          || b.priority - a.priority || Date.parse(a.created_at) - Date.parse(b.created_at);
+      });
+    },
+    [jobs, plan],
   );
   const running = jobs.filter((job) => job.status === "running").length;
   const queued = jobs.filter((job) => job.status === "queued").length;
@@ -57,6 +65,7 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
 
   useEffect(() => {
     let active = true;
+    setPlan(null);
     api.queuePlan()
       .then((next) => {
         if (active) setPlan(next);
@@ -69,23 +78,49 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
     };
   }, [queueKey]);
 
-  const reorderQueued = async (targetId: string) => {
-    if (!draggedId || draggedId === targetId) return;
+  const perform = async (operation: () => Promise<unknown>) => {
+    if (mutation.current) return;
+    mutation.current = true;
+    setBusy(true);
+    try {
+      await operation();
+      await onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update queue");
+    } finally {
+      mutation.current = false;
+      setBusy(false);
+      setDraggedId(null);
+    }
+  };
+
+  const reorderQueued = async (targetId: string, sourceId = draggedId) => {
+    if (!sourceId || sourceId === targetId) return;
     const queuedJobs = sorted.filter((job) => job.status === "queued");
-    const from = queuedJobs.findIndex((job) => job.id === draggedId);
+    const from = queuedJobs.findIndex((job) => job.id === sourceId);
     const to = queuedJobs.findIndex((job) => job.id === targetId);
     if (from < 0 || to < 0) return;
 
     const next = [...queuedJobs];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
-    await Promise.all(next.map((job, i) => api.setPriority(job.id, next.length - i)));
-    setDraggedId(null);
-    onChanged();
+    await perform(() => api.reorderJobs(next.map((job) => job.id)));
+  };
+
+  const queuedJobs = sorted.filter((job) => job.status === "queued");
+  const renderJob = (job: Job) => {
+    const index = queuedJobs.findIndex((item) => item.id === job.id);
+    return <JobCard key={job.id} job={job} draggedId={draggedId} setDraggedId={setDraggedId}
+      reorderQueued={reorderQueued} perform={perform} busy={busy} note={jobNote(note, job)}
+      position={index >= 0 ? index + 1 : undefined}
+      onMoveUp={index > 0 ? () => void reorderQueued(queuedJobs[index - 1].id, job.id) : undefined}
+      onMoveDown={index >= 0 && index < queuedJobs.length - 1 ? () => void reorderQueued(queuedJobs[index + 1].id, job.id) : undefined}
+      modelName={models.find((model) => model.id === job.model_id)?.name ?? job.model_id}
+      image={images.find((image) => image.job_id === job.id)} onSelectImage={onSelectImage} />;
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-panel max-[1240px]:col-span-2 max-[860px]:h-[520px]">
+    <section aria-label="Generation queue" className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-panel max-[1240px]:col-span-2 max-[860px]:h-auto max-[860px]:min-h-64 max-[860px]:max-h-[70vh]">
       <div className="border-b border-line px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -97,11 +132,11 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
             </div>
           </div>
           <button
-            onClick={() => api.clearFinished().then(onChanged)}
-            disabled={!finished && !jobs.some((job) => job.status === "error")}
+            onClick={() => void perform(() => api.clearFinished())}
+            disabled={busy || (!finished && !jobs.some((job) => job.status === "error"))}
             className="ui-button rounded-md px-2.5 py-1.5 text-xs disabled:opacity-30"
           >
-            Clear
+            Clear finished
           </button>
         </div>
         {note && BLOCKING_NOTE_TONES[note.reason] ? (
@@ -109,7 +144,6 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
             {note.message}
           </div>
         ) : null}
-        <QueuePlanPreview plan={plan} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -119,17 +153,12 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
           </div>
         ) : (
           <div className="space-y-2">
-            {sorted.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                draggedId={draggedId}
-                setDraggedId={setDraggedId}
-                reorderQueued={reorderQueued}
-                onChanged={onChanged}
-                note={jobNote(note, job)}
-              />
-            ))}
+            {running ? <div className="space-y-2"><QueueHeading>Generating now</QueueHeading>{sorted.filter((job) => job.status === "running").map(renderJob)}</div> : null}
+            {queued ? <div className="space-y-2"><QueueHeading>Up next · {queued}</QueueHeading><p className="text-[11px] text-ui-subtle">Drag or use arrows to change the order.</p>{queuedJobs.map(renderJob)}</div> : null}
+            {!running && !queued ? <p className="py-3 text-center text-xs text-ui-subtle">All jobs finished</p> : null}
+            {jobs.some((job) => job.status === "error") ? <div className="space-y-2"><QueueHeading>Needs attention</QueueHeading>{sorted.filter((job) => job.status === "error").map(renderJob)}</div> : null}
+            {finished ? <details className="rounded-md border border-line"><summary className="cursor-pointer px-2.5 py-2 text-xs text-ui-muted">Completed · {finished}</summary><div className="space-y-2 border-t border-line p-2">{sorted.filter((job) => job.status === "done" || job.status === "cancelled").map(renderJob)}</div></details> : null}
+            <QueuePlanPreview plan={plan} />
           </div>
         )}
       </div>
@@ -137,31 +166,45 @@ export function QueuePanel({ jobs, onChanged, note }: { jobs: Job[]; onChanged: 
   );
 }
 
+function QueueHeading({ children }: { children: React.ReactNode }) {
+  return <h3 className="pt-1 text-[10px] font-semibold uppercase tracking-wide text-ui-subtle">{children}</h3>;
+}
+
 function JobCard({
   job,
   draggedId,
   setDraggedId,
   reorderQueued,
-  onChanged,
+  perform, busy, position, onMoveUp, onMoveDown, modelName, image, onSelectImage,
   note,
 }: {
   job: Job;
   draggedId: string | null;
   setDraggedId: (id: string | null) => void;
   reorderQueued: (targetId: string) => Promise<void>;
-  onChanged: () => void;
+  perform: (operation: () => Promise<unknown>) => Promise<void>;
+  busy: boolean; position?: number; onMoveUp?: () => void; onMoveDown?: () => void;
+  modelName: string; image?: ImageItem; onSelectImage?: (id: string) => void;
   note?: ArbiterNote | null;
 }) {
-  const progress = Math.round((job.progress || 0) * 100);
+  const progress = Math.round(Math.min(1, Math.max(0, job.progress || 0)) * 100);
   const prompt = String(job.params?.prompt ?? "");
+  const quant = typeof job.params.image_quant === "string" ? job.params.image_quant : "";
+  const facts = [
+    job.params.width && job.params.height ? `${job.params.width}×${job.params.height}` : "",
+    job.params.steps ? `${job.params.steps} steps` : "",
+    quant === "none" ? "BF16" : quant.replace("bnb-", "").toUpperCase(),
+  ].filter(Boolean).join(" · ");
 
   return (
     <article
-      draggable={job.status === "queued"}
+      aria-label={`${modelName} ${job.status}`}
+      draggable={job.status === "queued" && !busy}
       onDragStart={(e) => {
-        if (job.status !== "queued") return;
+        if (job.status !== "queued" || busy) return;
         setDraggedId(job.id);
         e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", job.id);
       }}
       onDragEnd={() => setDraggedId(null)}
       onDragOver={(e) => {
@@ -178,14 +221,18 @@ function JobCard({
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Badge color="border-accent/40 bg-accent/15 text-accent-fg">{job.type}</Badge>
-          <span className="min-w-0 truncate font-mono text-xs text-ui-muted" title={job.model_id}>{job.model_id}</span>
+          {position ? <span className="text-xs text-ui-subtle">{position}.</span> : null}
+          <span className="min-w-0 truncate text-xs font-medium text-ui-muted" title={modelName}>{modelName}</span>
         </div>
         <span className={`shrink-0 text-xs ${statusColor[job.status]}`}>{job.status}</span>
       </div>
 
+      {image ? <button onClick={() => onSelectImage?.(image.id)} disabled={!onSelectImage} aria-label={`Show result: ${prompt || modelName}`} className="mt-2 h-16 w-16 overflow-hidden rounded-md border border-line"><ResilientImage sources={[image.thumb_url, image.url]} alt="" className="h-full w-full object-cover" /></button> : null}
+
       {prompt ? (
         <div className="mt-1.5 line-clamp-2 text-xs leading-4 text-ui-subtle" title={prompt}>{prompt}</div>
       ) : null}
+      {facts ? <div className="mt-1 text-[10px] text-ui-subtle">{facts}</div> : null}
 
       {note ? (
         <div className="mt-1.5 truncate text-[11px] text-ui-subtle" title={note.message}>
@@ -196,7 +243,7 @@ function JobCard({
       {job.status === "running" ? (
         <>
           <div className="mt-2 flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded bg-control-active">
+            <div role="progressbar" aria-label={`Generation progress: ${modelName}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="h-1.5 flex-1 overflow-hidden rounded bg-control-active">
               <div
                 className="h-full bg-accent transition-all"
                 style={{ width: `${progress}%` }}
@@ -204,18 +251,11 @@ function JobCard({
             </div>
             <span className="w-8 text-right text-[11px] text-ui-subtle">{progress}%</span>
           </div>
-          {job.type === "image" || job.type === "video" ? (
-            <DenoisePreview progress={job.progress} note={job.progress_note} />
-          ) : null}
+          <p className="mt-2 text-xs leading-4 text-ui-muted">{job.progress_note || (progress ? "Generating…" : "Preparing model…")}</p>
           <div className="mt-2 flex justify-end">
             <button
-              onClick={() => {
-                void api.cancelJob(job.id)
-                  .then(onChanged)
-                  .catch((error: unknown) => {
-                    toast.error(error instanceof Error ? error.message : "Could not stop job");
-                  });
-              }}
+              disabled={busy}
+              onClick={() => void perform(() => api.cancelJob(job.id))}
               className="rounded-md border border-error-border px-2.5 py-1 text-xs text-error-fg hover:bg-error-bg"
             >
               Stop
@@ -230,14 +270,10 @@ function JobCard({
 
       {job.status === "queued" ? (
         <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex gap-1"><button disabled={busy || !onMoveUp} onClick={onMoveUp} aria-label={`Move job ${position} up`} className="ui-button rounded px-2 py-1 text-xs disabled:opacity-30">↑</button><button disabled={busy || !onMoveDown} onClick={onMoveDown} aria-label={`Move job ${position} down`} className="ui-button rounded px-2 py-1 text-xs disabled:opacity-30">↓</button></div>
           <button
-            onClick={() => api.setPriority(job.id, job.priority + 1).then(onChanged)}
-            className="text-xs text-ui-subtle hover:text-ui-strong"
-          >
-            Priority {job.priority}
-          </button>
-          <button
-            onClick={() => api.cancelJob(job.id).then(onChanged)}
+            disabled={busy}
+            onClick={() => void perform(() => api.cancelJob(job.id))}
             className="text-xs text-error-fg hover:text-error"
           >
             Cancel
@@ -295,31 +331,4 @@ function noteLine(note: ArbiterNote): string {
     return "waiting: resident LLM API is pinned";
   }
   return note.message;
-}
-
-function DenoisePreview({ progress, note }: { progress: number; note?: string | null }) {
-  const clamped = Math.min(1, Math.max(0, progress || 0));
-  const noiseCells = Math.ceil((1 - clamped) * previewCells.length);
-  const pct = Math.round(clamped * 100);
-
-  return (
-    <div className="mt-2 flex min-h-16 gap-2 rounded-md border border-line bg-control p-2">
-      <div className="relative grid h-14 w-14 shrink-0 grid-cols-4 gap-px overflow-hidden rounded border border-line bg-sunken p-1">
-        {previewCells.map((_, i) => (
-          <span
-            key={i}
-            className={`${cellColors[i % cellColors.length]} rounded-[1px] transition-opacity`}
-            style={{ opacity: i < noiseCells ? 0.85 : 0.12 }}
-          />
-        ))}
-        <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-ui-inverse drop-shadow">
-          {pct}%
-        </span>
-      </div>
-      <div className="min-w-0 flex-1 self-center">
-        <div className="truncate text-xs text-ui">{note ?? "denoising"}</div>
-        <div className="mt-1 text-[10px] uppercase tracking-wide text-ui-subtle">preview</div>
-      </div>
-    </div>
-  );
 }

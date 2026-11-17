@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
@@ -13,10 +15,10 @@ function size(bytes: number): string {
 
 export function TtsPanel() {
   const [status, setStatus] = useState<TtsStatus | null>(null);
-  const [text, setText] = useState("Hello from HFabric.");
-  const [modelId, setModelId] = useState("");
-  const [vocoderId, setVocoderId] = useState("");
-  const [useGuideTokens, setUseGuideTokens] = useState(false);
+  const [text, setText] = usePreference(preferences.tts, "text");
+  const [modelId, setModelId] = usePreference(preferences.tts, "modelId");
+  const [vocoderId, setVocoderId] = usePreference(preferences.tts, "vocoderId");
+  const [useGuideTokens, setUseGuideTokens] = usePreference(preferences.tts, "useGuideTokens");
   const [result, setResult] = useState<TtsGenerateResult | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,7 +30,7 @@ export function TtsPanel() {
     }).catch((nextError: unknown) => {
       setError(nextError instanceof Error ? nextError.message : "Could not load TTS status");
     });
-  }, []);
+  }, [setModelId]);
 
   const models = status?.models ?? [];
   const ready = Boolean(status?.ready && modelId);

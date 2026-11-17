@@ -227,6 +227,7 @@ export function SignedControl({
         </button>
         <input
           type="range"
+            aria-label={label}
           min={min}
           max={max}
           step={step}
@@ -296,6 +297,7 @@ export function CompactSignedControl({
         </button>
         <input
           type="range"
+            aria-label={label}
           min={min}
           max={max}
           step={step}

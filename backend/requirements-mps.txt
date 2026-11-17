@@ -13,4 +13,5 @@
 
 # Native voice engine / audio stack. ContentVec runs through CPU ONNX Runtime
 # on the MPS profile until a tested CoreML/MPS path is added.
+# Resolve the newest wheel that still supports the macOS 13 deployment target.
 onnxruntime>=1.20

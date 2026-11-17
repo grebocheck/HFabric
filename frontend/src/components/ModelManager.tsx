@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { SNAPSHOT_REFRESH_EVENT } from "../api/sync";
@@ -7,8 +9,6 @@ import { toast } from "./Toast";
 import { fmtBytes } from "./format";
 import type { InstalledModel, InstalledModelsState } from "../types";
 
-type Pane = "download" | "all" | string;
-
 // Stable taxonomy order for the sidebar (kinds not present are skipped).
 const KIND_ORDER = ["image", "llm", "lora", "vision", "embed", "tts", "transcribe", "voice"];
 
@@ -16,7 +16,7 @@ const KIND_ORDER = ["image", "llm", "lora", "vision", "embed", "tts", "transcrib
 // the download surface or a filtered installed list on the right.
 export function ModelManager({ onModelsChanged }: { onModelsChanged?: () => void }) {
   const [data, setData] = useState<InstalledModelsState | null>(null);
-  const [pane, setPane] = useState<Pane>("all");
+  const [pane, setPane] = usePreference(preferences.models, "pane");
   const [deleting, setDeleting] = useState<string>("");
   const [loadError, setLoadError] = useState<string | null>(null);
 

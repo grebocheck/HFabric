@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useState } from "react";
 
 import { api } from "../api/client";
@@ -17,8 +19,8 @@ type OfflineConversionSettings = {
 
 export function useVoiceOfflineConversion(settings: OfflineConversionSettings) {
   const [offlineFile, setOfflineFile] = useState<File | null>(null);
-  const [offlineModelId, setOfflineModelId] = useState("");
-  const [offlinePitch, setOfflinePitch] = useState(0);
+  const [offlineModelId, setOfflineModelId] = usePreference(preferences.voiceOffline, "offlineModelId");
+  const [offlinePitch, setOfflinePitch] = usePreference(preferences.voiceOffline, "offlinePitch");
   const [offlineBusy, setOfflineBusy] = useState(false);
   const [offlineError, setOfflineError] = useState("");
   const [offlineResult, setOfflineResult] = useState<VoiceEngineConvertResult | null>(null);

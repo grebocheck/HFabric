@@ -73,8 +73,11 @@ on your machine; nothing is sent to a cloud service.
 The full pipeline (model discovery → queue → arbiter swap → live progress over
 WebSocket → gallery with reproducible metadata) is validated on the GPU today:
 
-- **Image:** SDXL, FLUX, FLUX.2 [klein], Anima, Qwen-Image, and Z-Image generation;
-  a dedicated **Edit** workspace adds img2img, inpaint, outpaint, full-size mask
+- **Image:** SDXL, FLUX, FLUX.2 [klein], Anima, Qwen-Image, and Z-Image generation.
+  Choose original BF16 or bitsandbytes NF4/FP4 beside the model where supported;
+  each model remembers its choice, and jobs and presets retain that precision.
+  Prequantized Nunchaku checkpoints keep their own precision.
+  A dedicated **Edit** workspace adds img2img, inpaint, outpaint, full-size mask
   painting, A/B comparison, ControlNet, and instruction-edit model support.
 - **Video:** LTX-Video text-to-video and image-to-video, Wan 2.2 text-to-video,
   FramePack Hunyuan image-to-video, and CogVideoX-2B text-to-video fallback,

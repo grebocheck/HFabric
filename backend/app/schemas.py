@@ -20,6 +20,7 @@ class ModelOut(BaseModel):
     loaded: bool
     warm: bool = False
     quant: str | None = None
+    quant_options: list[str] = Field(default_factory=list)
     multimodal: bool = False
     mmproj_path: str | None = None
     mmproj_size_bytes: int = 0
@@ -95,6 +96,7 @@ class ImageParamsIn(BaseModel):
     height: int | None = Field(default=None, ge=256, le=2048, multiple_of=16)
     seed: int | None = Field(default=None, ge=-1, le=2**31 - 1)
     batch_size: int | None = Field(default=None, ge=1, le=16)
+    image_quant: Literal["none", "bnb-nf4", "bnb-fp4"] | None = None
     loras: list[ImageLoraIn | str] | None = Field(default=None, max_length=8)
     init_image: str | None = Field(default=None, min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
     mask_image: str | None = Field(default=None, min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
@@ -151,6 +153,17 @@ class JobCreate(BaseModel):
             if not str(self.params.get("prompt") or "").strip():
                 raise ValueError("params.prompt must not be empty for image jobs")
         return self
+
+
+class QueueReorderIn(BaseModel):
+    job_ids: list[str] = Field(min_length=1, max_length=200)
+
+    @field_validator("job_ids")
+    @classmethod
+    def unique_ids(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value) or any(not job_id for job_id in value):
+            raise ValueError("job_ids must be unique and nonempty")
+        return value
 
 
 class JobOut(BaseModel):

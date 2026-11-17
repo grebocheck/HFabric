@@ -114,6 +114,20 @@ cancel), plus the Select control and model-picker helpers.
 
 ## Workspace settings
 
+Browser parameters and drafts use the shared stores in
+`frontend/src/settings/workspacePreferences.ts` and the React hooks in
+`frontend/src/lib/preferences.ts`. Declare defaults and validation in the
+domain store, then use `usePreference(store, field)` or `usePreferences(store)`.
+Setters persist immediately, including functional updates; do not add a
+component-specific localStorage effect or unload debounce. JSON is versioned
+and legacy values migrate through each store's `migrate` callback.
+
+Server-owned settings retain their API Apply/Save behavior. Voice stores its
+draft and last confirmation separately; Settings keeps pending edits in
+`settings/runtimeDraft.ts` and checks them against the current server schema.
+Keep request status, live sessions, files, and upload tokens in their operation
+lifecycle. The browser preferences belong to its current origin/profile.
+
 Chat owns one `ChatSettingsDraft` and updates it with `updateSettings(patch)`.
 `chatHelpers` contains the shared conversation/persona sampling conversion and
 send serializer. Browser defaults are validated once when the draft is created;

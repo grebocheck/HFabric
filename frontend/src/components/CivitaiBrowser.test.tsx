@@ -79,7 +79,7 @@ describe("CivitaiBrowser", () => {
 
     await user.click(toggle);
     expect(toggle.getAttribute("aria-checked")).toBe("true");
-    expect(localStorage.getItem("imagefabric.civitai.nsfw")).toBe("true");
+    expect(JSON.parse(localStorage.getItem("hfabric.preferences.civitai") ?? "{}").values.nsfw).toBe(true);
   });
 
   it("loads another page and appends results", async () => {

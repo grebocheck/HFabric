@@ -70,7 +70,9 @@ export default tseslint.config(
     },
     rules: {
       ...jsxA11y.flatConfigs.recommended.rules,
-      ...reactHooks.configs.recommended.rules,
+      // Keep the runtime Hooks checks independent of opt-in React Compiler rules.
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       // Generated/local preview media has no authored caption track to attach.
       "jsx-a11y/media-has-caption": "off",
       "no-restricted-syntax": [

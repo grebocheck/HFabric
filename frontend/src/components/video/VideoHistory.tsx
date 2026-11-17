@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { usePreference } from "../../lib/preferences";
+import { preferences } from "../../settings/workspacePreferences";
+import { useMemo } from "react";
 
 import { api } from "../../api/client";
 import type { VideoItem } from "../../types";
@@ -7,9 +9,9 @@ import { toast } from "../Toast";
 type VideoMode = "t2v" | "i2v";
 
 export function VideoHistory({ videos, onDeleted }: { videos: VideoItem[]; onDeleted: () => void }) {
-  const [query, setQuery] = useState("");
-  const [family, setFamily] = useState("all");
-  const [mode, setMode] = useState<VideoMode | "all">("all");
+  const [query, setQuery] = usePreference(preferences.videoHistory, "query");
+  const [family, setFamily] = usePreference(preferences.videoHistory, "family");
+  const [mode, setMode] = usePreference(preferences.videoHistory, "mode");
   const families = useMemo(
     () => Array.from(new Set(videos.map((video) => String(video.family || "unknown")))).sort(),
     [videos],

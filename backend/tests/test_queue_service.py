@@ -1,13 +1,31 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.enums import JobStatus, JobType
 from app.db.models import Job
 from app.db.session import init_db, session_scope
 from app.schemas import JobCreate
 from app.services import queue_service
+
+
+async def test_reorder_is_atomic_and_does_not_change_running_or_terminal_jobs(queue_db):
+    async with session_scope() as session:
+        jobs = [await queue_service.create_job(session, JobCreate(
+            type=JobType.IMAGE, model_id="image", params={"prompt": str(index)},
+        )) for index in range(4)]
+        ids = [job.id for job in jobs]
+        jobs[0].status = JobStatus.RUNNING
+        jobs[1].status = JobStatus.DONE
+    async with session_scope() as session:
+        assert await queue_service.reorder_jobs(session, list(reversed(ids))) == 2
+    async with session_scope() as session:
+        rows = {job.id: job for job in (await session.execute(select(Job))).scalars()}
+        assert rows[ids[0]].priority == rows[ids[1]].priority == 0
+        assert rows[ids[3]].priority > rows[ids[2]].priority
+        assert rows[ids[0]].status == JobStatus.RUNNING
+        assert rows[ids[1]].status == JobStatus.DONE
 
 
 @pytest.fixture

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 // Tiny module-level toast store so any code can fire a toast without prop
 // drilling; <ToastHost/> (mounted once in App) subscribes and renders them.
-export type ToastKind = "info" | "success" | "error";
+type ToastKind = "info" | "success" | "error";
 export type ToastOpts = { duration?: number; onClick?: () => void };
 type ToastItem = { id: number; kind: ToastKind; msg: string; onClick?: () => void };
 type Listener = (items: ToastItem[]) => void;

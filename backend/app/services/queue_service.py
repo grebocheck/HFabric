@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.enums import JobStatus, JobType
@@ -67,6 +67,18 @@ async def set_priority(session: AsyncSession, job_id: str, priority: int) -> Job
     if job and job.status == JobStatus.QUEUED:
         job.priority = priority
     return job
+
+
+async def reorder_jobs(session: AsyncSession, job_ids: list[str]) -> int:
+    """Apply the displayed order in one transaction; never touch claimed jobs."""
+    priorities = {job_id: 100 - index for index, job_id in enumerate(job_ids)}
+    result = await session.execute(
+        update(Job)
+        .where(Job.id.in_(job_ids), Job.status == JobStatus.QUEUED)
+        .values(priority=case(priorities, value=Job.id))
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount
 
 
 async def clear_finished(session: AsyncSession) -> int:

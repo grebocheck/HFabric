@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import delete, select
@@ -75,6 +76,17 @@ def test_select_handles_string_job_types():
 
 
 # --------------------------------------------------------------- plan_queue
+
+
+def test_plan_groups_matching_precision_and_counts_precision_reload():
+    jobs = [SimpleNamespace(
+        id=job_id, model_id="image", type=JobType.IMAGE, priority=0,
+        created_at=_BASE + timedelta(seconds=index), params={"image_quant": quant},
+    ) for index, (job_id, quant) in enumerate([("native-a", "none"), ("compressed", "bnb-nf4"), ("native-b", "none")])]
+    swaps, steps = plan_queue(jobs, "image", "image", "none")
+    assert swaps == 1
+    assert [step.job_ids for step in steps] == [["native-a", "native-b"], ["compressed"]]
+    assert [step.image_quant for step in steps] == ["none", "bnb-nf4"]
 
 
 def test_mixed_batch_is_one_swap():

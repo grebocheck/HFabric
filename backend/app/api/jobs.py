@@ -16,11 +16,12 @@ from ..core.arbiter import GpuArbiter
 from ..core.enums import EventType, JobStatus, JobType, ModelFamily
 from ..core.events import EventBus
 from ..core.scheduler import Worker, plan_queue
-from ..schemas import JobCreate, JobOut, PriorityUpdate
+from ..schemas import JobCreate, JobOut, PriorityUpdate, QueueReorderIn
 from ..services import gallery_service, model_compatibility, prompt_service, queue_service
+from ..services.image_quantization import default_image_quant, image_quant_descriptor, image_quant_options
 from ..util import sysmon
 from ..util import uploads as uploads_util
-from .contracts import ERROR_RESPONSES, QueuePlanOut, RemovedOut
+from .contracts import ERROR_RESPONSES, QueuePlanOut, QueueReorderOut, RemovedOut
 from .deps import get_arbiter, get_bus, get_registry, get_session, get_worker
 
 router = APIRouter(
@@ -39,6 +40,18 @@ def _validate_model(registry: ModelRegistry, payload: JobCreate) -> ModelDescrip
         raise HTTPException(404, f"unknown model_id: {payload.model_id}")
     if desc.job_type != payload.type:
         raise HTTPException(400, f"model '{desc.id}' is {desc.job_type.value}, not {payload.type.value}")
+    if payload.type is JobType.IMAGE:
+        quant = payload.params.get("image_quant")
+        if quant is None and image_quant_options(desc):
+            quant = default_image_quant(desc)
+        if quant is not None:
+            try:
+                desc = image_quant_descriptor(desc, quant)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            # Capture the choice now. Editing defaults must not change the
+            # precision of an already queued job or its reproducibility.
+            payload.params = {**payload.params, "image_quant": quant}
     try:
         model_compatibility.require_model_available(desc)
     except ValueError as exc:
@@ -416,7 +429,7 @@ async def queue_plan(
     cur = arbiter.current
     current_model_id = cur.descriptor.id if cur is not None else None
     current_type = cur.descriptor.job_type.value if cur is not None else None
-    swaps, steps = plan_queue(rows, current_model_id, current_type)
+    swaps, steps = plan_queue(rows, current_model_id, current_type, cur.descriptor.quant if cur else None)
     names = {d.id: d.name for d in registry.descriptors()}
     return {
         "queued": len(rows),
@@ -429,10 +442,23 @@ async def queue_plan(
                 "model": names.get(s.model_id, s.model_id),
                 "type": s.job_type,
                 "count": s.count,
+                "job_ids": s.job_ids,
             }
             for s in steps
         ],
     }
+
+
+@router.post("/reorder", response_model=QueueReorderOut)
+async def reorder_jobs(
+    body: QueueReorderIn,
+    session: AsyncSession = Depends(get_session),
+    worker: Worker = Depends(get_worker),
+) -> QueueReorderOut:
+    updated = await queue_service.reorder_jobs(session, body.job_ids)
+    await session.commit()
+    worker.notify()
+    return {"updated": updated}
 
 
 @router.get("/{job_id}", response_model=JobOut)

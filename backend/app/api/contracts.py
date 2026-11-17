@@ -332,6 +332,11 @@ class QueuePlanStepOut(ApiContract):
     model: str
     type: str
     count: int
+    job_ids: list[str] = Field(default_factory=list)
+
+
+class QueueReorderOut(ApiContract):
+    updated: int
 
 
 class QueuePlanOut(ApiContract):

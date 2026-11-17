@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Panel, SectionTitle, SkeletonRows, StatusPill } from "./WorkspaceChrome";
@@ -37,7 +39,7 @@ export function SetupDoctor() {
   const [cap, setCap] = useState<CapabilityProfile | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = usePreference(preferences.system, "showAdvanced");
 
   const load = useCallback(async (refresh = false) => {
     setBusy(true);

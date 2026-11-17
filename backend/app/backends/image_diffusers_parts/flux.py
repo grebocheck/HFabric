@@ -15,14 +15,14 @@ class FluxLoaderMixin:
 
         kwargs = self._quantized_repo_kwargs(
             torch,
-            settings.flux_kontext_quant,
+            self.descriptor.quant or settings.flux_kontext_quant,
             "HFAB_FLUX_KONTEXT_QUANT",
             ["transformer", "text_encoder_2"],
         )
         pipe = FluxKontextPipeline.from_pretrained(str(self.descriptor.path), **kwargs)
         if hasattr(getattr(pipe, "vae", None), "enable_tiling"):
             pipe.vae.enable_tiling()
-        quant = settings.flux_kontext_quant.lower().strip()
+        quant = (self.descriptor.quant or settings.flux_kontext_quant).lower().strip()
         if quant in ("bnb-nf4", "bnb-fp4"):
             if hasattr(getattr(pipe, "vae", None), "to"):
                 self._runtime().move(pipe.vae)
@@ -35,7 +35,7 @@ class FluxLoaderMixin:
             )
             placement = settings.flux_kontext_offload
         self._active_features["flux_kontext"] = {
-            "quant": settings.flux_kontext_quant,
+            "quant": quant,
             "placement": placement,
             "instruction_edit": True,
         }

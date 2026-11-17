@@ -79,22 +79,32 @@ export const parseStop = (s: string): string[] | undefined => {
   return items.length ? items : undefined;
 };
 
+export const DEFAULT_CHAT_SETTINGS: ChatSettingsDraft = {
+  modelId: "",
+  system: "",
+  temperature: 0.8,
+  maxTokens: 4096,
+  topP: "",
+  topK: "",
+  minP: "",
+  repeatPenalty: "",
+  seed: "",
+  stop: "",
+  imageTool: false,
+  documentTool: false,
+  ragTopK: 5,
+};
+
 export function createChatSettings(): ChatSettingsDraft {
   const saved = loadDefaults();
   return {
-    modelId: saved.model_id ?? "",
-    system: "",
-    temperature: saved.temperature ?? 0.8,
-    maxTokens: saved.max_tokens ?? 4096,
-    topP: "",
-    topK: "",
-    minP: "",
-    repeatPenalty: "",
-    seed: "",
-    stop: "",
-    imageTool: saved.image_tool ?? false,
-    documentTool: saved.document_tool ?? false,
-    ragTopK: saved.rag_top_k ?? 5,
+    ...DEFAULT_CHAT_SETTINGS,
+    modelId: saved.model_id ?? DEFAULT_CHAT_SETTINGS.modelId,
+    temperature: saved.temperature ?? DEFAULT_CHAT_SETTINGS.temperature,
+    maxTokens: saved.max_tokens ?? DEFAULT_CHAT_SETTINGS.maxTokens,
+    imageTool: saved.image_tool ?? DEFAULT_CHAT_SETTINGS.imageTool,
+    documentTool: saved.document_tool ?? DEFAULT_CHAT_SETTINGS.documentTool,
+    ragTopK: saved.rag_top_k ?? DEFAULT_CHAT_SETTINGS.ragTopK,
   };
 }
 

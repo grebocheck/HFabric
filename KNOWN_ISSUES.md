@@ -45,11 +45,20 @@ completed engineering work and the remaining validation matrix live in
 
 ## GPU dependency audit
 
-The GPU graph retains the PyTorch/Nunchaku/Diffusers combination used by the
-current loaders. The 2026-11-16 audit reported 12 findings in transformers
-4.57.6 and setuptools 81.0.0. These remain unresolved; removing the automatic
-GPU audit gate does not fix them. GPU audit is now a manual profile-upgrade
-check alongside the [hardware smoke matrix](docs/gpu-smoke.md).
+The 2026-11-17 upgrade moves Diffusers to 0.43.0 and Transformers to 5.23.0;
+the earlier Transformers findings are no longer reported. CUDA and ROCm locks
+still report three advisory records (two unique IDs) for setuptools 81.0.0.
+PyTorch 2.11/cu128 explicitly requires setuptools<82, while the fixes require
+83.0.0/84.1.0. The MPS lock additionally reports PYSEC-2025-194 for torch 2.11.0
+(scanner suggests 2.13.0). These findings remain unresolved.
+
+The torch/torchvision/torchaudio trio stays on 2.11.0/0.26.0/2.11.0 because
+the optional Windows Nunchaku wheel is compiled for torch 2.11 and CUDA 12.8.
+Import compatibility with the updated Python ML stack passed; full model
+generation, ROCm and MPS need the [hardware smoke matrix](docs/gpu-smoke.md).
+pip-audit skips the custom CUDA torch wheels, so its CUDA result does not
+establish that those builds are free of PyTorch vulnerabilities. See the
+[upgrade audit](docs/audit-2026-11-17.md) for the complete scope and constraints.
 
 CI audits the foundation and development graphs and reproduces every platform
 lock. Run the standard scanner for any accelerator lock when reviewing an

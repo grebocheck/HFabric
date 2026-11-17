@@ -368,6 +368,11 @@ export const api = {
       body: JSON.stringify({ priority } satisfies Api["PriorityUpdate"]),
     }).then(j<Job>),
   clearFinished: () => fetch("/api/jobs/clear", { method: "POST" }).then(j<Api["RemovedOut"]>),
+  reorderJobs: (jobIds: string[]) => fetch("/api/jobs/reorder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_ids: jobIds } satisfies Api["QueueReorderIn"]),
+  }).then(j<Api["QueueReorderOut"]>),
 
   listImages: (q?: string, signal?: AbortSignal) => {
     const params = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";

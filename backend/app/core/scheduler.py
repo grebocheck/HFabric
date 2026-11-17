@@ -309,6 +309,7 @@ class Worker:
                 rows,
                 current.descriptor.id if current is not None else None,
                 (current.descriptor.job_type.value if current is not None else None),
+                (current.descriptor.quant if current is not None else None),
             )
 
             started_at = datetime.now(UTC)
@@ -349,7 +350,10 @@ class Worker:
             return
 
         try:
-            backend = self._registry.get_backend(snap.model_id)
+            if snap.type is JobType.IMAGE and snap.params.get("image_quant") is not None:
+                backend = self._registry.get_backend(snap.model_id, image_quant=snap.params["image_quant"])
+            else:
+                backend = self._registry.get_backend(snap.model_id)
             await self._arbiter.acquire(backend, snap.id)
             lease_acquired = True
             if self._cancel_current:

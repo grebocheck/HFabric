@@ -16,7 +16,9 @@ export const storage = {
 
   set(key: string, value: string): boolean {
     try {
-      globalThis.localStorage?.setItem(key, value);
+      const local = globalThis.localStorage;
+      if (!local) return false;
+      local.setItem(key, value);
       return true;
     } catch {
       return false;
@@ -25,7 +27,9 @@ export const storage = {
 
   remove(key: string): boolean {
     try {
-      globalThis.localStorage?.removeItem(key);
+      const local = globalThis.localStorage;
+      if (!local) return false;
+      local.removeItem(key);
       return true;
     } catch {
       return false;

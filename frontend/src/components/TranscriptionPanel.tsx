@@ -1,3 +1,5 @@
+import { usePreference } from "../lib/preferences";
+import { preferences } from "../settings/workspacePreferences";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Select } from "./Select";
@@ -20,10 +22,10 @@ function stamp(seconds: number): string {
 
 export function TranscriptionPanel() {
   const [status, setStatus] = useState<TranscriptionStatus | null>(null);
-  const [modelId, setModelId] = useState("");
-  const [language, setLanguage] = useState("");
-  const [task, setTask] = useState("transcribe");
-  const [initialPrompt, setInitialPrompt] = useState("");
+  const [modelId, setModelId] = usePreference(preferences.transcription, "modelId");
+  const [language, setLanguage] = usePreference(preferences.transcription, "language");
+  const [task, setTask] = usePreference(preferences.transcription, "task");
+  const [initialPrompt, setInitialPrompt] = usePreference(preferences.transcription, "initialPrompt");
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [error, setError] = useState("");
@@ -36,7 +38,7 @@ export function TranscriptionPanel() {
     }).catch((nextError: unknown) => {
       setError(nextError instanceof Error ? nextError.message : "Could not load transcription status");
     });
-  }, []);
+  }, [setModelId]);
 
   const models = status?.models ?? [];
   const selected = models.find((m) => m.id === modelId);

@@ -263,6 +263,7 @@ export function normalizeImageRequest(
 export type TouchedFields = { steps?: boolean; guidance?: boolean; width?: boolean; height?: boolean };
 
 export type SavedComposer = {
+  quantByModel?: Record<string, string>;
   imgModel?: string;
   negative?: string;
   steps?: number;
@@ -294,10 +295,24 @@ export function inferTouched(saved: SavedComposer): TouchedFields {
 export function readSaved(): SavedComposer {
   try {
     const raw = storage.get(STORE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parseSavedComposer(raw ? JSON.parse(raw) : {});
+  } catch {
+    return {};
+  }
+}
+
+export function parseSavedComposer(parsed: unknown): SavedComposer {
+  try {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const value = parsed as Record<string, unknown>;
     const saved: SavedComposer = {};
+    if (value.quantByModel && typeof value.quantByModel === "object" && !Array.isArray(value.quantByModel)) {
+      saved.quantByModel = Object.fromEntries(
+        Object.entries(value.quantByModel).filter(([, quant]) =>
+          quant === "none" || quant === "bnb-nf4" || quant === "bnb-fp4",
+        ),
+      ) as Record<string, string>;
+    }
     if (typeof value.imgModel === "string") saved.imgModel = value.imgModel;
     if (typeof value.negative === "string") {
       saved.negative = value.negative.slice(0, MAX_IMAGE_PROMPT_LENGTH);

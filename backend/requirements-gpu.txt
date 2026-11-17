@@ -15,7 +15,7 @@
 -r requirements-accelerator-common.txt
 
 # CUDA-only image/video packages:
-bitsandbytes>=0.49             # 4-bit path (Blackwell sm_120 supported)
+bitsandbytes>=0.50.2           # 4-bit path (Blackwell sm_120 supported)
 imageio>=2.37                  # mp4 export for real + STUB video generation
 imageio-ffmpeg>=0.6
 ftfy>=6.1                      # Wan prompt text-cleaning. diffusers 0.38's
@@ -30,7 +30,7 @@ ftfy>=6.1                      # Wan prompt text-cleaning. diffusers 0.38's
 # (+cu128) already ships under torch/lib; onnx_cuda.ensure_cuda_dll_search_path
 # registers that dir so the EP loads (else it silently falls back to CPU).
 # The plain CPU wheel (onnxruntime) also works — code falls back gracefully.
-onnxruntime-gpu>=1.26
+onnxruntime-gpu>=1.32
 # Pitch detectors. FCPE (default): ~8x faster than RMVPE on GPU (30 -> 3.5 ms),
 # bundles its own weights. CREPE (tiny/full) is offered as an alternative
 # algorithm (slower: ~57/64 ms, still under budget); torchcrepe ships its
